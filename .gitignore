@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+build/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+
+# OS generated
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/settings.json
+.idea/
+*.code-workspace
+
+# Temp / artifacts
+.word_mcp_state/
+.word_mcp_artifacts/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Backup files
+*.bak-*

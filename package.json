@@ -1,0 +1,35 @@
+{
+  "name": "enhanced-terminal-mcp",
+  "version": "3.0.0",
+  "type": "module",
+  "description": "Enhanced Terminal MCP Server - A powerful command-line interface for AI models with extended capabilities",
+  "main": "build/index.js",
+  "bin": {
+    "enhanced-terminal-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:latency": "vitest run tests/e2e-latency.test.ts"
+  },
+  "keywords": [
+    "mcp",
+    "terminal",
+    "cli",
+    "command-line",
+    "model-context-protocol",
+    "cherry-studio"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.2"
+  }
+}
