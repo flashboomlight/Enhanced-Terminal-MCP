@@ -1,6 +1,5 @@
 # 统一换行符为 LF
 * text=auto eol=lf
-
 # 二进制文件
 *.exe binary
 *.dll binary
@@ -11,6 +10,6 @@
 *.ico binary
 *.zip binary
 *.db binary
-
 # 特定文件保持二进制
-es_tool/es.exe binary
+es_tool/es.exe filter=lfs diff=lfs merge=lfs -text
+es_tool/*.exe filter=lfs diff=lfs merge=lfs -text
