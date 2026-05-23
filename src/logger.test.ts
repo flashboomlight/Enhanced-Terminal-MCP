@@ -4,7 +4,7 @@
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const originalConsoleError = console.error;
+const _originalConsoleError = console.error;
 let captured: string[] = [];
 
 describe("logger", () => {

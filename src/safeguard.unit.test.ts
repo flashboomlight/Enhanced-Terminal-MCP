@@ -4,7 +4,7 @@
  */
 
 import * as os from "os";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { isCriticalProcess } from "./safeguard.js";
 
 // ====================================================================

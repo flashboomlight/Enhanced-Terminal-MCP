@@ -7,12 +7,10 @@ import { logger } from "./logger.js";
 export class TokenBucket {
   private tokens: number;
   private lastRefill: number;
-  private readonly rate: number; // tokens per second
   private readonly capacity: number; // max tokens (burst)
   private readonly refillInterval: number; // ms per token refill
 
   constructor(ratePerSec = 10, burst = 20) {
-    this.rate = ratePerSec;
     this.capacity = burst;
     this.tokens = burst;
     this.lastRefill = Date.now();

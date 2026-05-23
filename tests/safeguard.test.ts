@@ -111,6 +111,7 @@ describe("Strict Mode — all destructive tools blocked", () => {
       name: "write_file",
       arguments: { file_path: target, content: "test" },
     });
+    expect(result).toBeDefined();
     // strict 模式：write_file 覆写时被拦截，但新建文件通过 guardDestructiveAction 的 strict 检查
     // 注意：strict 检查发生在每个命令层，但 write_file 的安全锁只在覆写时触发
     // 所以新建文件在 strict 模式下仍然可以写（因为新文件不走 guardDestructiveAction）

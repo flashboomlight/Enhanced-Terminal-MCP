@@ -15,7 +15,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as fs from "fs/promises";
 import * as z from "zod";
-import { CACHEABLE_TOOLS, toolCache } from "./cache.js";
+import { toolCache } from "./cache.js";
 import { injectContext } from "./context.js";
 import { logger } from "./logger.js";
 import { processPool } from "./pool.js";
@@ -138,7 +138,13 @@ async function main() {
     },
     async ({ tool }) => {
       const sizeBefore = toolCache.stats.size;
-      const cleared = tool ? toolCache.invalidatePrefix(tool + ":") : (toolCache.clear(), sizeBefore);
+      const cleared = tool
+        ? toolCache.invalidatePrefix(`${tool}:`)
+        : (() => {
+            const sz = sizeBefore;
+            toolCache.clear();
+            return sz;
+          })();
       return {
         content: [
           {

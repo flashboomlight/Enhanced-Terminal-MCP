@@ -2,7 +2,6 @@
  * Telemetry — 工具调用指标收集
  * 非侵入式：工具 handler 无需修改，通过包装器自动收集
  */
-import { logger } from "./logger.js";
 
 export interface ToolCallMetric {
   toolName: string;
