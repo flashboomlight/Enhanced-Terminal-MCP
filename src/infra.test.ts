@@ -126,12 +126,12 @@ describe("TelemetryStore", () => {
 // pool.ts
 // ====================================================================
 describe("ProcessPool", () => {
-  let ProcessPool: any;
+  let _ProcessPool: any;
   let pool: any;
 
   beforeEach(async () => {
     // Dynamically create a pool instance for testing
-    const { spawn } = await import("child_process");
+    const { spawn } = await import("node:child_process");
     // Create pool class manually to avoid singleton
     pool = {
       entries: [] as any[],
@@ -258,7 +258,7 @@ describe("stream", () => {
 
   test("spawnStream truncates output exceeding maxOutput", async () => {
     // Generate output larger than maxOutput (set to 100 bytes)
-    const r = await spawnStream("cmd.exe", ["/c", "echo " + "A".repeat(200)], { timeout: 5000, maxOutput: 100 });
+    const r = await spawnStream("cmd.exe", ["/c", `echo ${"A".repeat(200)}`], { timeout: 5000, maxOutput: 100 });
     expect(r.stdout.length).toBeLessThanOrEqual(120); // 100 + truncation message
     expect(r.stdout).toContain("TRUNCATED");
   });

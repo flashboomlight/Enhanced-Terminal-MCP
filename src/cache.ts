@@ -91,7 +91,7 @@ export class LRUCache<T> {
       maxSize: this.maxSize,
       hits: this.hits,
       misses: this.misses,
-      hitRate: this.hits + this.misses > 0 ? ((this.hits / (this.hits + this.misses)) * 100).toFixed(1) + "%" : "N/A",
+      hitRate: this.hits + this.misses > 0 ? `${((this.hits / (this.hits + this.misses)) * 100).toFixed(1)}%` : "N/A",
     };
   }
 

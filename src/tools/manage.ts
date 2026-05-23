@@ -1,13 +1,14 @@
 /**
  * 文件管理工具: copy_move, delete_path
  */
+
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import * as fs from "fs/promises";
-import * as path from "path";
 import * as z from "zod";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
-import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { validatePath } from "../security.js";
 import { wrapHandler } from "../wrap.js";
@@ -106,7 +107,7 @@ export function registerManageTools(server: McpServer) {
         });
       } catch (e: any) {
         if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, "Not found: " + target_path, { retryable: true, param: "target_path" });
+          return fail(ErrorCode.PATH_NOT_FOUND, `Not found: ${target_path}`, { retryable: true, param: "target_path" });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
     }),

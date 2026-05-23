@@ -74,8 +74,8 @@ class TelemetryStore {
       result.set(name, {
         count: a.count,
         avgLatency: a.count > 0 ? Math.round(a.totalLatency / a.count) : 0,
-        errorRate: a.count > 0 ? ((a.errors / a.count) * 100).toFixed(1) + "%" : "0%",
-        cacheHitRate: a.count > 0 ? ((a.cacheHits / a.count) * 100).toFixed(1) + "%" : "0%",
+        errorRate: a.count > 0 ? `${((a.errors / a.count) * 100).toFixed(1)}%` : "0%",
+        cacheHitRate: a.count > 0 ? `${((a.cacheHits / a.count) * 100).toFixed(1)}%` : "0%",
       });
     }
     return result;
@@ -104,8 +104,8 @@ class TelemetryStore {
       uptime_minutes: uptimeMin,
       total_calls: total,
       avg_latency_ms: avgLatency,
-      error_rate: total > 0 ? ((this._totalErrors / total) * 100).toFixed(1) + "%" : "0%",
-      cache_hit_rate: total > 0 ? ((this._totalCacheHits / total) * 100).toFixed(1) + "%" : "0%",
+      error_rate: total > 0 ? `${((this._totalErrors / total) * 100).toFixed(1)}%` : "0%",
+      cache_hit_rate: total > 0 ? `${((this._totalCacheHits / total) * 100).toFixed(1)}%` : "0%",
       by_tool: this.aggregate(),
     };
   }

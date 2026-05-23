@@ -1,7 +1,7 @@
 /**
  * Rate limiter unit tests
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { checkRateLimit, TokenBucket } from "./ratelimit.js";
 
 describe("TokenBucket", () => {

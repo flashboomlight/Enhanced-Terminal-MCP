@@ -11,7 +11,7 @@ describe("safeExec (GBK decoding)", () => {
     vi.resetModules();
     // 模拟 exec 返回 GBK 编码数据
     vi.doMock("child_process", () => ({
-      exec: (cmd: string, opts: any, cb: Function) => {
+      exec: (_cmd: string, _opts: any, cb: Function) => {
         // 创建一个包含 \ufffd (UTF-8 替换字符) 的 buffer
         // 这会触发 smartDecode 的 GBK 回退
         const buf = Buffer.from([0xc4, 0xe3, 0xba, 0xc3]); // 你好 in GBK
@@ -43,7 +43,7 @@ describe("safeExec (UTF-8 with replacement char)", () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
-      exec: (cmd: string, opts: any, cb: Function) => {
+      exec: (_cmd: string, _opts: any, cb: Function) => {
         // 制造一个无效的 UTF-8 序列（触发 \ufffd）
         const buf = Buffer.from([0xff, 0xfe, 0x00, 0x00]);
         setImmediate(() => cb(null, buf, Buffer.from("")));
@@ -73,7 +73,7 @@ describe("safeExecFile (edge cases)", () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
       exec: vi.fn(),
-      execFile: (file: string, args: string[], opts: any, cb: Function) => {
+      execFile: (_file: string, _args: string[], _opts: any, cb: Function) => {
         setImmediate(() => cb(null, "", "error output"));
         return { on: vi.fn() };
       },
@@ -88,7 +88,7 @@ describe("safeExecFile (edge cases)", () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
       exec: vi.fn(),
-      execFile: (file: string, args: string[], opts: any, cb: Function) => {
+      execFile: (_file: string, _args: string[], _opts: any, cb: Function) => {
         // execFile 直接返回 string（不是 buffer）
         setImmediate(() => cb(null, "direct-string", ""));
         return { on: vi.fn() };

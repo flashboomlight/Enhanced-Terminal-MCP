@@ -7,15 +7,15 @@
  * - 硬性底线: 系统目录、关键进程、路径穿越在 off 模式下仍被拒
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 // ===== 测试用临时目录 =====
-const TMP_DIR = path.join(os.tmpdir(), "mcp-safeguard-test-" + Date.now());
+const TMP_DIR = path.join(os.tmpdir(), `mcp-safeguard-test-${Date.now()}`);
 const TMP_FILE = path.join(TMP_DIR, "existing-file.txt");
 
 // ===== 辅助：创建带指定模式的 MCP Client =====

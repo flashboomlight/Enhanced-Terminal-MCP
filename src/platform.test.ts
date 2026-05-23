@@ -2,7 +2,7 @@
  * platform.ts 单元测试
  */
 
-import * as os from "os";
+import * as os from "node:os";
 import { describe, expect, test } from "vitest";
 import {
   getCompressSpec,

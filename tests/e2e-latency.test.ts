@@ -16,11 +16,11 @@
  *   - 安全拦截：           < 200ms    (dangerous command blocking)
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 // ===== 辅助：精确计时 =====
@@ -34,7 +34,7 @@ let client: Client;
 let transport: StdioClientTransport;
 
 // 测试用临时目录
-const TMP_DIR = path.join(os.tmpdir(), "mcp-latency-test-" + Date.now());
+const TMP_DIR = path.join(os.tmpdir(), `mcp-latency-test-${Date.now()}`);
 const TMP_FILE = path.join(TMP_DIR, "test-file.txt");
 const TMP_ZIP = path.join(TMP_DIR, "test-archive.zip");
 const TMP_EXTRACT = path.join(TMP_DIR, "extracted");
@@ -87,8 +87,8 @@ afterAll(async () => {
   console.log("╠═════════════════════════════╪══════════╪══════════╪═══════╣");
   for (const r of latencyResults) {
     const name = r.tool.padEnd(27);
-    const lat = (r.latency + "ms").padStart(8);
-    const thr = (r.threshold + "ms").padStart(8);
+    const lat = `${r.latency}ms`.padStart(8);
+    const thr = `${r.threshold}ms`.padStart(8);
     const status = r.pass ? " PASS " : " FAIL ";
     console.log(`║ ${name}│ ${lat} │ ${thr} │${status}║`);
   }

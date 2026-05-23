@@ -1,14 +1,14 @@
 /**
  * 压缩/下载工具: compress_archive, extract_archive, download_file
  */
+
+import * as fs from "node:fs/promises";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import * as fs from "fs/promises";
 import * as z from "zod";
 import { withRetry } from "../adaptive.js";
 import { logger } from "../logger.js";
 import { getCompressSpec, getDownloadSpec, getExtractSpec } from "../platform.js";
-import { ErrorCode, fail, success, type ToolResult } from "../result.js";
-import { guardDestructiveAction } from "../safeguard.js";
+import { ErrorCode, fail, success } from "../result.js";
 import { validatePath, validateUrl } from "../security.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";

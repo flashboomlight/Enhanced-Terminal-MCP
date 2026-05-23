@@ -1,19 +1,20 @@
 /**
  * 搜索工具: search_files, everything_search, grep_content
  */
+
+import { execFile } from "node:child_process";
+import { createReadStream } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { execFile } from "child_process";
-import { createReadStream } from "fs";
-import { readdir } from "fs/promises";
-import { join, resolve } from "path";
-import { createInterface } from "readline";
-import { fileURLToPath } from "url";
-import { promisify } from "util";
 import * as z from "zod";
 import { logger } from "../logger.js";
 import { IS_WIN } from "../platform.js";
 import { getRegex } from "../regex.js";
-import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { ErrorCode, fail, success } from "../result.js";
 import { validatePath } from "../security.js";
 import { wrapHandler } from "../wrap.js";
 
@@ -60,7 +61,7 @@ export function registerSearchTools(server: McpServer) {
                 if (stdout) {
                   for (const l of stdout.split("\n")) {
                     const trimmed = l.trim();
-                    if (trimmed && trimmed.toLowerCase().startsWith(normalizedDir)) {
+                    if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
                       matches.push(trimmed);
                       if (matches.length >= maxR) break;
                     }
@@ -107,7 +108,7 @@ export function registerSearchTools(server: McpServer) {
         const ms = Date.now() - t0;
         logger.info("search_files", "done", `${matches.length} matches in ${ms}ms`);
         return success(
-          `Found ${matches.length} file(s) in ${ms}ms:\n` + matches.join("\n"),
+          `Found ${matches.length} file(s) in ${ms}ms:\n${matches.join("\n")}`,
           { matches, total: matches.length, search_ms: ms, truncated: matches.length >= maxR },
           { truncated: matches.length >= maxR, latency_ms: ms },
         );
@@ -172,7 +173,7 @@ export function registerSearchTools(server: McpServer) {
         });
 
         const ms = Date.now() - t0;
-        return success(`[Everything ${ms}ms] Found ${results.length} file(s):\n` + results.join("\n"), {
+        return success(`[Everything ${ms}ms] Found ${results.length} file(s):\n${results.join("\n")}`, {
           matches: results,
           total: results.length,
           search_ms: ms,
@@ -240,7 +241,7 @@ export function registerSearchTools(server: McpServer) {
         if (!IS_WIN && results.length === 0) {
           try {
             const execAsync = promisify(execFile);
-            const grepArgs = ["-rn", "--include=" + fileFilter, "-m", String(maxR), pattern, dir_path];
+            const grepArgs = ["-rn", `--include=${fileFilter}`, "-m", String(maxR), pattern, dir_path];
             const { stdout } = await execAsync("grep", grepArgs, { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
             results.push(
               ...stdout
@@ -309,7 +310,7 @@ export function registerSearchTools(server: McpServer) {
 
         const ms = Date.now() - t0;
         logger.info("grep_content", "done", `${results.length} matches in ${ms}ms`);
-        return success(`Found ${results.length} match(es) in ${ms}ms:\n` + results.join("\n"), {
+        return success(`Found ${results.length} match(es) in ${ms}ms:\n${results.join("\n")}`, {
           matches: results,
           total: results.length,
           search_ms: ms,

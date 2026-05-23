@@ -4,7 +4,7 @@
  * 惰性初始化：不在模块加载时 spawn 进程，仅在首次 acquire() 时按需创建。
  * shutdown 时统一销毁。
  */
-import { type ChildProcess, spawn } from "child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { logger } from "./logger.js";
 import { getShell, IS_WIN } from "./platform.js";
 

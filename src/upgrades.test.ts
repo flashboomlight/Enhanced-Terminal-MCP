@@ -2,9 +2,9 @@
  * 精确集成测试 — 验证本轮全部升级点
  */
 
-import * as fs from "fs/promises";
-import * as os from "os";
-import * as path from "path";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 // ====================================================================
@@ -181,7 +181,9 @@ describe("【功能-3】batch_execute 并发限制", () => {
     // 两批 100ms 命令 → 至少 180ms（留 20ms 容差）
     expect(elapsed).toBeGreaterThanOrEqual(180);
     expect(results).toHaveLength(8);
-    results.forEach((r) => expect(r).toBe("done"));
+    results.forEach((r) => {
+      expect(r).toBe("done");
+    });
   });
 });
 
@@ -240,8 +242,8 @@ describe("【性能-4】grep_content 流式逐行读取", () => {
   });
 
   test("流式读取能找到匹配行", async () => {
-    const { createReadStream } = await import("fs");
-    const { createInterface } = await import("readline");
+    const { createReadStream } = await import("node:fs");
+    const { createInterface } = await import("node:readline");
 
     const filePath = path.join(tmpDir, "big.txt");
     const rl = createInterface({ input: createReadStream(filePath, { encoding: "utf-8" }), crlfDelay: Infinity });

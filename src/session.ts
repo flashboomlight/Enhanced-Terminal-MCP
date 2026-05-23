@@ -3,9 +3,9 @@
  * 支持工具间上下文传递 + JSON 文件持久化（重启恢复）
  */
 
-import * as fs from "fs/promises";
-import { tmpdir } from "os";
-import * as path from "path";
+import * as fs from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { logger } from "./logger.js";
 
 export interface SessionState {

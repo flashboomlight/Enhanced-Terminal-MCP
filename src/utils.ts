@@ -1,6 +1,6 @@
 // src/utils.ts — 核心工具函数：命令执行、格式化
-import { exec, execFile } from "child_process";
-import { getShell, IS_WIN, wrapCommand } from "./platform.js";
+import { exec, execFile } from "node:child_process";
+import { getShell, wrapCommand } from "./platform.js";
 
 /**
  * 安全执行 shell 命令（通过 shell 解释器）
@@ -9,7 +9,7 @@ import { getShell, IS_WIN, wrapCommand } from "./platform.js";
 export function safeExec(cmd: string, timeout = 30000, cwd?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const fullCmd = wrapCommand(cmd);
-    const proc = exec(
+    const _proc = exec(
       fullCmd,
       {
         cwd: cwd || undefined,
@@ -29,7 +29,7 @@ export function safeExec(cmd: string, timeout = 30000, cwd?: string): Promise<{ 
           } else if (!stdout && !stderr) {
             reject(new Error(`Exit code ${error.code}\n[CMD]: ${cmd}\n[DETAIL]: ${error.message}`));
           } else {
-            resolve({ stdout, stderr: stderr ? stderr + "\n[EXIT CODE] " + error.code : "" });
+            resolve({ stdout, stderr: stderr ? `${stderr}\n[EXIT CODE] ${error.code}` : "" });
           }
         } else {
           resolve({ stdout, stderr });
@@ -98,5 +98,5 @@ export function formatSize(bytes: number): string {
     size /= 1024;
     i++;
   }
-  return (sign < 0 ? "-" : "") + size.toFixed(2) + " " + units[i];
+  return `${(sign < 0 ? "-" : "") + size.toFixed(2)} ${units[i]}`;
 }

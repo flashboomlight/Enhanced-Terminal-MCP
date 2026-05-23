@@ -1,7 +1,7 @@
 // src/security.ts — 安全基础层：路径穿越检测、命令注入防护、危险路径/敏感文件黑名单
 
-import { platform } from "os";
-import * as path from "path";
+import { platform } from "node:os";
+import * as path from "node:path";
 import { logger } from "./logger.js";
 
 // 平台检测（内联，避免与 platform.ts 循环依赖）
@@ -120,7 +120,7 @@ export function isForbiddenPath(targetPath: string): boolean {
   const normCmp = toCmp(normalized);
   return forbidden.some((fp) => {
     const fpCmp = toCmp(fp);
-    return normCmp === fpCmp || normCmp.startsWith(fpCmp + "\\") || normCmp.startsWith(fpCmp + "/");
+    return normCmp === fpCmp || normCmp.startsWith(`${fpCmp}\\`) || normCmp.startsWith(`${fpCmp}/`);
   });
 }
 

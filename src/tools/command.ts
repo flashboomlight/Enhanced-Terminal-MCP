@@ -8,7 +8,7 @@ import { adaptiveTimeout } from "../adaptive.js";
 import { logger } from "../logger.js";
 import { IS_WIN } from "../platform.js";
 import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
-import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { hasDangerousPattern } from "../security.js";
 import { session } from "../session.js";
@@ -61,7 +61,7 @@ export function registerCommandTools(server: McpServer) {
 
       try {
         const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
-        const shellArgs = IS_WIN ? ["/c", "chcp 65001 >nul && " + command] : ["-c", command];
+        const shellArgs = IS_WIN ? ["/c", `chcp 65001 >nul && ${command}`] : ["-c", command];
         const effectiveCwd = cwd || session.getCwd();
         const effectiveTimeout = timeout || adaptiveTimeout("execute_command");
         const result = await spawnStream(shell, shellArgs, { timeout: effectiveTimeout, cwd: effectiveCwd });
@@ -87,7 +87,7 @@ export function registerCommandTools(server: McpServer) {
         const maxChars = 2000;
         const truncated = output.length > maxChars;
         return success(
-          truncated ? output.slice(0, maxChars) + `\n... (truncated, ${output.length} chars total)` : output,
+          truncated ? `${output.slice(0, maxChars)}\n... (truncated, ${output.length} chars total)` : output,
           {
             stdout: result.stdout,
             stderr: result.stderr,
@@ -237,17 +237,17 @@ export function registerCommandTools(server: McpServer) {
 
       try {
         const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
-        const shellArgs = IS_WIN ? ["/c", "chcp 65001 >nul && " + command] : ["-c", command];
+        const shellArgs = IS_WIN ? ["/c", `chcp 65001 >nul && ${command}`] : ["-c", command];
         const result = await spawnStream(shell, shellArgs, { timeout: duration || 5000, cwd: cwd || session.getCwd() });
         const output = result.stdout || "(no output)";
         if (result.timedOut)
           return success(
-            "$ " + command + "\n(timed out)\n" + output,
+            `$ ${command}\n(timed out)\n${output}`,
             { output, captured_ms: duration || 5000 },
             { latency_ms: Date.now() - t0 },
           );
         return success(
-          "$ " + command + "\n" + output,
+          `$ ${command}\n${output}`,
           { output, captured_ms: Date.now() - t0 },
           { latency_ms: Date.now() - t0 },
         );

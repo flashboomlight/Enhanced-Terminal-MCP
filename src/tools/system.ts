@@ -57,7 +57,7 @@ export function registerSystemTools(server: McpServer) {
       try {
         const spec = getProcessListSpec(filter, top || 20);
         const result = await safeExecFile(spec.file, spec.args, 10000);
-        return success("Running Processes:\n" + result.stdout.trim(), { output: result.stdout.trim() });
+        return success(`Running Processes:\n${result.stdout.trim()}`, { output: result.stdout.trim() });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
@@ -94,7 +94,7 @@ export function registerSystemTools(server: McpServer) {
 
       try {
         const spec = getKillSpec(pid, name, force);
-        const result = await safeExecFile(spec.file, spec.args, 10000);
+        const _result = await safeExecFile(spec.file, spec.args, 10000);
         return success(`Killed: ${name || pid}`, { killed: true, pid: pid ?? undefined, name: name ?? undefined });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
@@ -176,9 +176,9 @@ export function registerSystemTools(server: McpServer) {
         const maxVars = 100;
         const truncated = allLines.length > maxVars;
         const text = truncated
-          ? allLines.slice(0, maxVars).join("\n") + `\n... (${allLines.length - maxVars} more)`
+          ? `${allLines.slice(0, maxVars).join("\n")}\n... (${allLines.length - maxVars} more)`
           : allLines.join("\n");
-        return success("Environment Variables (sensitive keys hidden):\n" + text, { vars });
+        return success(`Environment Variables (sensitive keys hidden):\n${text}`, { vars });
       } catch (e: any) {
         return fail(ErrorCode.INTERNAL_ERROR, e.message, { retryable: false });
       }

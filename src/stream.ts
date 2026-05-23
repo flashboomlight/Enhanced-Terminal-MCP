@@ -2,7 +2,7 @@
  * 流式命令执行器 — spawn + 增量输出
  * 替代 exec 全量缓冲，大输出场景首字节延迟从 5s→50ms
  */
-import { spawn } from "child_process";
+import { spawn } from "node:child_process";
 import { IS_WIN } from "./platform.js";
 
 export interface StreamResult {
@@ -59,7 +59,7 @@ export async function spawnStream(
       }, 2000).unref();
     }, timeout);
 
-    child.stdout!.on("data", (chunk: Buffer) => {
+    child.stdout?.on("data", (chunk: Buffer) => {
       stdoutLen += chunk.length;
       if (stdoutLen > maxOut) {
         if (!truncated) {
@@ -71,7 +71,7 @@ export async function spawnStream(
       }
     });
 
-    child.stderr!.on("data", (chunk: Buffer) => {
+    child.stderr?.on("data", (chunk: Buffer) => {
       stderrLen += chunk.length;
       if (stderrLen <= maxStderr) stderrChunks.push(chunk);
     });
@@ -87,7 +87,7 @@ export async function spawnStream(
         stderr,
         exitCode: code,
         timedOut: killed,
-        all: stdout + (stderr ? "\n[stderr]\n" + stderr : ""),
+        all: stdout + (stderr ? `\n[stderr]\n${stderr}` : ""),
       });
     });
 

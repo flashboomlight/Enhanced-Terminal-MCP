@@ -1,15 +1,16 @@
 /**
  * 文件操作工具: read_file, write_file, list_directory, file_info, make_directory
  */
+
+import { createReadStream } from "node:fs";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import * as readline from "node:readline";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createReadStream } from "fs";
-import * as fs from "fs/promises";
-import * as path from "path";
-import * as readline from "readline";
 import * as z from "zod";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
-import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { scanContent } from "../scan.js";
 import { validatePath } from "../security.js";
@@ -95,13 +96,13 @@ export function registerFileTools(server: McpServer) {
         const output = collected.join("\n");
 
         return success(
-          truncated ? output + "\n... (truncated)" : output,
+          truncated ? `${output}\n... (truncated)` : output,
           { content: output, total_lines: lineNum, truncated, size_bytes: stat.size },
           { truncated },
         );
       } catch (e: any) {
         if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, "File not found: " + file_path, {
+          return fail(ErrorCode.PATH_NOT_FOUND, `File not found: ${file_path}`, {
             retryable: true,
             param: "file_path",
           });
@@ -236,13 +237,13 @@ export function registerFileTools(server: McpServer) {
           const files: Array<{ e: (typeof entries)[0]; fp: string }> = [];
           for (const e of entries) {
             if (count >= maxE) {
-              lines.push(indent + "(truncated)");
+              lines.push(`${indent}(truncated)`);
               return;
             }
             count++;
             const fp = path.join(p, e.name);
             if (e.isDirectory()) {
-              lines.push(indent + "[DIR]  " + e.name + "/");
+              lines.push(`${indent}[DIR]  ${e.name}/`);
               structured.push({ name: fp, type: "dir" });
               if (recursive && depth < maxD) await walk(fp, depth + 1);
             } else {
@@ -255,16 +256,16 @@ export function registerFileTools(server: McpServer) {
             const { e, fp } = files[i];
             const r = stats[i];
             if (r.status === "fulfilled") {
-              lines.push(indent + "[FILE] " + e.name + "  (" + formatSize(r.value.size) + ")");
+              lines.push(`${indent}[FILE] ${e.name}  (${formatSize(r.value.size)})`);
               structured.push({ name: fp, type: "file", size_bytes: r.value.size });
             } else {
-              lines.push(indent + "[FILE] " + e.name);
+              lines.push(`${indent}[FILE] ${e.name}`);
               structured.push({ name: fp, type: "file" });
             }
           }
         }
 
-        lines.push("Directory: " + dir_path + "\n");
+        lines.push(`Directory: ${dir_path}\n`);
         await walk(dir_path, 0);
         logger.info("list_directory", "listed", dir_path);
 
@@ -275,7 +276,7 @@ export function registerFileTools(server: McpServer) {
         );
       } catch (e: any) {
         if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, "Directory not found: " + dir_path, {
+          return fail(ErrorCode.PATH_NOT_FOUND, `Directory not found: ${dir_path}`, {
             retryable: true,
             param: "dir_path",
           });
@@ -325,7 +326,7 @@ export function registerFileTools(server: McpServer) {
         );
       } catch (e: any) {
         if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, "Not found: " + target_path, { retryable: true, param: "target_path" });
+          return fail(ErrorCode.PATH_NOT_FOUND, `Not found: ${target_path}`, { retryable: true, param: "target_path" });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
     }),

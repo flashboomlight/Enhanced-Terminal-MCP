@@ -1,5 +1,5 @@
 // src/platform.ts — 跨平台抽象层：shell / 命令 / 搜索引擎选择
-import { platform } from "os";
+import { platform } from "node:os";
 import { sanitizeProcessName } from "./security.js";
 
 export const IS_WIN = platform() === "win32";

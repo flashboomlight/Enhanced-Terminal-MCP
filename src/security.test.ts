@@ -3,7 +3,7 @@
  * 覆盖所有导出函数的所有分支
  */
 
-import * as os from "os";
+import * as os from "node:os";
 import { describe, expect, test } from "vitest";
 import {
   getForbiddenPaths,

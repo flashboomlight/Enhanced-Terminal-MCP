@@ -1,8 +1,7 @@
 /**
  * Handler wrapper unit tests
  */
-import { describe, expect, it, vi } from "vitest";
-import { TOOL_TTL, toolCache } from "./cache.js";
+import { describe, expect, it } from "vitest";
 import { success, type ToolResult } from "./result.js";
 import { wrapHandler } from "./wrap.js";
 

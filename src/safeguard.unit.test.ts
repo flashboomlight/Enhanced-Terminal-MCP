@@ -3,7 +3,7 @@
  * 不依赖 MCP Server 实例的纯逻辑部分
  */
 
-import * as os from "os";
+import * as os from "node:os";
 import { describe, expect, test } from "vitest";
 import { isCriticalProcess } from "./safeguard.js";
 

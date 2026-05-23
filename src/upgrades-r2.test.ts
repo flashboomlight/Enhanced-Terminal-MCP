@@ -8,9 +8,9 @@
  * 【功能-C】list_directory TTL 缩短 + 写操作联动失效
  */
 
-import * as fs from "fs/promises";
-import * as os from "os";
-import * as path from "path";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 // ====================================================================
@@ -245,7 +245,7 @@ describe("【功能-C】list_directory 缓存策略", () => {
     const { LRUCache } = await import("./cache.js");
     const cache = new LRUCache<string>(64, 60000);
 
-    const filePath = "D:\\project\\src\\new-file.ts";
+    const _filePath = "D:\\project\\src\\new-file.ts";
     const parentDir = "D:\\project\\src";
     const parentEscaped = parentDir.replace(/\\/g, "\\\\");
 
