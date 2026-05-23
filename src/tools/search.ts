@@ -1,496 +1,259 @@
-// src/tools/search.ts — 搜索工具：search_files / everything_search / grep_content
+/**
+ * 搜索工具: search_files, everything_search, grep_content
+ */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import * as fs from "fs";
-import * as path from "path";
-import { execFile, spawn } from "child_process";
-import { promisify } from "util";
-import { ok, fail } from "../utils.js";
-import { IS_WIN } from "../platform.js";
+import * as z from "zod";
+import { validatePath } from "../security.js";
 import { logger } from "../logger.js";
-
-const execFileAsync = promisify(execFile);
-
-// Everything es.exe 路径（项目自带）
-// 注意：decodeURIComponent 解决路径含空格时 %20 编码问题
-const __dirname = decodeURIComponent(
-  path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1"))
-);
-const ES_EXE = path.join(__dirname, "..", "..", "es_tool", "es.exe");
-
-// Everything.exe 路径（全量版），优先使用环境变量 EVERYTHING_EXE_PATH
-const EVERYTHING_EXE = process.env.EVERYTHING_EXE_PATH || "D:\\Everything\\Everything.exe";
-
-// 缓存 Everything 就绪状态，避免每次搜索都轮询
-let everythingReady: boolean | null = null;
-let everythingCheckTime = 0;
-const CACHE_TTL = 60000; // 1 分钟缓存
-
-/**
- * 检测 Everything 进程是否正在运行（Windows only）
- */
-async function isEverythingRunning(): Promise<boolean> {
-  if (!IS_WIN) return false;
-  try {
-    const { stdout } = await execFileAsync(
-      "tasklist",
-      ["/FI", "IMAGENAME eq Everything*", "/FO", "CSV", "/NH"],
-      { timeout: 5000 }
-    );
-    return stdout.toLowerCase().includes("everything");
-  } catch {
-    return false;
-  }
-}
-
-/**
- * 启动 Everything 并等待其 IPC 服务就绪
- */
-async function ensureEverythingReady(): Promise<boolean> {
-  // 非 Windows 直接返回 false
-  if (!IS_WIN) return false;
-
-  // 使用缓存避免频繁轮询
-  if (everythingReady !== null && Date.now() - everythingCheckTime < CACHE_TTL) {
-    return everythingReady;
-  }
-
-  // 1. 检查 es.exe 是否存在
-  if (!fs.existsSync(ES_EXE)) {
-    everythingReady = false;
-    everythingCheckTime = Date.now();
-    return false;
-  }
-
-  // 2. 快速测试：es.exe 能否直接查询（Everything 已在运行）
-  try {
-    await execFileAsync(ES_EXE, ["-max-results", "1", "readme"], { timeout: 3000 });
-    everythingReady = true;
-    everythingCheckTime = Date.now();
-    return true;
-  } catch {
-    // es.exe 查询失败，说明 Everything 可能没运行
-  }
-
-  // 3. 检查 Everything.exe 是否存在
-  if (!fs.existsSync(EVERYTHING_EXE)) {
-    everythingReady = false;
-    everythingCheckTime = Date.now();
-    return false;
-  }
-
-  // 4. 检查进程是否已在运行
-  const alreadyRunning = await isEverythingRunning();
-
-  // 5. 如果没在运行，启动它
-  if (!alreadyRunning) {
-    try {
-      const child = spawn(EVERYTHING_EXE, ["-startup"], {
-        detached: true,
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      child.unref();
-    } catch {
-      everythingReady = false;
-      everythingCheckTime = Date.now();
-      return false;
-    }
-  }
-
-  // 6. 轮询等待就绪（最多 15 秒）
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    try {
-      await execFileAsync(ES_EXE, ["-max-results", "1", "readme"], { timeout: 3000 });
-      everythingReady = true;
-      everythingCheckTime = Date.now();
-      return true;
-    } catch {
-      // 还没就绪，继续等
-    }
-  }
-
-  everythingReady = false;
-  everythingCheckTime = Date.now();
-  return false;
-}
-
-/**
- * 使用 Everything es.exe 进行闪电搜索
- */
-async function everythingSearch(
-  pattern: string,
-  dirPath?: string,
-  maxResults: number = 50
-): Promise<string[]> {
-  const args: string[] = [];
-  args.push("-max-results", String(maxResults));
-
-  if (dirPath) {
-    const normalizedDir = dirPath.replace(/\//g, "\\").replace(/\\$/, "");
-    args.push("-path", normalizedDir);
-  }
-
-  args.push(pattern);
-
-  const { stdout } = await execFileAsync(ES_EXE, args, {
-    timeout: 10000,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-
-  return stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-}
-
-/**
- * 原生递归搜索（兜底方案，全平台可用）
- */
-function nativeSearch(
-  dirPath: string,
-  regex: RegExp,
-  maxDepth: number,
-  maxResults: number
-): string[] {
-  const results: string[] = [];
-
-  function walk(p: string, depth: number) {
-    if (depth > maxDepth || results.length >= maxResults) return;
-    try {
-      const entries = fs.readdirSync(p, { withFileTypes: true });
-      for (const entry of entries) {
-        if (results.length >= maxResults) break;
-        const full = path.join(p, entry.name);
-        if (entry.isFile() && regex.test(entry.name)) {
-          results.push(full);
-        }
-        if (
-          entry.isDirectory() &&
-          !entry.name.startsWith(".") &&
-          entry.name !== "node_modules" &&
-          entry.name !== "$Recycle.Bin" &&
-          entry.name !== "System Volume Information"
-        ) {
-          walk(full, depth + 1);
-        }
-      }
-    } catch {
-      /* skip inaccessible dirs */
-    }
-  }
-
-  walk(dirPath, 0);
-  return results;
-}
+import { success, fail, ErrorCode, type ToolResult } from "../result.js";
+import { IS_WIN } from "../platform.js";
+import { getRegex } from "../regex.js";
+import { wrapHandler } from "../wrap.js";
 
 export function registerSearchTools(server: McpServer) {
-  // ===== Tool 9: search_files =====
+  // ====================================================================
+  const SearchFilesInput = z.object({
+    dir_path: z.string().describe("Directory to search in"),
+    pattern: z.string().describe("Filename pattern, e.g. *.ts, *.log, test*"),
+    max_depth: z.number().optional().describe("Max search depth for native fallback, default 5"),
+    max_results: z.number().optional().describe("Max results, default 50"),
+  });
+  type SearchFilesInput = z.infer<typeof SearchFilesInput>;
+
   server.registerTool(
     "search_files",
     {
       title: "Search Files",
-      description: "Search for files by name pattern. Auto-starts Everything engine for instant results, falls back to native search if unavailable.",
-      inputSchema: {
-        dir_path: z.string().describe("Directory to search in"),
-        pattern: z.string().describe("Filename pattern, e.g. *.ts, *.log, test*"),
-        max_depth: z.number().optional().describe("Max search depth for native fallback, default 5"),
-        max_results: z.number().optional().describe("Max results, default 50"),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      description: "Search for files by name pattern. Auto-starts Everything engine for instant results on Windows, falls back to native search.",
+      inputSchema: SearchFilesInput,
+      outputSchema: z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number(), truncated: z.boolean() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ dir_path, pattern, max_depth, max_results }) => {
+    wrapHandler("search_files", async ({ dir_path, pattern, max_depth, max_results }: SearchFilesInput) => {
+      const pathErr = validatePath(dir_path, "search_files");
+      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+      const t0 = Date.now();
+      const maxR = max_results || 50;
+      const matches: string[] = [];
+
       try {
-        const maxR = max_results || 50;
-        const startTime = Date.now();
+        if (IS_WIN) {
+          try {
+            const { fileURLToPath } = await import("url");
+            const pathMod = await import("path");
+            const esPath = fileURLToPath(new URL("../../es_tool/es.exe", import.meta.url));
+            const { execFile } = await import("child_process");
+            const normalizedDir = pathMod.resolve(dir_path).toLowerCase();
+            await new Promise<void>((done) => {
+              const args = ["-s", "-n", String(maxR * 2), pattern];
+              execFile(esPath, args, { maxBuffer: 10 * 1024 * 1024, timeout: 10000 }, (_err: any, stdout: string) => {
+                if (stdout) {
+                  for (const l of stdout.split("\n")) {
+                    const trimmed = l.trim();
+                    if (trimmed && trimmed.toLowerCase().startsWith(normalizedDir)) {
+                      matches.push(trimmed);
+                      if (matches.length >= maxR) break;
+                    }
+                  }
+                }
+                done();
+              });
+            });
+          } catch { /* fallback to native */ }
+        }
 
-        // 优先尝试 Everything（Windows only）
-        const evReady = await ensureEverythingReady();
+        if (matches.length === 0) {
+          const { readdir } = await import("fs/promises");
+          const { join } = await import("path");
+          const maxD = max_depth || 5;
+          // glob→regex: 转义所有正则元字符，然后将 * 和 ? 转为通配
+          const regexStr = "^" + pattern.replace(/[\\^$+{}.()|[\]\-]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$";
+          const reg = new RegExp(regexStr, "i");
 
-        if (evReady) {
-          const results = await everythingSearch(pattern, dir_path, maxR);
-          const elapsed = Date.now() - startTime;
-
-          if (results.length === 0) {
-            return ok(`[Everything ${elapsed}ms] No files found matching: ${pattern}`);
+          async function walk(p: string, d: number) {
+            if (d > maxD || matches.length >= maxR) return;
+            try {
+              const entries = await readdir(p, { withFileTypes: true });
+              for (const e of entries) {
+                if (matches.length >= maxR) break;
+                const fp = join(p, e.name);
+                if (e.isDirectory()) { if (!e.name.startsWith(".")) await walk(fp, d + 1); }
+                else if (reg.test(e.name)) matches.push(fp);
+              }
+            } catch (e) { logger.warn("search_files:walk:error", p, String(e)); }
           }
-          logger.info("search_files", "everything", `${results.length} results in ${elapsed}ms`);
-          return ok(
-            `[Everything ${elapsed}ms] Found ${results.length} file(s):\n` +
-              results.join("\n")
-          );
+          await walk(dir_path, 0);
         }
 
-        // 兜底：原生搜索（全平台可用）
-        const maxD = max_depth || 5;
-        const regexStr =
-          "^" +
-          pattern
-            .replace(/\./g, "\\.")
-            .replace(/\*/g, ".*")
-            .replace(/\?/g, ".") +
-          "$";
-        const regex = new RegExp(regexStr, "i");
-
-        const results = nativeSearch(dir_path, regex, maxD, maxR);
-        const elapsed = Date.now() - startTime;
-
-        if (results.length === 0) {
-          return ok(`[Native ${elapsed}ms] No files found matching: ${pattern}`);
-        }
-        return ok(
-          `[Native ${elapsed}ms] Found ${results.length} file(s):\n` +
-            results.join("\n")
+        const ms = Date.now() - t0;
+        logger.info("search_files", "done", `${matches.length} matches in ${ms}ms`);
+        return success(
+          `Found ${matches.length} file(s) in ${ms}ms:\n` + matches.join("\n"),
+          { matches, total: matches.length, search_ms: ms, truncated: matches.length >= maxR },
+          { truncated: matches.length >= maxR, latency_ms: ms }
         );
       } catch (e: any) {
-        return fail("Search failed: " + e.message);
+        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    }
+    })
   );
 
-  // ===== Tool: everything_search =====
+  // ====================================================================
+  const EverythingSearchInput = z.object({
+    query: z.string().describe("Everything search query. Supports: wildcards(*.txt), regex, path:, size:, date: filters"),
+    dir_filter: z.string().optional().describe("Optional: limit search to this directory path"),
+    max_results: z.number().optional().describe("Max results, default 100"),
+  });
+  type EverythingSearchInput = z.infer<typeof EverythingSearchInput>;
+
   server.registerTool(
     "everything_search",
     {
       title: "Everything Search",
-      description: "Ultra-fast full-disk file search powered by Everything engine. Auto-detects and auto-starts Everything if not running. Supports Everything advanced syntax.",
-      inputSchema: {
-        query: z.string().describe("Everything search query. Supports: wildcards(*.txt), regex, path: size: date: filters"),
-        dir_filter: z.string().optional().describe("Optional: limit search to this directory path"),
-        max_results: z.number().optional().describe("Max results, default 100"),
-        match_case: z.boolean().optional().describe("Case sensitive search, default false"),
-        match_whole_word: z.boolean().optional().describe("Match whole word only, default false"),
-        match_regex: z.boolean().optional().describe("Use regex mode, default false"),
-        sort_by: z.enum(["name", "path", "size", "date_modified"]).optional().describe("Sort results by field"),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      description: "Ultra-fast full-disk file search powered by Everything engine (Windows only).",
+      inputSchema: EverythingSearchInput,
+      outputSchema: z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ query, dir_filter, max_results, match_case, match_whole_word, match_regex, sort_by }) => {
+    wrapHandler("everything_search", async ({ query, dir_filter, max_results }: EverythingSearchInput) => {
+      if (dir_filter) {
+        const pathErr = validatePath(dir_filter, "everything_search");
+        if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_filter" });
+      }
+      const t0 = Date.now();
+      const maxR = max_results || 100;
+
+      if (!IS_WIN) {
+        return fail(ErrorCode.EXECUTION_FAILED, "Everything search is only available on Windows", { retryable: false, suggestion: "Use search_files instead" });
+      }
+
       try {
-        const evReady = await ensureEverythingReady();
-        if (!evReady) {
-          return fail(
-            "Everything not available!\n\n" +
-            (IS_WIN
-              ? "Possible reasons:\n" +
-                "1. Everything.exe not found at: " + EVERYTHING_EXE + "\n" +
-                "2. es.exe not found at: " + ES_EXE + "\n" +
-                "3. Everything failed to initialize within 15 seconds\n\n" +
-                "Manual fix: Start Everything manually, then retry."
-              : "Everything search is only available on Windows.\n" +
-                "Use search_files for cross-platform file search.")
-          );
-        }
+        const { fileURLToPath } = await import("url");
+        const esPathWin = fileURLToPath(new URL("../../es_tool/es.exe", import.meta.url));
+        const { execFile } = await import("child_process");
+        const results: string[] = [];
 
-        const maxR = max_results || 100;
-        const startTime = Date.now();
-
-        const args: string[] = [];
-        args.push("-max-results", String(maxR));
-
-        if (match_case) args.push("-case");
-        if (match_whole_word) args.push("-whole-word");
-        if (match_regex) args.push("-regex");
-
-        if (sort_by) {
-          const sortMap: Record<string, string> = {
-            name: "name",
-            path: "path",
-            size: "size",
-            date_modified: "date-modified",
-          };
-          args.push("-sort", sortMap[sort_by] || "name");
-        }
-
-        if (dir_filter) {
-          const normalizedDir = dir_filter.replace(/\//g, "\\").replace(/\\$/, "");
-          args.push("-path", normalizedDir);
-        }
-        args.push(query);
-
-        const { stdout } = await execFileAsync(ES_EXE, args, {
-          timeout: 15000,
-          maxBuffer: 10 * 1024 * 1024,
+        await new Promise<void>((resolve) => {
+          const args = ["-s", "-n", String(maxR)];
+          if (dir_filter) args.push("-path", dir_filter);
+          args.push(query);
+          execFile(esPathWin, args, { maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (_e: any, stdout: string) => {
+            if (stdout) results.push(...stdout.split("\n").map(l => l.trim()).filter(l => l));
+            resolve();
+          });
         });
 
-        const results = stdout
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0);
-
-        const elapsed = Date.now() - startTime;
-
-        if (results.length === 0) {
-          return ok(`[Everything ${elapsed}ms] No results for: ${query}`);
-        }
-
-        logger.info("everything_search", "search", `${results.length} results in ${elapsed}ms`);
-        return ok(
-          `[Everything ${elapsed}ms] Found ${results.length} result(s):\n` +
-            results.join("\n")
-        );
+        const ms = Date.now() - t0;
+        return success(`[Everything ${ms}ms] Found ${results.length} file(s):\n` + results.join("\n"), { matches: results, total: results.length, search_ms: ms });
       } catch (e: any) {
-        return fail("Everything search failed: " + e.message);
+        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    }
+    })
   );
 
-  // ===== Tool 10: grep_content =====
+  // ====================================================================
+  const GrepContentInput = z.object({
+    dir_path: z.string().describe("Directory to search in"),
+    pattern: z.string().describe("Regex pattern to search for in file contents"),
+    file_pattern: z.string().optional().describe("File name filter, e.g. *.ts, default *"),
+    max_results: z.number().optional().describe("Max matching lines, default 50"),
+  });
+  type GrepContentInput = z.infer<typeof GrepContentInput>;
+
   server.registerTool(
     "grep_content",
     {
       title: "Grep Content",
-      description: "Search file contents using regex pattern (like grep). Uses PowerShell Select-String on Windows for better performance.",
-      inputSchema: {
-        dir_path: z.string().describe("Directory to search in"),
-        pattern: z.string().describe("Regex pattern to search for in file contents"),
-        file_pattern: z.string().optional().describe("File name filter, e.g. *.ts, default *"),
-        max_results: z.number().optional().describe("Max matching lines, default 50"),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      description: "Search file contents using regex pattern. Uses PowerShell Select-String on Windows, grep on Unix.",
+      inputSchema: GrepContentInput,
+      outputSchema: z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ dir_path, pattern, file_pattern, max_results }) => {
+    wrapHandler("grep_content", async ({ dir_path, pattern, file_pattern, max_results }: GrepContentInput) => {
+      const pathErr = validatePath(dir_path, "grep_content");
+      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+      const t0 = Date.now();
+      const maxR = max_results || 50;
+      const fileFilter = file_pattern || "*";
+      const results: string[] = [];
+
       try {
-        const maxR = max_results || 50;
-        const startTime = Date.now();
-        const fileFilter = file_pattern || "*";
-
-        // Windows: 优先使用 PowerShell Select-String
         if (IS_WIN) {
+          const { execFile } = await import("child_process");
+          const { promisify } = await import("util");
+          const psScript = [
+            "param([string]$Dir, [string]$Filter, [string]$Regex, [int]$MaxR);",
+            "$ErrorActionPreference = 'SilentlyContinue';",
+            "Get-ChildItem -LiteralPath $Dir -Filter $Filter -Recurse -File |",
+            "  Select-String -Pattern $Regex -List |",
+            "  Select-Object -First $MaxR |",
+            '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
+          ].join(" ");
+          const execAsync = promisify(execFile);
           try {
-            const psCmd = `Get-ChildItem -Path '${dir_path}' -Filter '${fileFilter}' -Recurse -File -ErrorAction SilentlyContinue | Select-String -Pattern '${pattern.replace(/'/g, "''")}' -List | Select-Object -First ${maxR} | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }`;
-
-            const { stdout } = await execFileAsync(
-              "powershell",
-              ["-NoProfile", "-Command", psCmd],
-              { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
-            );
-
-            const results = stdout
-              .split("\n")
-              .map((l) => l.trim())
-              .filter((l) => l.length > 0);
-
-            const elapsed = Date.now() - startTime;
-
-            if (results.length === 0) {
-              return ok(`[PowerShell ${elapsed}ms] No matches found for: ${pattern}`);
-            }
-            logger.info("grep_content", "powershell", `${results.length} matches in ${elapsed}ms`);
-            return ok(
-              `[PowerShell ${elapsed}ms] Found ${results.length} match(es):\n` +
-                results.join("\n")
-            );
-          } catch {
-            // PowerShell 失败，回退到原生方案
-          }
+            const { stdout } = await execAsync("powershell", ["-NoProfile", "-Command", psScript, dir_path, fileFilter, pattern, String(maxR)], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
+            results.push(...stdout.split("\n").map(l => l.trim()).filter(l => l));
+          } catch (e) { logger.warn("grep_content:ps:error", String(e)); }
         }
 
-        // Linux/macOS: 尝试使用系统 grep
-        if (!IS_WIN) {
+        if (!IS_WIN && results.length === 0) {
           try {
-            const grepCmd = fileFilter === "*"
-              ? `grep -rn "${pattern}" "${dir_path}" --include="*" -m ${maxR} 2>/dev/null`
-              : `grep -rn "${pattern}" "${dir_path}" --include="${fileFilter}" -m ${maxR} 2>/dev/null`;
-
-            const { stdout } = await execFileAsync(
-              "/bin/sh",
-              ["-c", grepCmd],
-              { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
-            );
-
-            const results = stdout
-              .split("\n")
-              .map((l) => l.trim())
-              .filter((l) => l.length > 0);
-
-            const elapsed = Date.now() - startTime;
-
-            if (results.length === 0) {
-              return ok(`[grep ${elapsed}ms] No matches found for: ${pattern}`);
-            }
-            return ok(
-              `[grep ${elapsed}ms] Found ${results.length} match(es):\n` +
-                results.join("\n")
-            );
-          } catch {
-            // 系统 grep 失败，回退到原生方案
-          }
+            const { execFile } = await import("child_process");
+            const { promisify } = await import("util");
+            const execAsync = promisify(execFile);
+            const grepArgs = ["-rn", "--include=" + fileFilter, "-m", String(maxR), pattern, dir_path];
+            const { stdout } = await execAsync("grep", grepArgs, { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
+            results.push(...stdout.split("\n").map(l => l.trim()).filter(l => l));
+          } catch (e) { logger.warn("grep_content:ps:error", String(e)); }
         }
-
-        // 兜底：原生 Node.js 搜索（全平台）
-        const regex = new RegExp(pattern, "gi");
-        const results: string[] = [];
-
-        const fileRegexStr =
-          "^" +
-          fileFilter
-            .replace(/\./g, "\\.")
-            .replace(/\*/g, ".*")
-            .replace(/\?/g, ".") +
-          "$";
-        const fileRegex = new RegExp(fileRegexStr, "i");
-
-        function searchDir(p: string, depth: number) {
-          if (depth > 5 || results.length >= maxR) return;
-          try {
-            const entries = fs.readdirSync(p, { withFileTypes: true });
-            for (const entry of entries) {
-              if (results.length >= maxR) break;
-              const full = path.join(p, entry.name);
-              if (entry.isFile() && fileRegex.test(entry.name)) {
-                try {
-                  const content = fs.readFileSync(full, "utf-8");
-                  const lines = content.split("\n");
-                  for (let i = 0; i < lines.length; i++) {
-                    if (results.length >= maxR) break;
-                    if (regex.test(lines[i])) {
-                      results.push(full + ":" + (i + 1) + ": " + lines[i].trim());
-                    }
-                  }
-                } catch {
-                  /* skip binary/unreadable */
-                }
-              }
-              if (
-                entry.isDirectory() &&
-                !entry.name.startsWith(".") &&
-                entry.name !== "node_modules"
-              ) {
-                searchDir(full, depth + 1);
-              }
-            }
-          } catch {
-            /* skip */
-          }
-        }
-
-        searchDir(dir_path, 0);
-        const elapsed = Date.now() - startTime;
 
         if (results.length === 0) {
-          return ok(`[Native ${elapsed}ms] No matches found for: ${pattern}`);
+          const { readdir } = await import("fs/promises");
+          const { createReadStream } = await import("fs");
+          const { createInterface } = await import("readline");
+          const { join } = await import("path");
+          let regex: RegExp;
+          try { regex = getRegex(pattern, "gi"); } catch (e: any) {
+            return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: false, param: "pattern" });
+          }
+          const fileRegexStr = "^" + fileFilter.replace(/[\\^$+{}.()|[\]-]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$";
+          const fileRegex = new RegExp(fileRegexStr, "i");
+
+          async function grepFile(fp: string) {
+            const rl = createInterface({ input: createReadStream(fp, { encoding: "utf-8" }), crlfDelay: Infinity });
+            let lineNum = 0;
+            for await (const line of rl) {
+              if (results.length >= maxR) { rl.close(); break; }
+              lineNum++;
+              if (regex.test(line)) results.push(`${fp}:${lineNum}: ${line.trim()}`);
+              regex.lastIndex = 0;
+            }
+          }
+
+          async function walk(p: string, depth: number) {
+            if (depth > 5 || results.length >= maxR) return;
+            try {
+              const entries = await readdir(p, { withFileTypes: true });
+              for (const entry of entries) {
+                if (results.length >= maxR) break;
+                const fp = join(p, entry.name);
+                if (entry.isFile() && fileRegex.test(entry.name)) {
+                  try { await grepFile(fp); } catch {}
+                } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
+                  await walk(fp, depth + 1);
+                }
+              }
+            } catch (e) { logger.warn("grep_content:ps:error", String(e)); }
+          }
+          await walk(dir_path, 0);
         }
-        return ok(
-          `[Native ${elapsed}ms] Found ${results.length} match(es):\n` +
-            results.join("\n")
-        );
+
+        const ms = Date.now() - t0;
+        logger.info("grep_content", "done", `${results.length} matches in ${ms}ms`);
+        return success(`Found ${results.length} match(es) in ${ms}ms:\n` + results.join("\n"), { matches: results, total: results.length, search_ms: ms });
       } catch (e: any) {
-        return fail("Grep failed: " + e.message);
+        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    }
+    })
   );
 }

@@ -1,5 +1,6 @@
 // src/platform.ts — 跨平台抽象层：shell / 命令 / 搜索引擎选择
 import { platform } from "os";
+import { sanitizeProcessName } from "./security.js";
 
 export const IS_WIN = platform() === "win32";
 export const IS_MAC = platform() === "darwin";
@@ -43,42 +44,52 @@ export function wrapCommand(cmd: string): string {
  */
 export function getProcessListSpec(filter?: string, top = 20): CommandSpec {
   if (IS_WIN) {
-    // 使用 PowerShell Get-Process 提供排序 + 过滤；filter 作为参数传入
+    const safeFilter = filter ? sanitizeProcessName(filter) : "";
+    const filterClause = safeFilter
+      ? `Get-Process | Where-Object { $_.ProcessName -like '*${safeFilter}*' }`
+      : "Get-Process";
     const script = [
       "$ErrorActionPreference = 'SilentlyContinue';",
-      "$filter = $args[0];",
-      "$top = [int]$args[1];",
-      "$procs = if ($filter) { Get-Process | Where-Object { $_.ProcessName -like \"*$filter*\" } } else { Get-Process };",
+      `$procs = ${filterClause};`,
       "$procs | Sort-Object -Property WorkingSet64 -Descending |",
-      "  Select-Object -First $top Id, ProcessName, @{N='MemMB';E={[math]::Round($_.WorkingSet64/1MB,1)}}, @{N='CPU';E={[math]::Round($_.CPU,1)}} |",
+      `  Select-Object -First ${top} Id, ProcessName, @{N='MemMB';E={[math]::Round($_.WorkingSet64/1MB,1)}}, @{N='CPU';E={[math]::Round($_.CPU,1)}} |`,
       "  Format-Table -AutoSize | Out-String",
     ].join(" ");
     return {
       file: "powershell.exe",
-      args: ["-NoProfile", "-Command", script, "--", filter || "", String(top)],
+      args: ["-NoProfile", "-Command", script],
     };
   }
-  // Unix: 通过 /bin/sh -c 执行，为了支持 --sort；但 filter 走环境变量避免注入
+  // Unix: 通过 /bin/sh -c 执行，filter 已通过 sanitizeProcessName 消毒
   if (filter) {
+    const safeFilter = sanitizeProcessName(filter);
+    if (!safeFilter) {
+      // sanitize 后为空，走无 filter 分支
+      return { file: "/bin/sh", args: ["-c", `ps aux --sort=-%mem 2>/dev/null || ps aux | head -n ${top}`] };
+    }
     return {
       file: "/bin/sh",
       args: [
         "-c",
-        'ps aux --sort=-%mem 2>/dev/null || ps aux | head -n 1; ps aux 2>/dev/null | grep -i -- "$FILTER" | grep -v grep',
+        `ps aux --sort=-%mem 2>/dev/null || ps aux | head -n 1; ps aux 2>/dev/null | grep -i -- '${safeFilter}' | grep -v grep | head -n ${top}`,
       ],
       useShell: false,
     };
   }
   return {
     file: "/bin/sh",
-    args: ["-c", "ps aux --sort=-%mem 2>/dev/null || ps aux"],
+    args: ["-c", `ps aux --sort=-%mem 2>/dev/null || ps aux | head -n ${top}`],
   };
 }
 
 /**
  * 获取 kill 命令（返回 CommandSpec）
+ * @throws 当 pid 和 name 都为空时
  */
 export function getKillSpec(pid?: number, name?: string, force?: boolean): CommandSpec {
+  if (pid == null && !name) {
+    throw new Error("getKillSpec requires at least pid or name");
+  }
   if (IS_WIN) {
     const args: string[] = [];
     if (pid != null) {
@@ -94,7 +105,7 @@ export function getKillSpec(pid?: number, name?: string, force?: boolean): Comma
     return { file: "kill", args: [sig, String(pid)] };
   }
   // pkill 需要精确名（已在上游 sanitize 去掉通配）
-  return { file: "pkill", args: [sig, name || ""] };
+  return { file: "pkill", args: [sig, name!] };
 }
 
 /**
@@ -126,10 +137,20 @@ export function getNetworkSpec(action: string, target?: string): CommandSpec {
     case "ping":
       return { file: "ping", args: ["-c", "4", host] };
     case "dns":
-      return { file: "/bin/sh", args: ["-c", 'nslookup "$HOST" 2>/dev/null || dig "$HOST"'] };
+      // host 已通过 validateHost 限制为 [a-zA-Z0-9.\-:]，单引号安全
+      return { file: "/bin/sh", args: ["-c", `nslookup '${host}' 2>/dev/null || dig '${host}'`] };
     default:
       return { file: "/bin/sh", args: ["-c", "ifconfig 2>/dev/null || ip addr"] };
   }
+}
+
+/**
+ * PowerShell 单引号字符串转义：处理 ' 和 $（$ 在单引号内不展开，但为安全起见仍转义）
+ * 单引号内唯一需要转义的是单引号本身（'' 表示字面量 '）
+ * 注意：PowerShell 单引号字符串内 $ 不会展开，所以只需处理 '
+ */
+function escapePsString(s: string): string {
+  return s.replace(/'/g, "''");
 }
 
 /**
@@ -137,13 +158,11 @@ export function getNetworkSpec(action: string, target?: string): CommandSpec {
  */
 export function getCompressSpec(sourcePath: string, outputPath: string): CommandSpec {
   if (IS_WIN) {
-    // 用 -File 风格的 here-script + 参数传递，单引号转义使用 PowerShell 规则（' -> '')
-    const psScript =
-      "param([string]$Src, [string]$Dst); " +
-      "Compress-Archive -Path $Src -DestinationPath $Dst -Force";
+    const src = escapePsString(sourcePath);
+    const dst = escapePsString(outputPath);
     return {
       file: "powershell.exe",
-      args: ["-NoProfile", "-Command", psScript, "--", sourcePath, outputPath],
+      args: ["-NoProfile", "-Command", `Compress-Archive -LiteralPath '${src}' -DestinationPath '${dst}' -Force`],
     };
   }
   return { file: "zip", args: ["-r", outputPath, sourcePath] };
@@ -154,15 +173,33 @@ export function getCompressSpec(sourcePath: string, outputPath: string): Command
  */
 export function getExtractSpec(archivePath: string, outputDir: string): CommandSpec {
   if (IS_WIN) {
-    const psScript =
-      "param([string]$Arc, [string]$Out); " +
-      "Expand-Archive -Path $Arc -DestinationPath $Out -Force";
+    const arc = escapePsString(archivePath);
+    const out = escapePsString(outputDir);
     return {
       file: "powershell.exe",
-      args: ["-NoProfile", "-Command", psScript, "--", archivePath, outputDir],
+      args: ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${arc}' -DestinationPath '${out}' -Force`],
     };
   }
   return { file: "unzip", args: ["-o", archivePath, "-d", outputDir] };
+}
+
+export function getSystemInfoSpec(): CommandSpec {
+  if (IS_WIN) {
+    const ps = [
+      "$ErrorActionPreference = 'SilentlyContinue';",
+      "$os = Get-CimInstance Win32_OperatingSystem;",
+      "$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1;",
+      "$mem = Get-CimInstance Win32_ComputerSystem;",
+      '$disk = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object { "$($_.DeviceID) $([math]::Round($_.FreeSpace/1GB,1))/$([math]::Round($_.Size/1GB,1))GB" };',
+      'Write-Output "OS: $($os.Caption) ($($os.OSArchitecture))";',
+      'Write-Output "CPU: $($cpu.Name) $($cpu.NumberOfCores)C/$($cpu.NumberOfLogicalProcessors)T";',
+      'Write-Output "Memory: $([math]::Round($mem.TotalPhysicalMemory/1GB,1))GB total";',
+      'Write-Output "Disk: $($disk -join \', \')";',
+    ].join("\n");
+    return { file: "powershell.exe", args: ["-NoProfile", "-Command", ps] };
+  }
+  const sh = 'echo "OS: $(uname -a)"; echo "CPU: $(grep -m1 \'model name\' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs)"; echo "Memory: $(free -h 2>/dev/null | awk \'/^Mem:/{print $2}\' || echo N/A)"; echo "Disk: $(df -h / 2>/dev/null | awk \'NR==2{print $4\" free of \"$2}\' || echo N/A)";';
+  return { file: "/bin/sh", args: ["-c", sh] };
 }
 
 /**
@@ -170,12 +207,11 @@ export function getExtractSpec(archivePath: string, outputDir: string): CommandS
  */
 export function getDownloadSpec(url: string, savePath: string): CommandSpec {
   if (IS_WIN) {
-    const psScript =
-      "param([string]$Url, [string]$Out); " +
-      "Invoke-WebRequest -Uri $Url -OutFile $Out -UseBasicParsing -MaximumRedirection 5";
+    const u = escapePsString(url);
+    const p = escapePsString(savePath);
     return {
       file: "powershell.exe",
-      args: ["-NoProfile", "-Command", psScript, "--", url, savePath],
+      args: ["-NoProfile", "-Command", `Invoke-WebRequest -Uri '${u}' -OutFile '${p}' -UseBasicParsing -MaximumRedirection 5`],
     };
   }
   return { file: "curl", args: ["-fSL", "--max-redirs", "5", "-o", savePath, url] };

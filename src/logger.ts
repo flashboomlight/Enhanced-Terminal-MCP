@@ -6,10 +6,13 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0, info: 1, warn: 2, error: 3,
 };
 
-const currentLevel: LogLevel = (process.env.MCP_LOG_LEVEL as LogLevel) || "info";
+function getCurrentLevel(): LogLevel {
+  const env = (process.env.MCP_LOG_LEVEL as LogLevel) || "info";
+  return LOG_LEVEL_PRIORITY[env] !== undefined ? env : "info";
+}
 
 function shouldLog(level: LogLevel): boolean {
-  return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[currentLevel];
+  return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[getCurrentLevel()];
 }
 
 function formatMsg(level: LogLevel, tool: string, action: string, detail?: string): string {

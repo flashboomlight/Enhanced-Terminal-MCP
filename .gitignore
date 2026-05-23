@@ -27,6 +27,11 @@ Thumbs.db
 # Temp / artifacts
 .word_mcp_state/
 .word_mcp_artifacts/
+test-*.cjs
+cov-out.txt
+cov2.txt
+coverage-output.txt
+coverage/
 
 # Logs
 *.log

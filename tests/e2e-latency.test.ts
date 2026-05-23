@@ -119,7 +119,7 @@ describe("Protocol Layer Latency", () => {
     console.log(`    ⏱ tools/list: ${ms}ms — found ${result.tools.length} tools`);
 
     expect(ms).toBeLessThanOrEqual(THRESHOLD.LIST_TOOLS);
-    expect(result.tools.length).toBe(21);
+    expect(result.tools.length).toBe(26);
   });
 
   test("prompts/list should respond within threshold", async () => {

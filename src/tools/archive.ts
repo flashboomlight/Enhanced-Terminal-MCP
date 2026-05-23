@@ -1,117 +1,112 @@
-// src/tools/archive.ts — 归档下载工具：compress_archive / extract_archive / download_file
+/**
+ * 压缩/下载工具: compress_archive, extract_archive, download_file
+ */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+import * as z from "zod";
 import * as fs from "fs/promises";
-import * as fsSync from "fs";
-import * as path from "path";
-import { ok, fail, safeExecFile } from "../utils.js";
-import { getCompressSpec, getExtractSpec, getDownloadSpec } from "../platform.js";
-import { validatePath } from "../security.js";
+import { validatePath, validateUrl } from "../security.js";
+import { guardDestructiveAction } from "../safeguard.js";
 import { logger } from "../logger.js";
+import { success, fail, ErrorCode, type ToolResult } from "../result.js";
+import { getCompressSpec, getExtractSpec, getDownloadSpec } from "../platform.js";
+import { safeExecFile } from "../utils.js";
+import { withRetry } from "../adaptive.js";
+import { wrapHandler } from "../wrap.js";
 
 export function registerArchiveTools(server: McpServer) {
+  const CompressArchiveInput = z.object({
+    source_path: z.string().describe("Path to file or directory to compress"),
+    output_path: z.string().describe("Output zip file path"),
+  });
+  type CompressArchiveInput = z.infer<typeof CompressArchiveInput>;
 
-  // ===== Tool 18: compress_archive =====
   server.registerTool(
     "compress_archive",
     {
       title: "Compress Archive",
-      description: "Compress files/directories into a zip archive (PowerShell on Windows, zip on Linux/macOS)",
-      inputSchema: {
-        source_path: z.string().describe("Path to file or directory to compress"),
-        output_path: z.string().describe("Output zip file path"),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      description: "Compress files/directories into a zip archive.",
+      inputSchema: CompressArchiveInput,
+      outputSchema: z.object({ source: z.string(), output: z.string(), size_bytes: z.number().optional() }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ source_path, output_path }) => {
-      const srcErr = validatePath(source_path, "compress:source");
-      if (srcErr) return fail(srcErr);
-      const outErr = validatePath(output_path, "compress:output");
-      if (outErr) return fail(outErr);
+    wrapHandler("compress_archive", async ({ source_path, output_path }: CompressArchiveInput) => {
+      for (const [p, l] of [[source_path, "source"], [output_path, "output"]] as const) {
+        const e = validatePath(p, `compress:${l}`);
+        if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
+      }
+
       try {
         const spec = getCompressSpec(source_path, output_path);
         await safeExecFile(spec.file, spec.args, 60000);
+        let size_bytes: number | undefined;
+        try { const s = await fs.stat(output_path); size_bytes = s.size; } catch {}
         logger.info("compress_archive", "compressed", `${source_path} -> ${output_path}`);
-        return ok("Compressed: " + source_path + " -> " + output_path);
+        return success(`Compressed: ${source_path} -> ${output_path}${size_bytes ? ` (${size_bytes} bytes)` : ""}`, { source: source_path, output: output_path, size_bytes });
       } catch (e: any) {
-        return fail("Compress failed: " + e.message);
+        return fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
       }
-    }
+    })
   );
 
-  // ===== Tool 19: extract_archive =====
+  const ExtractArchiveInput = z.object({
+    archive_path: z.string().describe("Path to the zip file"),
+    output_dir: z.string().describe("Directory to extract to"),
+  });
+  type ExtractArchiveInput = z.infer<typeof ExtractArchiveInput>;
+
   server.registerTool(
     "extract_archive",
     {
       title: "Extract Archive",
-      description: "Extract a zip archive to a directory (PowerShell on Windows, unzip on Linux/macOS)",
-      inputSchema: {
-        archive_path: z.string().describe("Path to the zip file"),
-        output_dir: z.string().describe("Directory to extract to"),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      description: "Extract a zip archive to a directory.",
+      inputSchema: ExtractArchiveInput,
+      outputSchema: z.object({ archive: z.string(), output: z.string() }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ archive_path, output_dir }) => {
-      const arcErr = validatePath(archive_path, "extract:archive");
-      if (arcErr) return fail(arcErr);
-      const outErr = validatePath(output_dir, "extract:output");
-      if (outErr) return fail(outErr);
+    wrapHandler("extract_archive", async ({ archive_path, output_dir }: ExtractArchiveInput) => {
+      for (const [p, l] of [[archive_path, "archive"], [output_dir, "output"]] as const) {
+        const e = validatePath(p, `extract:${l}`);
+        if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
+      }
+
       try {
         const spec = getExtractSpec(archive_path, output_dir);
         await safeExecFile(spec.file, spec.args, 60000);
-        logger.info("extract_archive", "extracted", `${archive_path} -> ${output_dir}`);
-        return ok("Extracted: " + archive_path + " -> " + output_dir);
+        return success(`Extracted: ${archive_path} -> ${output_dir}`, { archive: archive_path, output: output_dir });
       } catch (e: any) {
-        return fail("Extract failed: " + e.message);
+        return fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
       }
-    }
+    })
   );
 
-  // ===== Tool 20: download_file =====
+  const DownloadFileInput = z.object({
+    url: z.string().describe("URL to download from"),
+    save_path: z.string().describe("Local path to save the file"),
+  });
+  type DownloadFileInput = z.infer<typeof DownloadFileInput>;
+
   server.registerTool(
     "download_file",
     {
       title: "Download File",
-      description: "Download a file from a URL to local path",
-      inputSchema: {
-        url: z.string().describe("URL to download from"),
-        save_path: z.string().describe("Local path to save the file"),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
+      description: "Download a file from a URL to local path (HTTP/HTTPS only).",
+      inputSchema: DownloadFileInput,
+      outputSchema: z.object({ url: z.string(), path: z.string() }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ url, save_path }) => {
+    wrapHandler("download_file", async ({ url, save_path }: DownloadFileInput) => {
       const pathErr = validatePath(save_path, "download:save_path");
-      if (pathErr) return fail(pathErr);
+      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "save_path" });
+      const urlErr = validateUrl(url);
+      if (urlErr) return fail(ErrorCode.URL_INVALID, urlErr, { retryable: true, param: "url" });
+
       try {
-        const dir = path.dirname(save_path);
-        await fs.mkdir(dir, { recursive: true });
-
         const spec = getDownloadSpec(url, save_path);
-        await safeExecFile(spec.file, spec.args, 120000);
-
-        if (fsSync.existsSync(save_path)) {
-          const stat = fsSync.statSync(save_path);
-          logger.info("download_file", "downloaded", `${url} -> ${save_path} (${stat.size} bytes)`);
-          return ok("Downloaded: " + url + "\nSaved to: " + save_path + "\nSize: " + stat.size + " bytes");
-        } else {
-          return fail("Download completed but file not found at: " + save_path);
-        }
+        await withRetry(() => safeExecFile(spec.file, spec.args, 120000), { baseDelay: 1000, toolName: "download_file" });
+        return success(`Downloaded: ${url} -> ${save_path}`, { url, path: save_path });
       } catch (e: any) {
-        return fail("Download failed: " + e.message);
+        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    }
+    })
   );
 }

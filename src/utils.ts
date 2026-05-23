@@ -1,10 +1,10 @@
-// src/utils.ts — 核心工具函数：命令执行、格式化、响应构建
+// src/utils.ts — 核心工具函数：命令执行、格式化
 import { exec, execFile } from "child_process";
-import { getShell, wrapCommand } from "./platform.js";
+import { getShell, wrapCommand, IS_WIN } from "./platform.js";
 
 /**
  * 安全执行 shell 命令（通过 shell 解释器）
- * 适用于需要管道、重定向等 shell 特性的命令
+ * 用于需要 shell 特性（管道/重定向）的场景，大输出场景优先使用 spawnStream。
  */
 export function safeExec(
   cmd: string,
@@ -86,35 +86,13 @@ function smartDecode(buf: Buffer | null): string {
  */
 export function formatSize(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
+  const sign = bytes < 0 ? -1 : 1;
   let i = 0;
-  let size = bytes;
+  let size = Math.abs(bytes);
   while (size >= 1024 && i < units.length - 1) {
     size /= 1024;
     i++;
   }
-  return size.toFixed(2) + " " + units[i];
+  return (sign < 0 ? "-" : "") + size.toFixed(2) + " " + units[i];
 }
 
-/**
- * 成功响应（纯文本）
- */
-export function ok(text: string) {
-  return { content: [{ type: "text" as const, text }] };
-}
-
-/**
- * 错误响应（带 isError 标记）
- */
-export function fail(text: string) {
-  return { content: [{ type: "text" as const, text: "[ERROR] " + text }], isError: true as const };
-}
-
-/**
- * 成功响应（结构化输出：同时包含 content 文本和 structuredContent JSON）
- */
-export function okStructured(text: string, data: Record<string, any>) {
-  return {
-    content: [{ type: "text" as const, text }],
-    structuredContent: data,
-  };
-}

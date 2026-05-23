@@ -18,6 +18,14 @@ const GUARDED_TOOLS = new Set([
   "watch_command",
 ]);
 
+// ===== normal 模式下需要 Elicitation 确认的工具（GUARDED_TOOLS 的子集） =====
+// execute_command/batch_execute/watch_command 依赖 hasDangerousPattern 检查，不需要 elicitation
+const ELICITATION_TOOLS = new Set([
+  "delete_path",
+  "write_file",
+  "kill_process",
+]);
+
 // ===== 关键进程黑名单（所有模式下禁止杀死） =====
 const CRITICAL_PROCESSES_WIN = new Set([
   "csrss.exe", "wininit.exe", "smss.exe", "lsass.exe",
@@ -58,6 +66,8 @@ export function initSafeGuard(server: McpServer): void {
  * 检查是否为关键系统进程 — 所有模式下生效
  */
 export function isCriticalProcess(name?: string, pid?: number): boolean {
+  // PID 0/1/4 在所有平台上都是关键进程
+  if (pid != null && (pid === 0 || pid === 1 || pid === 4)) return true;
   if (!name) return false;
   const lower = name.toLowerCase().trim();
   const list = IS_WIN ? CRITICAL_PROCESSES_WIN : CRITICAL_PROCESSES_UNIX;
@@ -93,7 +103,11 @@ export async function guardDestructiveAction(
     return null;
   }
 
-  // normal 模式：通过 Elicitation 向用户确认
+  // normal 模式：仅对需要确认的工具通过 Elicitation 向用户确认
+  if (!ELICITATION_TOOLS.has(toolName)) {
+    return null; // 不需要 elicitation 的工具直接放行
+  }
+
   if (!_server) {
     logger.error("safeguard", "no-server", "SafeGuard not initialized — call initSafeGuard(server) first");
     return `[SAFETY] Internal error: SafeGuard not initialized.`;

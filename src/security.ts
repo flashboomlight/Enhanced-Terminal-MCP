@@ -1,6 +1,7 @@
 // src/security.ts — 安全基础层：路径穿越检测、命令注入防护、危险路径/敏感文件黑名单
 import * as path from "path";
-import { platform } from "os";
+import { IS_WIN } from "./platform.js";
+import { logger } from "./logger.js";
 
 // 禁止操作的系统关键路径
 const FORBIDDEN_PATHS_WIN = [
@@ -15,11 +16,11 @@ const FORBIDDEN_PATHS_WIN = [
 ];
 const FORBIDDEN_PATHS_UNIX = [
   "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/libexec",
-  "/boot", "/etc", "/proc", "/sys",
+  "/boot", "/etc", "/proc", "/sys", "/dev",
 ];
 
-// 平台缓存
-const _IS_WIN = platform() === "win32";
+// 平台缓存（使用统一的 IS_WIN from platform.ts）
+const _IS_WIN = IS_WIN;
 
 // 敏感文件名 / 扩展名（密钥、凭据、环境变量等）
 const SENSITIVE_FILE_PATTERNS: RegExp[] = [
@@ -28,7 +29,7 @@ const SENSITIVE_FILE_PATTERNS: RegExp[] = [
   /(^|[\\/])\.pypirc$/i,
   /(^|[\\/])\.netrc$/i,
   /(^|[\\/])\.git-credentials$/i,
-  /(^|[\\/])id_[a-z0-9]+(?:\.pub)?$/i,      // SSH keys
+  /(^|[\\/])id_[a-z0-9]+$/i,                    // SSH private keys (不含 .pub)
   /(^|[\\/])known_hosts$/i,
   /(^|[\\/])authorized_keys$/i,
   /\.pem$/i,
@@ -77,19 +78,23 @@ export function normalizePath(inputPath: string): string {
   }
   try {
     p = path.resolve(p);
-  } catch {
-    /* keep original */
+  } catch (e: any) {
+    logger.warn("security", "resolve-failed", `path.resolve failed for "${inputPath}": ${e.message}`);
   }
   return p;
 }
 
 /**
  * 路径穿越检测
- * - 拦截 URL 编码绕过（%2e%2e、%252e%252e）
- * - resolve 后若仍含 ".." 段则拦截（正常不会发生）
+ * - 拦截 URL 编码绕过（单/双/三层编码 + overlong UTF-8）
+ * - resolve 后若仍含 ".." 段则拦截
  */
 export function isPathTraversal(inputPath: string): boolean {
-  if (/%2e%2e|%252e%252e/i.test(inputPath)) return true;
+  // URL 编码绕过检测（含三层编码和 overlong UTF-8）
+  if (/%2e%2e|%252e%252e|%25252e|%2f%2e|%252f%252e|%c0%ae|%c0%af|%e0%80%ae/i.test(inputPath)) return true;
+  // 检查原始输入中的 ".." 段
+  const segments = inputPath.split(/[\\/]/);
+  if (segments.some(seg => seg === "..")) return true;
   const resolved = normalizePath(inputPath);
   if (resolved.split(/[\\/]/).some(seg => seg === "..")) return true;
   return false;
@@ -135,14 +140,24 @@ export function validatePath(targetPath: string, operation: string): string | nu
   if (isForbiddenPath(targetPath)) {
     return `Operation '${operation}' blocked: path is in protected system directory: ${targetPath}`;
   }
+  if (isSensitivePath(targetPath)) {
+    return `Operation '${operation}' blocked: path contains sensitive data: ${targetPath}`;
+  }
   return null;
 }
 
 /**
  * 危险命令模式（尽力而为的黑名单 — 不是唯一防线）
+ * 覆盖：直接调用、分离 flag、eval/子shell 包裹、PowerShell 变体（含缩写）
  */
 const DANGEROUS_PATTERNS: RegExp[] = [
-  /\brm\s+-[a-zA-Z]*[rRfF][a-zA-Z]*\s+(?:\/(?:\s|$|\*)|~|\$HOME)/i,   // rm -rf /, /*, ~, $HOME
+  // rm -rf / (合并 flag)
+  /\brm\s+-[a-zA-Z]*[rRfF][a-zA-Z]*\s+(?:\/(?:\s|$|\*)|~|\$HOME)/i,
+  // rm -r -f / (分离 flag)
+  /\brm\s+(?:-[a-zA-Z]*\s+)*-[rR]\b.*\s+-[fF]\b.*\s+(?:\/(?:\s|$|\*)|~|\$HOME)/i,
+  /\brm\s+(?:-[a-zA-Z]*\s+)*-[fF]\b.*\s+-[rR]\b.*\s+(?:\/(?:\s|$|\*)|~|\$HOME)/i,
+  // rm --recursive --force /
+  /\brm\s+--(?:recursive|force)\s+--(?:recursive|force)\s+(?:\/(?:\s|$|\*)|~|\$HOME)/i,
   /\brm\s+--no-preserve-root/i,
   /\brmdir\s+\/[sS]\s+\/[qQ]\s+[a-zA-Z]:[\\/]/i,
   /\brd\s+\/[sS]\s+\/[qQ]\s+[a-zA-Z]:[\\/]/i,
@@ -155,10 +170,22 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /\bshutdown\s+(?:-|\/)/i,
   /\b(?:halt|poweroff|reboot)\s+-/i,
   /\bchmod\s+-R\s+0*777\s+\//i,
+  // eval/子shell 包裹的危险命令
+  /\beval\s+.*\brm\s+-[a-zA-Z]*[rRfF]/i,
+  /\$\(.*\brm\s+-[a-zA-Z]*[rRfF]/i,
+  /`.*\brm\s+-[a-zA-Z]*[rRfF]/i,
+  // PowerShell 危险命令（含缩写参数 -r, -fo, -rec）
+  /\bRemove-Item\s+.*-(?:Recurse|rec|r)\b.*-(?:Force|fo)\b.*[a-zA-Z]:\\/i,
+  /\bRemove-Item\s+.*-(?:Force|fo)\b.*-(?:Recurse|rec|r)\b.*[a-zA-Z]:\\/i,
+  /\bFormat-Volume\b/i,
+  /\bClear-Disk\b/i,
 ];
 
-export function hasDangerousPattern(cmd: string): boolean {
-  return DANGEROUS_PATTERNS.some(p => p.test(cmd));
+export function hasDangerousPattern(cmd: string): string | null {
+  for (const p of DANGEROUS_PATTERNS) {
+    if (p.test(cmd)) return p.source;
+  }
+  return null;
 }
 
 /**
