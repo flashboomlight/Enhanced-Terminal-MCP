@@ -7,12 +7,12 @@
  * - 硬性底线: 系统目录、关键进程、路径穿越在 off 模式下仍被拒
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
+import * as path from "path";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 // ===== 测试用临时目录 =====
 const TMP_DIR = path.join(os.tmpdir(), "mcp-safeguard-test-" + Date.now());
@@ -38,9 +38,12 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  try { fs.rmSync(TMP_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+  try {
+    fs.rmSync(TMP_DIR, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
 });
-
 
 // ═══════════════════════════════════════════════════
 // 1. STRICT 模式：所有破坏性工具直接拒绝
@@ -54,7 +57,11 @@ describe("Strict Mode — all destructive tools blocked", () => {
   });
 
   afterAll(async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    try {
+      await client.close();
+    } catch {
+      /* ignore */
+    }
   });
 
   test("execute_command is blocked in strict mode", async () => {
@@ -130,7 +137,6 @@ describe("Strict Mode — all destructive tools blocked", () => {
   });
 });
 
-
 // ═══════════════════════════════════════════════════
 // 2. OFF 模式：安全锁跳过
 // ═══════════════════════════════════════════════════
@@ -143,7 +149,11 @@ describe("Off Mode — safety checks skipped", () => {
   });
 
   afterAll(async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    try {
+      await client.close();
+    } catch {
+      /* ignore */
+    }
   });
 
   test("execute_command works freely in off mode", async () => {
@@ -177,7 +187,6 @@ describe("Off Mode — safety checks skipped", () => {
   });
 });
 
-
 // ═══════════════════════════════════════════════════
 // 3. 硬性底线：off 模式下仍然生效
 // ═══════════════════════════════════════════════════
@@ -190,7 +199,11 @@ describe("Hard Safety Baselines — enforced even in off mode", () => {
   });
 
   afterAll(async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    try {
+      await client.close();
+    } catch {
+      /* ignore */
+    }
   });
 
   test("system directory deletion blocked in off mode", async () => {
@@ -237,7 +250,6 @@ describe("Hard Safety Baselines — enforced even in off mode", () => {
   });
 });
 
-
 // ═══════════════════════════════════════════════════
 // 4. Normal 模式：Elicitation 降级（客户端不支持时拒绝）
 // ═══════════════════════════════════════════════════
@@ -250,7 +262,11 @@ describe("Normal Mode — Elicitation fallback", () => {
   });
 
   afterAll(async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    try {
+      await client.close();
+    } catch {
+      /* ignore */
+    }
   });
 
   test("dangerous command is hard-blocked even in normal mode", async () => {

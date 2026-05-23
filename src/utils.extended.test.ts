@@ -1,7 +1,7 @@
 /**
  * utils.ts 扩展单元测试 — 包含 child_process mock
  */
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // ====================================================================
 // safeExec 和 safeExecFile 测试（mock child_process）

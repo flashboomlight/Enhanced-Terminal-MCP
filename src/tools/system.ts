@@ -1,17 +1,18 @@
 /**
  * 系统工具: get_system_info, process_list, kill_process, network_info, environment_vars
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
-import { safeExecFile } from "../utils.js";
-import { getProcessListSpec, getKillSpec, getNetworkSpec, getSystemInfoSpec } from "../platform.js";
-import { validateHost } from "../security.js";
-import { guardDestructiveAction, isCriticalProcess } from "../safeguard.js";
 import { logger } from "../logger.js";
-import { success, fail, ErrorCode, type ToolResult } from "../result.js";
+import { getKillSpec, getNetworkSpec, getProcessListSpec, getSystemInfoSpec } from "../platform.js";
+import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { guardDestructiveAction, isCriticalProcess } from "../safeguard.js";
+import { validateHost } from "../security.js";
+import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 
-const SENSITIVE_ENV_KEYWORDS = /(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|AUTH|PRIVATE_?KEY|CREDENTIAL|ENCRYPTION|PSW|JWT|OAUTH|CERT|LICENSE_KEY|DB_PASS)/i;
+const SENSITIVE_ENV_KEYWORDS =
+  /(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|AUTH|PRIVATE_?KEY|CREDENTIAL|ENCRYPTION|PSW|JWT|OAUTH|CERT|LICENSE_KEY|DB_PASS)/i;
 
 export function registerSystemTools(server: McpServer) {
   // ====================================================================
@@ -33,7 +34,7 @@ export function registerSystemTools(server: McpServer) {
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -60,7 +61,7 @@ export function registerSystemTools(server: McpServer) {
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -82,7 +83,10 @@ export function registerSystemTools(server: McpServer) {
     },
     wrapHandler("kill_process", async ({ pid, name, force }: KillProcessInput) => {
       if (isCriticalProcess(name, pid)) {
-        return fail(ErrorCode.PROCESS_PROTECTED, `Cannot kill critical system process: ${name || `PID ${pid}`}`, { retryable: false, param: name ? "name" : "pid" });
+        return fail(ErrorCode.PROCESS_PROTECTED, `Cannot kill critical system process: ${name || `PID ${pid}`}`, {
+          retryable: false,
+          param: name ? "name" : "pid",
+        });
       }
 
       const block = await guardDestructiveAction("kill_process", `终止进程 ${name || pid || "(unknown)"}`);
@@ -95,12 +99,15 @@ export function registerSystemTools(server: McpServer) {
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
   const NetworkInfoInput = z.object({
-    action: z.enum(["config", "connections", "ping", "dns"]).optional().describe("Action: config, connections, ping, dns. Default: config"),
+    action: z
+      .enum(["config", "connections", "ping", "dns"])
+      .optional()
+      .describe("Action: config, connections, ping, dns. Default: config"),
     target: z.string().optional().describe("Target host for ping/dns"),
   });
   type NetworkInfoInput = z.infer<typeof NetworkInfoInput>;
@@ -127,7 +134,7 @@ export function registerSystemTools(server: McpServer) {
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -162,17 +169,19 @@ export function registerSystemTools(server: McpServer) {
           .sort(([a], [b]) => a.localeCompare(b));
 
         for (const [k, v] of entries) {
-          vars[k] = SENSITIVE_ENV_KEYWORDS.test(k) ? "***" : (v || "");
+          vars[k] = SENSITIVE_ENV_KEYWORDS.test(k) ? "***" : String(v ?? "");
         }
 
         const allLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`);
         const maxVars = 100;
         const truncated = allLines.length > maxVars;
-        const text = (truncated ? allLines.slice(0, maxVars).join("\n") + `\n... (${allLines.length - maxVars} more)` : allLines.join("\n"));
+        const text = truncated
+          ? allLines.slice(0, maxVars).join("\n") + `\n... (${allLines.length - maxVars} more)`
+          : allLines.join("\n");
         return success("Environment Variables (sensitive keys hidden):\n" + text, { vars });
       } catch (e: any) {
         return fail(ErrorCode.INTERNAL_ERROR, e.message, { retryable: false });
       }
-    })
+    }),
   );
 }

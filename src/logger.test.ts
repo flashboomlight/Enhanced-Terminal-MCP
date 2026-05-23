@@ -2,7 +2,7 @@
  * logger.ts 单元测试
  * 测试日志输出格式和级别过滤
  */
-import { describe, test, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const originalConsoleError = console.error;
 let captured: string[] = [];

@@ -4,9 +4,9 @@
  * 惰性初始化：不在模块加载时 spawn 进程，仅在首次 acquire() 时按需创建。
  * shutdown 时统一销毁。
  */
-import { ChildProcess, spawn } from "child_process";
-import { IS_WIN, getShell } from "./platform.js";
+import { type ChildProcess, spawn } from "child_process";
 import { logger } from "./logger.js";
+import { getShell, IS_WIN } from "./platform.js";
 
 interface PoolEntry {
   proc: ChildProcess;
@@ -34,7 +34,7 @@ class ProcessPool {
 
   /** 获取一个空闲进程，没有则创建 */
   acquire(): PoolEntry {
-    const idle = this.pool.find(e => !e.busy);
+    const idle = this.pool.find((e) => !e.busy);
     if (idle) {
       idle.busy = true;
       return idle;
@@ -45,7 +45,9 @@ class ProcessPool {
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
-      proc.on("error", (err) => { logger.warn("pool", "spawn-error", err.message); });
+      proc.on("error", (err) => {
+        logger.warn("pool", "spawn-error", err.message);
+      });
       const entry: PoolEntry = { proc, busy: true, lastActiveAt: Date.now(), id: this.nextId++ };
       this.pool.push(entry);
       logger.info("pool", "spawned", `shell pid=${proc.pid} pool=${this.pool.length}`);
@@ -57,7 +59,9 @@ class ProcessPool {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
-    proc.on("error", (err) => { logger.warn("pool", "spawn-error", err.message); });
+    proc.on("error", (err) => {
+      logger.warn("pool", "spawn-error", err.message);
+    });
     const entry: PoolEntry = { proc, busy: true, lastActiveAt: Date.now(), id: this.nextId++ };
     this.overflow.push(entry);
     logger.warn("pool", "overflow", `pool full (${this.maxSize}), spawned temporary process pid=${proc.pid}`);
@@ -71,7 +75,9 @@ class ProcessPool {
     const idx = this.overflow.indexOf(entry);
     if (idx !== -1) {
       this.overflow.splice(idx, 1);
-      try { entry.proc.kill(); } catch {}
+      try {
+        entry.proc.kill();
+      } catch {}
     }
   }
 
@@ -79,9 +85,11 @@ class ProcessPool {
   sweep(): number {
     const now = Date.now();
     let removed = 0;
-    this.pool = this.pool.filter(e => {
+    this.pool = this.pool.filter((e) => {
       if (!e.busy && now - e.lastActiveAt > this.idleTimeout) {
-        try { e.proc.kill(); } catch {}
+        try {
+          e.proc.kill();
+        } catch {}
         removed++;
         return false;
       }
@@ -100,9 +108,20 @@ class ProcessPool {
 
   /** 全量销毁 */
   destroy(): void {
-    if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
-    for (const e of this.pool) { try { e.proc.kill(); } catch {} }
-    for (const e of this.overflow) { try { e.proc.kill(); } catch {} }
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+    for (const e of this.pool) {
+      try {
+        e.proc.kill();
+      } catch {}
+    }
+    for (const e of this.overflow) {
+      try {
+        e.proc.kill();
+      } catch {}
+    }
     this.pool = [];
     this.overflow = [];
     logger.info("pool", "destroyed", "all processes killed");
@@ -112,8 +131,8 @@ class ProcessPool {
     return {
       size: this.pool.length,
       max: this.maxSize,
-      idle: this.pool.filter(e => !e.busy).length,
-      busy: this.pool.filter(e => e.busy).length,
+      idle: this.pool.filter((e) => !e.busy).length,
+      busy: this.pool.filter((e) => e.busy).length,
     };
   }
 }

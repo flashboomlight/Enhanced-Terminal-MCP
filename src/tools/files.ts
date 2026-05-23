@@ -1,20 +1,20 @@
 /**
  * 文件操作工具: read_file, write_file, list_directory, file_info, make_directory
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import * as z from "zod";
-import * as fs from "fs/promises";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createReadStream } from "fs";
+import * as fs from "fs/promises";
 import * as path from "path";
 import * as readline from "readline";
-import { formatSize } from "../utils.js";
-import { validatePath } from "../security.js";
-import { guardDestructiveAction } from "../safeguard.js";
-import { logger } from "../logger.js";
-import { success, fail, ErrorCode, type ToolResult } from "../result.js";
-import { scanContent } from "../scan.js";
-import { wrapHandler } from "../wrap.js";
+import * as z from "zod";
 import { toolCache } from "../cache.js";
+import { logger } from "../logger.js";
+import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { guardDestructiveAction } from "../safeguard.js";
+import { scanContent } from "../scan.js";
+import { validatePath } from "../security.js";
+import { formatSize } from "../utils.js";
+import { wrapHandler } from "../wrap.js";
 
 export function registerFileTools(server: McpServer) {
   // ====================================================================
@@ -44,10 +44,26 @@ export function registerFileTools(server: McpServer) {
       const pathErr = validatePath(file_path, "read_file");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "file_path" });
 
-      const VALID_ENCODINGS = new Set(["utf-8", "utf8", "ascii", "latin1", "binary", "hex", "base64", "ucs2", "ucs-2", "utf16le", "utf-16le"]);
+      const VALID_ENCODINGS = new Set([
+        "utf-8",
+        "utf8",
+        "ascii",
+        "latin1",
+        "binary",
+        "hex",
+        "base64",
+        "ucs2",
+        "ucs-2",
+        "utf16le",
+        "utf-16le",
+      ]);
       const enc = (encoding || "utf-8").toLowerCase();
       if (!VALID_ENCODINGS.has(enc)) {
-        return fail(ErrorCode.VALIDATION_ERROR, `Unsupported encoding: ${encoding}`, { retryable: true, param: "encoding", suggestion: "Use utf-8, ascii, latin1, or utf16le" });
+        return fail(ErrorCode.VALIDATION_ERROR, `Unsupported encoding: ${encoding}`, {
+          retryable: true,
+          param: "encoding",
+          suggestion: "Use utf-8, ascii, latin1, or utf16le",
+        });
       }
 
       try {
@@ -81,13 +97,17 @@ export function registerFileTools(server: McpServer) {
         return success(
           truncated ? output + "\n... (truncated)" : output,
           { content: output, total_lines: lineNum, truncated, size_bytes: stat.size },
-          { truncated }
+          { truncated },
         );
       } catch (e: any) {
-        if (e.code === "ENOENT") return fail(ErrorCode.PATH_NOT_FOUND, "File not found: " + file_path, { retryable: true, param: "file_path" });
+        if (e.code === "ENOENT")
+          return fail(ErrorCode.PATH_NOT_FOUND, "File not found: " + file_path, {
+            retryable: true,
+            param: "file_path",
+          });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -120,13 +140,19 @@ export function registerFileTools(server: McpServer) {
       const scan = scanContent(content);
       if (!scan.safe) {
         return fail(ErrorCode.PATH_SENSITIVE, `Content contains secrets: ${scan.findings.join(", ")}`, {
-          retryable: false, param: "content", suggestion: "Remove credentials before writing", detail: { findings: scan.findings }
+          retryable: false,
+          param: "content",
+          suggestion: "Remove credentials before writing",
+          detail: { findings: scan.findings },
         });
       }
 
       // 仅覆写已有文件时触发安全确认
       let existed = false;
-      try { await fs.stat(file_path); existed = true; } catch {}
+      try {
+        await fs.stat(file_path);
+        existed = true;
+      } catch {}
 
       if (existed && !append) {
         const block = await guardDestructiveAction("write_file", `覆写文件: ${file_path}`);
@@ -148,12 +174,15 @@ export function registerFileTools(server: McpServer) {
         toolCache.invalidateByValue(path.dirname(file_path));
         logger.info("write_file", "written", file_path);
         return success(`Written: ${file_path} (${formatSize(stat.size)})`, {
-          path: file_path, size_bytes: stat.size, existed, appended: !!append,
+          path: file_path,
+          size_bytes: stat.size,
+          existed,
+          appended: !!append,
         });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -171,7 +200,9 @@ export function registerFileTools(server: McpServer) {
       description: "List files and directories in a path with details.",
       inputSchema: ListDirectoryInput,
       outputSchema: z.object({
-        entries: z.array(z.object({ name: z.string(), type: z.enum(["file", "dir"]), size_bytes: z.number().optional() })),
+        entries: z.array(
+          z.object({ name: z.string(), type: z.enum(["file", "dir"]), size_bytes: z.number().optional() }),
+        ),
         total: z.number(),
         truncated: z.boolean(),
       }),
@@ -186,21 +217,28 @@ export function registerFileTools(server: McpServer) {
         const maxE = 2000;
         let count = 0;
         const lines: string[] = [];
-        const structured: Array<{name: string; type: "file"|"dir"; size_bytes?: number}> = [];
+        const structured: Array<{ name: string; type: "file" | "dir"; size_bytes?: number }> = [];
         const visited = new Set<string>(); // 防止符号链接循环
 
         async function walk(p: string, depth: number) {
           if (count >= maxE) return;
           // 解析真实路径防止符号链接循环
           let realP: string;
-          try { realP = await fs.realpath(p); } catch { realP = p; }
+          try {
+            realP = await fs.realpath(p);
+          } catch {
+            realP = p;
+          }
           if (visited.has(realP)) return;
           visited.add(realP);
           const entries = await fs.readdir(p, { withFileTypes: true });
           const indent = "  ".repeat(depth);
-          const files: Array<{e: typeof entries[0]; fp: string}> = [];
+          const files: Array<{ e: (typeof entries)[0]; fp: string }> = [];
           for (const e of entries) {
-            if (count >= maxE) { lines.push(indent + "(truncated)"); return; }
+            if (count >= maxE) {
+              lines.push(indent + "(truncated)");
+              return;
+            }
             count++;
             const fp = path.join(p, e.name);
             if (e.isDirectory()) {
@@ -208,13 +246,13 @@ export function registerFileTools(server: McpServer) {
               structured.push({ name: fp, type: "dir" });
               if (recursive && depth < maxD) await walk(fp, depth + 1);
             } else {
-              files.push({e, fp});
+              files.push({ e, fp });
             }
           }
           // 批量并行 stat 文件
-          const stats = await Promise.allSettled(files.map(f => fs.stat(f.fp)));
+          const stats = await Promise.allSettled(files.map((f) => fs.stat(f.fp)));
           for (let i = 0; i < files.length; i++) {
-            const {e, fp} = files[i];
+            const { e, fp } = files[i];
             const r = stats[i];
             if (r.status === "fulfilled") {
               lines.push(indent + "[FILE] " + e.name + "  (" + formatSize(r.value.size) + ")");
@@ -233,13 +271,17 @@ export function registerFileTools(server: McpServer) {
         return success(
           lines.join("\n"),
           { entries: structured, total: count, truncated: count >= maxE },
-          { truncated: count >= maxE }
+          { truncated: count >= maxE },
         );
       } catch (e: any) {
-        if (e.code === "ENOENT") return fail(ErrorCode.PATH_NOT_FOUND, "Directory not found: " + dir_path, { retryable: true, param: "dir_path" });
+        if (e.code === "ENOENT")
+          return fail(ErrorCode.PATH_NOT_FOUND, "Directory not found: " + dir_path, {
+            retryable: true,
+            param: "dir_path",
+          });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -279,13 +321,14 @@ export function registerFileTools(server: McpServer) {
             is_file: stat.isFile(),
             created: stat.birthtime.toISOString(),
             modified: stat.mtime.toISOString(),
-          }
+          },
         );
       } catch (e: any) {
-        if (e.code === "ENOENT") return fail(ErrorCode.PATH_NOT_FOUND, "Not found: " + target_path, { retryable: true, param: "target_path" });
+        if (e.code === "ENOENT")
+          return fail(ErrorCode.PATH_NOT_FOUND, "Not found: " + target_path, { retryable: true, param: "target_path" });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -309,13 +352,16 @@ export function registerFileTools(server: McpServer) {
 
       try {
         let existed = false;
-        try { const s = await fs.stat(dir_path); existed = s.isDirectory(); } catch {}
+        try {
+          const s = await fs.stat(dir_path);
+          existed = s.isDirectory();
+        } catch {}
         await fs.mkdir(dir_path, { recursive: true });
         logger.info("make_directory", "created", dir_path);
         return success(`Created: ${dir_path}`, { path: dir_path, created: !existed });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 }

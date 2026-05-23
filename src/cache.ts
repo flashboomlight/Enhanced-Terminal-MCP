@@ -21,7 +21,10 @@ export class LRUCache<T> {
 
   get(key: string): { value: T; fromCache: true } | null {
     const entry = this.cache.get(key);
-    if (!entry) { this.misses++; return null; }
+    if (!entry) {
+      this.misses++;
+      return null;
+    }
     if (Date.now() > entry.expires) {
       this.cache.delete(key);
       this.misses++;
@@ -88,9 +91,7 @@ export class LRUCache<T> {
       maxSize: this.maxSize,
       hits: this.hits,
       misses: this.misses,
-      hitRate: this.hits + this.misses > 0
-        ? (this.hits / (this.hits + this.misses) * 100).toFixed(1) + "%"
-        : "N/A",
+      hitRate: this.hits + this.misses > 0 ? ((this.hits / (this.hits + this.misses)) * 100).toFixed(1) + "%" : "N/A",
     };
   }
 
@@ -120,6 +121,6 @@ export const CACHEABLE_TOOLS = new Set([
 
 /** 工具级 TTL 覆盖（毫秒），未列出的使用默认 30s */
 export const TOOL_TTL: Record<string, number> = {
-  list_directory: 5000,    // 目录内容变化频繁，5s
-  get_system_info: 60000,  // 系统信息变化慢，60s
+  list_directory: 5000, // 目录内容变化频繁，5s
+  get_system_info: 60000, // 系统信息变化慢，60s
 };

@@ -1,7 +1,7 @@
 /**
  * safeguard.ts 扩展测试 — 包含 MCP Server mock
  */
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // 保存原始环境变量
 const originalSafetyMode = process.env.MCP_SAFETY_MODE;

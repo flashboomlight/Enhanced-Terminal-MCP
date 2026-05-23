@@ -2,17 +2,18 @@
  * 命令执行工具: execute_command, batch_execute, watch_command
  * 使用统一 ToolResult 协议 + MCP CallToolResult 兼容转换
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
-import { spawnStream } from "../stream.js";
-import { IS_WIN } from "../platform.js";
-import { hasDangerousPattern } from "../security.js";
-import { guardDestructiveAction } from "../safeguard.js";
-import { logger } from "../logger.js";
-import { session } from "../session.js";
-import { success, fail, ErrorCode, type ToolResult } from "../result.js";
-import { wrapHandler } from "../wrap.js";
 import { adaptiveTimeout } from "../adaptive.js";
+import { logger } from "../logger.js";
+import { IS_WIN } from "../platform.js";
+import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
+import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { guardDestructiveAction } from "../safeguard.js";
+import { hasDangerousPattern } from "../security.js";
+import { session } from "../session.js";
+import { spawnStream } from "../stream.js";
+import { wrapHandler } from "../wrap.js";
 
 export function registerCommandTools(server: McpServer) {
   // ====================================================================
@@ -44,7 +45,16 @@ export function registerCommandTools(server: McpServer) {
     wrapHandler("execute_command", async ({ command, cwd, timeout }: ExecuteCommandInput) => {
       const t0 = Date.now();
       const dp = hasDangerousPattern(command);
-      if (dp) return fail(ErrorCode.COMMAND_DANGEROUS, `Command blocked — dangerous pattern: ${dp}`, { retryable: false, param: "command", detail: { command, pattern: dp } });
+      if (dp)
+        return fail(ErrorCode.COMMAND_DANGEROUS, `Command blocked — dangerous pattern: ${dp}`, {
+          retryable: false,
+          param: "command",
+          detail: { command, pattern: dp },
+        });
+
+      const rateErr = checkRateLimit(commandRateLimit, "execute_command");
+      if (rateErr)
+        return fail(ErrorCode.EXECUTION_FAILED, rateErr, { retryable: true, suggestion: "Wait 200ms and retry" });
 
       const block = await guardDestructiveAction("execute_command", `执行命令: ${command}`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
@@ -57,23 +67,39 @@ export function registerCommandTools(server: McpServer) {
         const result = await spawnStream(shell, shellArgs, { timeout: effectiveTimeout, cwd: effectiveCwd });
         session.pushHistory(command);
 
-        if (result.timedOut) return fail(ErrorCode.TIMEOUT, "Command timed out", { retryable: true, param: "timeout", suggestion: "Use a simpler command or increase timeout" });
+        if (result.timedOut)
+          return fail(ErrorCode.TIMEOUT, "Command timed out", {
+            retryable: true,
+            param: "timeout",
+            suggestion: "Use a simpler command or increase timeout",
+          });
 
         const output = result.stdout || "(no output)";
         const errInfo = result.stderr ? `\n[stderr]:\n${result.stderr.slice(0, 500)}` : "";
 
         if (result.exitCode !== 0) {
-          return fail(ErrorCode.EXECUTION_FAILED, `Command failed (exit ${result.exitCode})\n[stdout]:\n${output.slice(0, 500)}${errInfo}`, { retryable: true });
+          return fail(
+            ErrorCode.EXECUTION_FAILED,
+            `Command failed (exit ${result.exitCode})\n[stdout]:\n${output.slice(0, 500)}${errInfo}`,
+            { retryable: true },
+          );
         }
         const maxChars = 2000;
         const truncated = output.length > maxChars;
-        return success(truncated ? output.slice(0, maxChars) + `\n... (truncated, ${output.length} chars total)` : output, {
-          stdout: result.stdout, stderr: result.stderr, exit_code: result.exitCode ?? -1, timed_out: false,
-        }, { latency_ms: Date.now() - t0, truncated });
+        return success(
+          truncated ? output.slice(0, maxChars) + `\n... (truncated, ${output.length} chars total)` : output,
+          {
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exit_code: result.exitCode ?? -1,
+            timed_out: false,
+          },
+          { latency_ms: Date.now() - t0, truncated },
+        );
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message || "Unknown error", { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -92,7 +118,15 @@ export function registerCommandTools(server: McpServer) {
       description: "Execute multiple commands sequentially. Stops on first error if stop_on_error is true (default).",
       inputSchema: BatchExecuteInput,
       outputSchema: z.object({
-        results: z.array(z.object({ command: z.string(), stdout: z.string(), stderr: z.string(), ok: z.boolean(), latency_ms: z.number() })),
+        results: z.array(
+          z.object({
+            command: z.string(),
+            stdout: z.string(),
+            stderr: z.string(),
+            ok: z.boolean(),
+            latency_ms: z.number(),
+          }),
+        ),
         summary: z.string(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
@@ -104,14 +138,19 @@ export function registerCommandTools(server: McpServer) {
 
       for (const cmd of commands) {
         const dp = hasDangerousPattern(cmd);
-        if (dp) return fail(ErrorCode.COMMAND_DANGEROUS, `Dangerous pattern in batch: ${dp}`, { retryable: false, param: "commands", detail: { command: cmd, pattern: dp } });
+        if (dp)
+          return fail(ErrorCode.COMMAND_DANGEROUS, `Dangerous pattern in batch: ${dp}`, {
+            retryable: false,
+            param: "commands",
+            detail: { command: cmd, pattern: dp },
+          });
       }
 
       const block = await guardDestructiveAction("batch_execute", `批量执行 ${commands.length} 条命令`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "commands" });
 
       try {
-        const results: Array<{command: string; stdout: string; stderr: string; ok: boolean; latency_ms: number}> = [];
+        const results: Array<{ command: string; stdout: string; stderr: string; ok: boolean; latency_ms: number }> = [];
         let allOk = true;
 
         const execOne = async (cmd: string, idx: number) => {
@@ -121,7 +160,13 @@ export function registerCommandTools(server: McpServer) {
             const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
             const shellArgs = IS_WIN ? ["/c", cmd] : ["-c", cmd];
             const r = await spawnStream(shell, shellArgs, { timeout: 30000, cwd: cwd || session.getCwd() });
-            return { command: cmd, stdout: r.stdout || "", stderr: r.stderr || "", ok: r.exitCode === 0, latency_ms: Date.now() - ct0 };
+            return {
+              command: cmd,
+              stdout: r.stdout || "",
+              stderr: r.stderr || "",
+              ok: r.exitCode === 0,
+              latency_ms: Date.now() - ct0,
+            };
           } catch (e: any) {
             return { command: cmd, stdout: "", stderr: e.message || "failed", ok: false, latency_ms: Date.now() - ct0 };
           }
@@ -137,22 +182,27 @@ export function registerCommandTools(server: McpServer) {
             settled.push(...batchResults);
           }
           results.push(...settled);
-          allOk = settled.every(r => r.ok);
+          allOk = settled.every((r) => r.ok);
         } else {
           for (let i = 0; i < commands.length; i++) {
             const r = await execOne(commands[i], i);
             results.push(r);
-            if (!r.ok) { allOk = false; if (stop) break; }
+            if (!r.ok) {
+              allOk = false;
+              if (stop) break;
+            }
           }
         }
 
         session.pushHistory(commands.join("; "));
-        const summary = allOk ? `All ${results.length} commands OK` : `${results.filter(r => r.ok).length}/${results.length} commands OK`;
+        const summary = allOk
+          ? `All ${results.length} commands OK`
+          : `${results.filter((r) => r.ok).length}/${results.length} commands OK`;
         return success(summary, { results, summary }, { latency_ms: Date.now() - t0 });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message || "Batch failed", { retryable: true });
       }
-    })
+    }),
   );
 
   // ====================================================================
@@ -175,7 +225,12 @@ export function registerCommandTools(server: McpServer) {
     wrapHandler("watch_command", async ({ command, duration, cwd }: WatchCommandInput) => {
       const t0 = Date.now();
       const dp = hasDangerousPattern(command);
-      if (dp) return fail(ErrorCode.COMMAND_DANGEROUS, `Dangerous pattern: ${dp}`, { retryable: false, param: "command", detail: { command, pattern: dp } });
+      if (dp)
+        return fail(ErrorCode.COMMAND_DANGEROUS, `Dangerous pattern: ${dp}`, {
+          retryable: false,
+          param: "command",
+          detail: { command, pattern: dp },
+        });
 
       const block = await guardDestructiveAction("watch_command", `监控命令: ${command}`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
@@ -185,11 +240,20 @@ export function registerCommandTools(server: McpServer) {
         const shellArgs = IS_WIN ? ["/c", "chcp 65001 >nul && " + command] : ["-c", command];
         const result = await spawnStream(shell, shellArgs, { timeout: duration || 5000, cwd: cwd || session.getCwd() });
         const output = result.stdout || "(no output)";
-        if (result.timedOut) return success("$ " + command + "\n(timed out)\n" + output, { output, captured_ms: duration || 5000 }, { latency_ms: Date.now() - t0 });
-        return success("$ " + command + "\n" + output, { output, captured_ms: Date.now() - t0 }, { latency_ms: Date.now() - t0 });
+        if (result.timedOut)
+          return success(
+            "$ " + command + "\n(timed out)\n" + output,
+            { output, captured_ms: duration || 5000 },
+            { latency_ms: Date.now() - t0 },
+          );
+        return success(
+          "$ " + command + "\n" + output,
+          { output, captured_ms: Date.now() - t0 },
+          { latency_ms: Date.now() - t0 },
+        );
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message || "Watch failed", { retryable: true });
       }
-    })
+    }),
   );
 }

@@ -16,7 +16,10 @@
     "dev": "tsx src/index.ts",
     "postinstall": "patch-package",
     "test": "vitest run",
-    "test:latency": "vitest run tests/e2e-latency.test.ts"
+    "test:latency": "vitest run tests/e2e-latency.test.ts",
+    "lint": "biome check src/ tests/",
+    "format": "biome format --write src/ tests/",
+    "lint:fix": "biome check --write src/ tests/"
   },
   "keywords": [
     "mcp",
@@ -32,6 +35,7 @@
     "zod": "^3.25.67"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
     "@types/node": "^22.15.0",
     "@vitest/coverage-v8": "^4.1.6",
     "patch-package": "^8.0.1",

@@ -15,7 +15,7 @@ export interface CommandSpec {
   file: string;
   args: string[];
   useShell?: boolean;
-  shellCommand?: string;  // 若 useShell=true，这里放最终拼好的 shell 命令
+  shellCommand?: string; // 若 useShell=true，这里放最终拼好的 shell 命令
 }
 
 /**
@@ -194,11 +194,12 @@ export function getSystemInfoSpec(): CommandSpec {
       'Write-Output "OS: $($os.Caption) ($($os.OSArchitecture))";',
       'Write-Output "CPU: $($cpu.Name) $($cpu.NumberOfCores)C/$($cpu.NumberOfLogicalProcessors)T";',
       'Write-Output "Memory: $([math]::Round($mem.TotalPhysicalMemory/1GB,1))GB total";',
-      'Write-Output "Disk: $($disk -join \', \')";',
+      "Write-Output \"Disk: $($disk -join ', ')\";",
     ].join("\n");
     return { file: "powershell.exe", args: ["-NoProfile", "-Command", ps] };
   }
-  const sh = 'echo "OS: $(uname -a)"; echo "CPU: $(grep -m1 \'model name\' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs)"; echo "Memory: $(free -h 2>/dev/null | awk \'/^Mem:/{print $2}\' || echo N/A)"; echo "Disk: $(df -h / 2>/dev/null | awk \'NR==2{print $4\" free of \"$2}\' || echo N/A)";';
+  const sh =
+    'echo "OS: $(uname -a)"; echo "CPU: $(grep -m1 \'model name\' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs)"; echo "Memory: $(free -h 2>/dev/null | awk \'/^Mem:/{print $2}\' || echo N/A)"; echo "Disk: $(df -h / 2>/dev/null | awk \'NR==2{print $4" free of "$2}\' || echo N/A)";';
   return { file: "/bin/sh", args: ["-c", sh] };
 }
 
@@ -211,7 +212,11 @@ export function getDownloadSpec(url: string, savePath: string): CommandSpec {
     const p = escapePsString(savePath);
     return {
       file: "powershell.exe",
-      args: ["-NoProfile", "-Command", `Invoke-WebRequest -Uri '${u}' -OutFile '${p}' -UseBasicParsing -MaximumRedirection 5`],
+      args: [
+        "-NoProfile",
+        "-Command",
+        `Invoke-WebRequest -Uri '${u}' -OutFile '${p}' -UseBasicParsing -MaximumRedirection 5`,
+      ],
     };
   }
   return { file: "curl", args: ["-fSL", "--max-redirs", "5", "-o", savePath, url] };

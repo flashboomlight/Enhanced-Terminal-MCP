@@ -1,10 +1,11 @@
 /**
  * 精确集成测试 — 验证本轮全部升级点
  */
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+
 import * as fs from "fs/promises";
-import * as path from "path";
 import * as os from "os";
+import * as path from "path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 // ====================================================================
 // 【性能-1】telemetry 增量计数器
@@ -66,12 +67,11 @@ describe("【性能-3】stream.ts Buffer 收集", () => {
 
   test("超过 maxOutput 时截断并包含 TRUNCATED 标记", async () => {
     const { spawnStream } = await import("./stream.js");
-    const cmd = process.platform === "win32"
-      ? "powershell.exe"
-      : "/bin/sh";
-    const args = process.platform === "win32"
-      ? ["-NoProfile", "-Command", "1..5000 | ForEach-Object { 'A' * 100 }"]
-      : ["-c", "yes AAAAAAAAAA | head -n 5000"];
+    const cmd = process.platform === "win32" ? "powershell.exe" : "/bin/sh";
+    const args =
+      process.platform === "win32"
+        ? ["-NoProfile", "-Command", "1..5000 | ForEach-Object { 'A' * 100 }"]
+        : ["-c", "yes AAAAAAAAAA | head -n 5000"];
     const result = await spawnStream(cmd, args, { timeout: 15000, maxOutput: 1024 });
     expect(result.stdout).toContain("TRUNCATED");
   });
@@ -79,9 +79,7 @@ describe("【性能-3】stream.ts Buffer 收集", () => {
   test("stderr 独立收集不丢失", async () => {
     const { spawnStream } = await import("./stream.js");
     const cmd = process.platform === "win32" ? "cmd.exe" : "/bin/sh";
-    const args = process.platform === "win32"
-      ? ["/c", "echo err-msg 1>&2"]
-      : ["-c", "echo err-msg >&2"];
+    const args = process.platform === "win32" ? ["/c", "echo err-msg 1>&2"] : ["-c", "echo err-msg >&2"];
     const result = await spawnStream(cmd, args, { timeout: 5000 });
     expect(result.stderr.trim()).toBe("err-msg");
   });
@@ -160,12 +158,14 @@ describe("【功能-3】batch_execute 并发限制", () => {
     const { spawnStream } = await import("./stream.js");
     const IS_WIN = process.platform === "win32";
 
-    const commands = Array(8).fill(null).map(() => ({
-      cmd: IS_WIN ? "powershell.exe" : "/bin/sh",
-      args: IS_WIN
-        ? ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 100; Write-Output done"]
-        : ["-c", "sleep 0.1 && echo done"],
-    }));
+    const commands = Array(8)
+      .fill(null)
+      .map(() => ({
+        cmd: IS_WIN ? "powershell.exe" : "/bin/sh",
+        args: IS_WIN
+          ? ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 100; Write-Output done"]
+          : ["-c", "sleep 0.1 && echo done"],
+      }));
 
     const concurrency = 4;
     const t0 = Date.now();
@@ -173,17 +173,15 @@ describe("【功能-3】batch_execute 并发限制", () => {
 
     for (let i = 0; i < commands.length; i += concurrency) {
       const batch = commands.slice(i, i + concurrency);
-      const batchResults = await Promise.all(
-        batch.map(c => spawnStream(c.cmd, c.args, { timeout: 10000 }))
-      );
-      results.push(...batchResults.map(r => r.stdout.trim()));
+      const batchResults = await Promise.all(batch.map((c) => spawnStream(c.cmd, c.args, { timeout: 10000 })));
+      results.push(...batchResults.map((r) => r.stdout.trim()));
     }
 
     const elapsed = Date.now() - t0;
     // 两批 100ms 命令 → 至少 180ms（留 20ms 容差）
     expect(elapsed).toBeGreaterThanOrEqual(180);
     expect(results).toHaveLength(8);
-    results.forEach(r => expect(r).toBe("done"));
+    results.forEach((r) => expect(r).toBe("done"));
   });
 });
 
@@ -209,8 +207,10 @@ describe("【功能-4】compress_archive 返回 size_bytes", () => {
     // 直接用正确的 PowerShell 命令创建 zip（绕过 getCompressSpec 的已有 bug）
     const { spawnStream } = await import("./stream.js");
     const cmd = "powershell.exe";
-    const args = ["-NoProfile", "-Command",
-      `Compress-Archive -Path '${srcFile.replace(/'/g, "''")}' -DestinationPath '${outFile.replace(/'/g, "''")}' -Force`
+    const args = [
+      "-NoProfile",
+      "-Command",
+      `Compress-Archive -Path '${srcFile.replace(/'/g, "''")}' -DestinationPath '${outFile.replace(/'/g, "''")}' -Force`,
     ];
     const result = await spawnStream(cmd, args, { timeout: 15000 });
     expect(result.exitCode).toBe(0);
@@ -231,9 +231,7 @@ describe("【性能-4】grep_content 流式逐行读取", () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-grep-stream-"));
     // 创建一个 1000 行文件，只有第 5 行匹配
-    const lines = Array.from({ length: 1000 }, (_, i) =>
-      i === 4 ? "TARGET_MATCH_LINE" : `normal line ${i}`
-    );
+    const lines = Array.from({ length: 1000 }, (_, i) => (i === 4 ? "TARGET_MATCH_LINE" : `normal line ${i}`));
     await fs.writeFile(path.join(tmpDir, "big.txt"), lines.join("\n"));
   });
 

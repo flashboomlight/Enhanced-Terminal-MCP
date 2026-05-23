@@ -86,7 +86,7 @@ export function success<T>(content: string, structured: T, meta?: Partial<ToolMe
 export function fail(
   code: ErrorCodeType,
   message: string,
-  opts?: { retryable?: boolean; suggestion?: string; param?: string; detail?: unknown }
+  opts?: { retryable?: boolean; suggestion?: string; param?: string; detail?: unknown },
 ): ToolError {
   return {
     ok: false,
@@ -212,7 +212,12 @@ export function toCallToolResult(result: ToolResult): CallToolResult {
         text: result.content,
       },
     ];
-    if (result.structured !== undefined && result.structured !== null && typeof result.structured === "object" && !Array.isArray(result.structured)) {
+    if (
+      result.structured !== undefined &&
+      result.structured !== null &&
+      typeof result.structured === "object" &&
+      !Array.isArray(result.structured)
+    ) {
       return { content, structuredContent: result.structured as Record<string, unknown> };
     }
     return { content };

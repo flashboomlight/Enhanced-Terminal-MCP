@@ -1,16 +1,16 @@
 /**
  * 压缩/下载工具: compress_archive, extract_archive, download_file
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import * as z from "zod";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as fs from "fs/promises";
-import { validatePath, validateUrl } from "../security.js";
-import { guardDestructiveAction } from "../safeguard.js";
-import { logger } from "../logger.js";
-import { success, fail, ErrorCode, type ToolResult } from "../result.js";
-import { getCompressSpec, getExtractSpec, getDownloadSpec } from "../platform.js";
-import { safeExecFile } from "../utils.js";
+import * as z from "zod";
 import { withRetry } from "../adaptive.js";
+import { logger } from "../logger.js";
+import { getCompressSpec, getDownloadSpec, getExtractSpec } from "../platform.js";
+import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { guardDestructiveAction } from "../safeguard.js";
+import { validatePath, validateUrl } from "../security.js";
+import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 
 export function registerArchiveTools(server: McpServer) {
@@ -30,7 +30,10 @@ export function registerArchiveTools(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     wrapHandler("compress_archive", async ({ source_path, output_path }: CompressArchiveInput) => {
-      for (const [p, l] of [[source_path, "source"], [output_path, "output"]] as const) {
+      for (const [p, l] of [
+        [source_path, "source"],
+        [output_path, "output"],
+      ] as const) {
         const e = validatePath(p, `compress:${l}`);
         if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
       }
@@ -39,13 +42,20 @@ export function registerArchiveTools(server: McpServer) {
         const spec = getCompressSpec(source_path, output_path);
         await safeExecFile(spec.file, spec.args, 60000);
         let size_bytes: number | undefined;
-        try { const s = await fs.stat(output_path); size_bytes = s.size; } catch {}
+        try {
+          const s = await fs.stat(output_path);
+          size_bytes = s.size;
+        } catch {}
         logger.info("compress_archive", "compressed", `${source_path} -> ${output_path}`);
-        return success(`Compressed: ${source_path} -> ${output_path}${size_bytes ? ` (${size_bytes} bytes)` : ""}`, { source: source_path, output: output_path, size_bytes });
+        return success(`Compressed: ${source_path} -> ${output_path}${size_bytes ? ` (${size_bytes} bytes)` : ""}`, {
+          source: source_path,
+          output: output_path,
+          size_bytes,
+        });
       } catch (e: any) {
         return fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   const ExtractArchiveInput = z.object({
@@ -64,7 +74,10 @@ export function registerArchiveTools(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     wrapHandler("extract_archive", async ({ archive_path, output_dir }: ExtractArchiveInput) => {
-      for (const [p, l] of [[archive_path, "archive"], [output_dir, "output"]] as const) {
+      for (const [p, l] of [
+        [archive_path, "archive"],
+        [output_dir, "output"],
+      ] as const) {
         const e = validatePath(p, `extract:${l}`);
         if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
       }
@@ -76,7 +89,7 @@ export function registerArchiveTools(server: McpServer) {
       } catch (e: any) {
         return fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   const DownloadFileInput = z.object({
@@ -102,11 +115,14 @@ export function registerArchiveTools(server: McpServer) {
 
       try {
         const spec = getDownloadSpec(url, save_path);
-        await withRetry(() => safeExecFile(spec.file, spec.args, 120000), { baseDelay: 1000, toolName: "download_file" });
+        await withRetry(() => safeExecFile(spec.file, spec.args, 120000), {
+          baseDelay: 1000,
+          toolName: "download_file",
+        });
         return success(`Downloaded: ${url} -> ${save_path}`, { url, path: save_path });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 }

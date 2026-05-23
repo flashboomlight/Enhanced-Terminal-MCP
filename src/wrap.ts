@@ -1,17 +1,18 @@
 /**
  * 统一工具 handler 包装器 — 自动 telemetry + 缓存
  */
-import { telemetry } from "./telemetry.js";
-import { toolCache, CACHEABLE_TOOLS, TOOL_TTL } from "./cache.js";
-import { toCallToolResult, type ToolResult } from "./result.js";
+
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { CACHEABLE_TOOLS, TOOL_TTL, toolCache } from "./cache.js";
+import { type ToolResult, toCallToolResult } from "./result.js";
+import { telemetry } from "./telemetry.js";
 
 /**
  * 包装工具 handler：自动记录 telemetry + 缓存命中
  */
 export function wrapHandler<T extends Record<string, unknown>>(
   toolName: string,
-  fn: (args: T) => Promise<ToolResult>
+  fn: (args: T) => Promise<ToolResult>,
 ): (args: T) => Promise<CallToolResult> {
   const cacheable = CACHEABLE_TOOLS.has(toolName);
 
@@ -34,9 +35,12 @@ export function wrapHandler<T extends Record<string, unknown>>(
 
     // 记录 telemetry
     telemetry.record({
-      toolName, latency_ms: elapsed, ok: result.ok,
+      toolName,
+      latency_ms: elapsed,
+      ok: result.ok,
       errorCode: result.ok ? undefined : result.error.code,
-      cacheHit: false, timestamp: Date.now(),
+      cacheHit: false,
+      timestamp: Date.now(),
     });
 
     const callResult = toCallToolResult(result);

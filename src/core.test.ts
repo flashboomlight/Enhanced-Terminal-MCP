@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // ============================================================
 // cache.ts
@@ -86,7 +86,7 @@ describe("LRUCache", () => {
 // ============================================================
 // result.ts
 // ============================================================
-import { success, fail, toCallToolResult, Errors, ErrorCode } from "./result.js";
+import { ErrorCode, Errors, fail, success, toCallToolResult } from "./result.js";
 
 describe("result", () => {
   test("success() returns correct structure", () => {
@@ -263,7 +263,7 @@ describe("SessionStore", () => {
 // ============================================================
 // scan.ts
 // ============================================================
-import { scanContent, isCredentialFilePath } from "./scan.js";
+import { isCredentialFilePath, scanContent } from "./scan.js";
 
 describe("scanContent", () => {
   test("detects OpenAI key", () => {

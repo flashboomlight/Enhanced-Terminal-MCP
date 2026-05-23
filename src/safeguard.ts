@@ -20,21 +20,23 @@ const GUARDED_TOOLS = new Set([
 
 // ===== normal 模式下需要 Elicitation 确认的工具（GUARDED_TOOLS 的子集） =====
 // execute_command/batch_execute/watch_command 依赖 hasDangerousPattern 检查，不需要 elicitation
-const ELICITATION_TOOLS = new Set([
-  "delete_path",
-  "write_file",
-  "kill_process",
-]);
+const ELICITATION_TOOLS = new Set(["delete_path", "write_file", "kill_process"]);
 
 // ===== 关键进程黑名单（所有模式下禁止杀死） =====
 const CRITICAL_PROCESSES_WIN = new Set([
-  "csrss.exe", "wininit.exe", "smss.exe", "lsass.exe",
-  "services.exe", "svchost.exe", "dwm.exe", "explorer.exe",
-  "winlogon.exe", "system", "system idle process",
+  "csrss.exe",
+  "wininit.exe",
+  "smss.exe",
+  "lsass.exe",
+  "services.exe",
+  "svchost.exe",
+  "dwm.exe",
+  "explorer.exe",
+  "winlogon.exe",
+  "system",
+  "system idle process",
 ]);
-const CRITICAL_PROCESSES_UNIX = new Set([
-  "init", "systemd", "launchd", "kernel", "kthreadd",
-]);
+const CRITICAL_PROCESSES_UNIX = new Set(["init", "systemd", "launchd", "kernel", "kthreadd"]);
 
 // ===== 内部状态 =====
 let _server: McpServer | null = null;
@@ -81,11 +83,7 @@ export function isCriticalProcess(name?: string, pid?: number): boolean {
  * @param description  人类可读的操作描述（显示在确认对话框中）
  * @returns null = 放行, string = 拒绝原因
  */
-export async function guardDestructiveAction(
-  toolName: string,
-  description: string,
-): Promise<string | null> {
-
+export async function guardDestructiveAction(toolName: string, description: string): Promise<string | null> {
   // off 模式：跳过安全锁（硬性底线在 security.ts 中另外检查）
   if (_mode === "off") {
     return null;
@@ -95,10 +93,12 @@ export async function guardDestructiveAction(
   if (_mode === "strict") {
     if (GUARDED_TOOLS.has(toolName)) {
       logger.warn("safeguard", "strict-block", `${toolName}: ${description}`);
-      return `[SAFETY] Operation blocked: server is running in strict safety mode.\n` +
-             `Tool "${toolName}" is marked as destructive and cannot be executed.\n` +
-             `Switch to normal mode (MCP_SAFETY_MODE=normal) to enable with confirmation,\n` +
-             `or use MCP_SAFETY_MODE=off to disable safety checks entirely.`;
+      return (
+        `[SAFETY] Operation blocked: server is running in strict safety mode.\n` +
+        `Tool "${toolName}" is marked as destructive and cannot be executed.\n` +
+        `Switch to normal mode (MCP_SAFETY_MODE=normal) to enable with confirmation,\n` +
+        `or use MCP_SAFETY_MODE=off to disable safety checks entirely.`
+      );
     }
     return null;
   }
@@ -136,18 +136,19 @@ export async function guardDestructiveAction(
 
     logger.info("safeguard", "declined", `${toolName}: user declined or cancelled`);
     return `[SAFETY] Operation cancelled by user: ${toolName}`;
-
   } catch (e: any) {
     // 客户端不支持 Elicitation — 降级拒绝
     logger.warn("safeguard", "elicitation-unavailable", `${toolName}: ${e.message}`);
-    return `[SAFETY] This operation requires user confirmation, but the MCP client\n` +
-           `does not support interactive confirmation (Elicitation).\n` +
-           `\n` +
-           `Operation: ${toolName}\n` +
-           `Detail: ${description}\n` +
-           `\n` +
-           `Please either:\n` +
-           `  1. Use a client that supports Elicitation (e.g. Claude Desktop)\n` +
-           `  2. Set MCP_SAFETY_MODE=off to disable safety checks`;
+    return (
+      `[SAFETY] This operation requires user confirmation, but the MCP client\n` +
+      `does not support interactive confirmation (Elicitation).\n` +
+      `\n` +
+      `Operation: ${toolName}\n` +
+      `Detail: ${description}\n` +
+      `\n` +
+      `Please either:\n` +
+      `  1. Use a client that supports Elicitation (e.g. Claude Desktop)\n` +
+      `  2. Set MCP_SAFETY_MODE=off to disable safety checks`
+    );
   }
 }

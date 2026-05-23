@@ -1,20 +1,21 @@
 /**
  * platform.ts 单元测试
  */
-import { describe, test, expect } from "vitest";
+
 import * as os from "os";
+import { describe, expect, test } from "vitest";
 import {
-  IS_WIN,
-  IS_MAC,
-  IS_LINUX,
-  getShell,
-  wrapCommand,
-  getProcessListSpec,
+  getCompressSpec,
+  getDownloadSpec,
+  getExtractSpec,
   getKillSpec,
   getNetworkSpec,
-  getCompressSpec,
-  getExtractSpec,
-  getDownloadSpec,
+  getProcessListSpec,
+  getShell,
+  IS_LINUX,
+  IS_MAC,
+  IS_WIN,
+  wrapCommand,
 } from "./platform.js";
 
 // ====================================================================

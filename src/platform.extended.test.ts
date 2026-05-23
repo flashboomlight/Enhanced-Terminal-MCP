@@ -1,14 +1,15 @@
 /**
  * platform.ts 扩展测试 — 深入测试 CommandSpec 输出
  */
-import { describe, test, expect } from "vitest";
+
 import * as os from "os";
+import { describe, expect, test } from "vitest";
 import {
+  getCompressSpec,
+  getDownloadSpec,
+  getExtractSpec,
   getKillSpec,
   getNetworkSpec,
-  getCompressSpec,
-  getExtractSpec,
-  getDownloadSpec,
   getProcessListSpec,
 } from "./platform.js";
 

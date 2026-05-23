@@ -16,12 +16,12 @@
  *   - 安全拦截：           < 200ms    (dangerous command blocking)
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
+import * as path from "path";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 // ===== 辅助：精确计时 =====
 function timer() {
@@ -41,14 +41,14 @@ const TMP_EXTRACT = path.join(TMP_DIR, "extracted");
 
 // ===== 延迟阈值 (ms) =====
 const THRESHOLD = {
-  INIT:       3000,
+  INIT: 3000,
   LIST_TOOLS: 200,
-  FAST_FS:    500,
-  SHELL_CMD:  3000,
-  SYSTEM:     12000,
-  SEARCH:     5000,
-  ARCHIVE:    5000,
-  SECURITY:   200,
+  FAST_FS: 500,
+  SHELL_CMD: 3000,
+  SYSTEM: 12000,
+  SEARCH: 5000,
+  ARCHIVE: 5000,
+  SECURITY: 200,
 };
 
 // ===== 收集所有延迟结果用于最终报告 =====
@@ -94,7 +94,7 @@ afterAll(async () => {
   }
   console.log("╚══════════════════════════════════════════════════════════════╝");
 
-  const failures = latencyResults.filter(r => !r.pass);
+  const failures = latencyResults.filter((r) => !r.pass);
   if (failures.length > 0) {
     console.log(`\n⚠ ${failures.length} tool(s) exceeded latency threshold.`);
   } else {
@@ -102,10 +102,17 @@ afterAll(async () => {
   }
 
   // 清理
-  try { await client.close(); } catch { /* ignore */ }
-  try { fs.rmSync(TMP_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+  try {
+    await client.close();
+  } catch {
+    /* ignore */
+  }
+  try {
+    fs.rmSync(TMP_DIR, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
 });
-
 
 // ═══════════════════════════════════════════════════
 // 1. 协议层延迟
@@ -133,7 +140,6 @@ describe("Protocol Layer Latency", () => {
     expect(result.prompts.length).toBe(2);
   });
 });
-
 
 // ═══════════════════════════════════════════════════
 // 2. 文件操作工具延迟
@@ -240,7 +246,6 @@ describe("File Operations Latency", () => {
   });
 });
 
-
 // ═══════════════════════════════════════════════════
 // 3. 命令执行工具延迟
 // ═══════════════════════════════════════════════════
@@ -289,7 +294,6 @@ describe("Command Execution Latency", () => {
     expect(result.isError).toBeFalsy();
   });
 });
-
 
 // ═══════════════════════════════════════════════════
 // 4. 安全拦截延迟
@@ -345,7 +349,6 @@ describe("Security Blocking Latency", () => {
   });
 });
 
-
 // ═══════════════════════════════════════════════════
 // 5. 搜索工具延迟
 // ═══════════════════════════════════════════════════
@@ -378,7 +381,6 @@ describe("Search Tools Latency", () => {
     expect(result.isError).toBeFalsy();
   });
 });
-
 
 // ═══════════════════════════════════════════════════
 // 6. 系统信息工具延迟
@@ -440,7 +442,6 @@ describe("System Tools Latency", () => {
     expect(result.isError).toBeFalsy();
   });
 });
-
 
 // ═══════════════════════════════════════════════════
 // 7. 归档工具延迟

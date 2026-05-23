@@ -2,20 +2,21 @@
  * security.ts 单元测试
  * 覆盖所有导出函数的所有分支
  */
-import { describe, test, expect } from "vitest";
-import {
-  normalizePath,
-  isPathTraversal,
-  isForbiddenPath,
-  isSensitivePath,
-  validatePath,
-  hasDangerousPattern,
-  sanitizeProcessName,
-  validateUrl,
-  validateHost,
-  getForbiddenPaths,
-} from "./security.js";
+
 import * as os from "os";
+import { describe, expect, test } from "vitest";
+import {
+  getForbiddenPaths,
+  hasDangerousPattern,
+  isForbiddenPath,
+  isPathTraversal,
+  isSensitivePath,
+  normalizePath,
+  sanitizeProcessName,
+  validateHost,
+  validatePath,
+  validateUrl,
+} from "./security.js";
 
 // ====================================================================
 // normalizePath
@@ -364,14 +365,14 @@ describe("getForbiddenPaths", () => {
   test("Windows 返回 Windows 路径", () => {
     if (os.platform() === "win32") {
       const paths = getForbiddenPaths();
-      expect(paths.some(p => p.includes("Windows"))).toBe(true);
+      expect(paths.some((p) => p.includes("Windows"))).toBe(true);
     }
   });
 
   test("Unix 返回 Unix 路径", () => {
     if (os.platform() !== "win32") {
       const paths = getForbiddenPaths();
-      expect(paths.some(p => p.startsWith("/"))).toBe(true);
+      expect(paths.some((p) => p.startsWith("/"))).toBe(true);
     }
   });
 });

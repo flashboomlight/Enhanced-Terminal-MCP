@@ -7,10 +7,11 @@
  * 【功能-B】execute_command 使用 adaptiveTimeout
  * 【功能-C】list_directory TTL 缩短 + 写操作联动失效
  */
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+
 import * as fs from "fs/promises";
-import * as path from "path";
 import * as os from "os";
+import * as path from "path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 // ====================================================================
 // 【性能-A】PowerShell 内联路径 — 压缩/解压实际可用
@@ -106,9 +107,7 @@ describe("【性能-B】Everything 搜索结果目录过滤逻辑", () => {
     const dirPath = "D:\\Projects\\app";
     const normalizedDir = path.resolve(dirPath).toLowerCase();
 
-    const filtered = allResults.filter(l =>
-      l.trim().toLowerCase().startsWith(normalizedDir)
-    );
+    const filtered = allResults.filter((l) => l.trim().toLowerCase().startsWith(normalizedDir));
 
     expect(filtered).toHaveLength(2);
     expect(filtered[0]).toContain("D:\\Projects\\app\\src\\index.ts");
@@ -174,7 +173,13 @@ describe("【功能-B】adaptiveTimeout 集成", () => {
 
     // 模拟 10 次调用，平均延迟 15000ms
     for (let i = 0; i < 10; i++) {
-      telemetry.record({ toolName: "execute_command", latency_ms: 15000, ok: true, cacheHit: false, timestamp: Date.now() });
+      telemetry.record({
+        toolName: "execute_command",
+        latency_ms: 15000,
+        ok: true,
+        cacheHit: false,
+        timestamp: Date.now(),
+      });
     }
 
     const timeout = adaptiveTimeout("execute_command");
@@ -191,7 +196,13 @@ describe("【功能-B】adaptiveTimeout 集成", () => {
 
     // 模拟极高延迟
     for (let i = 0; i < 10; i++) {
-      telemetry.record({ toolName: "execute_command", latency_ms: 100000, ok: true, cacheHit: false, timestamp: Date.now() });
+      telemetry.record({
+        toolName: "execute_command",
+        latency_ms: 100000,
+        ok: true,
+        cacheHit: false,
+        timestamp: Date.now(),
+      });
     }
 
     const timeout = adaptiveTimeout("execute_command");
@@ -222,7 +233,7 @@ describe("【功能-C】list_directory 缓存策略", () => {
     // 用 1ms TTL 设置
     cache.set("short-lived", "value", 1);
     // 等待过期
-    await new Promise(r => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 5));
     expect(cache.get("short-lived")).toBeNull();
 
     // 用默认 TTL 设置

@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // Mock safeguard before importing middleware
 vi.mock("./safeguard.js", () => ({
@@ -21,7 +21,9 @@ vi.mock("child_process", async (importOriginal) => {
         pid: Math.floor(Math.random() * 10000),
         killed: false,
         on: vi.fn(),
-        kill: vi.fn(() => { proc.killed = true; }),
+        kill: vi.fn(() => {
+          proc.killed = true;
+        }),
         stdout: { on: vi.fn() },
         stderr: { on: vi.fn() },
         stdin: { write: vi.fn(), end: vi.fn() },
@@ -43,7 +45,9 @@ describe("TelemetryStore", () => {
     telemetry.reset();
   });
 
-  const makeMetric = (overrides: Partial<import("./telemetry.js").ToolCallMetric> = {}): import("./telemetry.js").ToolCallMetric => ({
+  const makeMetric = (
+    overrides: Partial<import("./telemetry.js").ToolCallMetric> = {},
+  ): import("./telemetry.js").ToolCallMetric => ({
     toolName: "test_tool",
     latency_ms: 100,
     ok: true,
@@ -201,7 +205,7 @@ describe("ProcessPool", () => {
     // All busy, pool full — should create a new temporary process (not in pool)
     const extra = pool.acquire();
     expect(extra.busy).toBe(true);
-    expect(entries.some(e => e.id === extra.id)).toBe(false); // new process, not reused
+    expect(entries.some((e) => e.id === extra.id)).toBe(false); // new process, not reused
   });
 
   test("startSweep sets up interval", () => {
@@ -304,18 +308,26 @@ describe("adaptive", () => {
 
   test("withRetry retries on failure and eventually succeeds", async () => {
     let attempts = 0;
-    const result = await withRetry(async () => {
-      attempts++;
-      if (attempts < 3) throw new Error("fail");
-      return "ok";
-    }, { maxRetries: 3, baseDelay: 1 });
+    const result = await withRetry(
+      async () => {
+        attempts++;
+        if (attempts < 3) throw new Error("fail");
+        return "ok";
+      },
+      { maxRetries: 3, baseDelay: 1 },
+    );
     expect(result).toBe("ok");
     expect(attempts).toBe(3);
   });
 
   test("withRetry throws after maxRetries exhausted", async () => {
     await expect(
-      withRetry(async () => { throw new Error("always fail"); }, { maxRetries: 2, baseDelay: 1 })
+      withRetry(
+        async () => {
+          throw new Error("always fail");
+        },
+        { maxRetries: 2, baseDelay: 1 },
+      ),
     ).rejects.toThrow("always fail");
   });
 });

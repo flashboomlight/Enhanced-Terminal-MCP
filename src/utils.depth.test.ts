@@ -1,7 +1,7 @@
 /**
  * utils.ts 深度测试 — GBK 解码路径和边界
  */
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // ====================================================================
 // GBK 解码路径测试

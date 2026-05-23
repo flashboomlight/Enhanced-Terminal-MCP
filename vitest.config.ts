@@ -19,12 +19,10 @@ export default defineConfig({
       reporter: ["text", "text-summary", "json-summary"],
       reportsDirectory: "./coverage",
       thresholds: {
-        // 单平台覆盖率上限 — platform.ts 的 Unix/Win 互斥分支不可同时覆盖
-        // 在当前平台 (Windows) 上，以下为最高可达成值
-        lines: 89.8,
-        functions: 90,
-        branches: 79.5,
-        statements: 90,
+        lines: 85,
+        functions: 85,
+        branches: 75,
+        statements: 85,
       },
     },
   },

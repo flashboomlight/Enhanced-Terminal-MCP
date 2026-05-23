@@ -37,7 +37,7 @@ export function adaptiveTimeout(toolName: string, defaultMs?: number): number {
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  opts?: { maxRetries?: number; baseDelay?: number; toolName?: string }
+  opts?: { maxRetries?: number; baseDelay?: number; toolName?: string },
 ): Promise<T> {
   const maxRetries = opts?.maxRetries ?? 3;
   const baseDelay = opts?.baseDelay ?? 500;
@@ -47,8 +47,8 @@ export async function withRetry<T>(
       return await fn();
     } catch (e) {
       if (i === maxRetries) throw e;
-      const delay = baseDelay * Math.pow(2, i) + Math.random() * 200;
-      await new Promise(r => setTimeout(r, delay));
+      const delay = baseDelay * 2 ** i + Math.random() * 200;
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
   throw new Error("unreachable");

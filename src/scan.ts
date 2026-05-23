@@ -10,11 +10,14 @@ const SECRET_PATTERNS: Array<{ name: string; regex: RegExp }> = [
   { name: "OpenAI API Key", regex: /sk-[A-Za-z0-9-_]{20,}/ },
   { name: "GitHub Token", regex: /gh[ps]_[A-Za-z0-9_]{20,}/ },
   { name: "AWS Access Key", regex: /\bAKIA[0-9A-Z]{16}\b/ },
-  { name: "AWS Secret Key", regex: /(?:aws_secret_access_key|secret_key|SecretAccessKey)\s*[:=]\s*["']?[0-9a-zA-Z/+]{40}["']?/i },
+  {
+    name: "AWS Secret Key",
+    regex: /(?:aws_secret_access_key|secret_key|SecretAccessKey)\s*[:=]\s*["']?[0-9a-zA-Z/+]{40}["']?/i,
+  },
   { name: "Private Key Header", regex: /-----BEGIN (?:RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY-----/ },
   { name: "JWT Token", regex: /eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*/ },
   { name: "Slack Token", regex: /xox[baprs]-[A-Za-z0-9-]+/ },
-  { name: "Generic API Key", regex: /\bapi[_-]?key\s*[:=]\s*["']?[A-Za-z0-9_\-]{16,}["']?/i },
+  { name: "Generic API Key", regex: /\bapi[_-]?key\s*[:=]\s*["']?[A-Za-z0-9_-]{16,}["']?/i },
   { name: "Connection String", regex: /(?:mongodb|mysql|postgres|redis):\/\/[^:]+:[^@]+@/i },
   { name: "Discord Token", regex: /[MN][A-Za-z0-9]{23}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27}/ },
 ];

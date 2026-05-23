@@ -1,16 +1,16 @@
 /**
  * 文件管理工具: copy_move, delete_path
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import * as z from "zod";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { validatePath } from "../security.js";
-import { guardDestructiveAction } from "../safeguard.js";
-import { logger } from "../logger.js";
-import { success, fail, ErrorCode, type ToolResult } from "../result.js";
-import { wrapHandler } from "../wrap.js";
+import * as z from "zod";
 import { toolCache } from "../cache.js";
+import { logger } from "../logger.js";
+import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { guardDestructiveAction } from "../safeguard.js";
+import { validatePath } from "../security.js";
+import { wrapHandler } from "../wrap.js";
 
 export function registerManageTools(server: McpServer) {
   const CopyMoveInput = z.object({
@@ -30,7 +30,10 @@ export function registerManageTools(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     wrapHandler("copy_move", async ({ source, destination, operation }: CopyMoveInput) => {
-      for (const [p, label] of [[source, "source"], [destination, "destination"]] as const) {
+      for (const [p, label] of [
+        [source, "source"],
+        [destination, "destination"],
+      ] as const) {
         const err = validatePath(p, `copy_move:${label}`);
         if (err) return fail(ErrorCode.PATH_FORBIDDEN, err, { retryable: false, param: label });
       }
@@ -48,11 +51,15 @@ export function registerManageTools(server: McpServer) {
         logger.info("copy_move", `${operation === "copy" ? "copied" : "moved"}`, `${source} -> ${destination}`);
         toolCache.invalidateByValue(source);
         toolCache.invalidateByValue(destination);
-        return success(`${operation === "copy" ? "Copied" : "Moved"}: ${source} -> ${destination}`, { source, destination, operation });
+        return success(`${operation === "copy" ? "Copied" : "Moved"}: ${source} -> ${destination}`, {
+          source,
+          destination,
+          operation,
+        });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 
   const DeletePathInput = z.object({
@@ -81,7 +88,11 @@ export function registerManageTools(server: McpServer) {
         const stat = await fs.stat(target_path);
         if (stat.isDirectory()) {
           if (!recursive) {
-            return fail(ErrorCode.VALIDATION_ERROR, `Cannot delete non-empty directory without recursive=true: ${target_path}`, { retryable: true, param: "recursive", suggestion: "Set recursive=true to delete directory contents" });
+            return fail(
+              ErrorCode.VALIDATION_ERROR,
+              `Cannot delete non-empty directory without recursive=true: ${target_path}`,
+              { retryable: true, param: "recursive", suggestion: "Set recursive=true to delete directory contents" },
+            );
           }
           await fs.rm(target_path, { recursive: true, force: true });
         } else {
@@ -89,11 +100,15 @@ export function registerManageTools(server: McpServer) {
         }
         logger.warn("delete_path", `deleted ${stat.isDirectory() ? "dir" : "file"}`, target_path);
         toolCache.invalidateByValue(target_path);
-        return success(`Deleted ${stat.isDirectory() ? "directory" : "file"}: ${target_path}`, { path: target_path, type: stat.isDirectory() ? "dir" : "file" });
+        return success(`Deleted ${stat.isDirectory() ? "directory" : "file"}: ${target_path}`, {
+          path: target_path,
+          type: stat.isDirectory() ? "dir" : "file",
+        });
       } catch (e: any) {
-        if (e.code === "ENOENT") return fail(ErrorCode.PATH_NOT_FOUND, "Not found: " + target_path, { retryable: true, param: "target_path" });
+        if (e.code === "ENOENT")
+          return fail(ErrorCode.PATH_NOT_FOUND, "Not found: " + target_path, { retryable: true, param: "target_path" });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
-    })
+    }),
   );
 }

@@ -1,9 +1,9 @@
 /**
  * Enhanced Terminal MCP Server — 入口 v3.1
- * 
+ *
  * 架构:
  *   工具注册层 → 中间件链(审计/安全/缓存) → 执行层(tool handlers) → 结果格式化(outputSchema)
- * 
+ *
  * 新增能力:
  *   - LRU 结果缓存 (idempotent 只读工具复用)
  *   - Telemetry 指标收集 (延迟/错误率/缓存命中率)
@@ -13,24 +13,23 @@
  */
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import * as fs from "fs/promises";
+import * as z from "zod";
+import { CACHEABLE_TOOLS, toolCache } from "./cache.js";
+import { injectContext } from "./context.js";
+import { logger } from "./logger.js";
+import { processPool } from "./pool.js";
 import { initSafeGuard } from "./safeguard.js";
 import { validatePath } from "./security.js";
-import { logger } from "./logger.js";
-import { toolCache, CACHEABLE_TOOLS } from "./cache.js";
-import { telemetry } from "./telemetry.js";
 import { session } from "./session.js";
-import { processPool } from "./pool.js";
-import * as fs from "fs/promises";
-
+import { telemetry } from "./telemetry.js";
+import { registerArchiveTools } from "./tools/archive.js";
 // 工具模块
 import { registerCommandTools } from "./tools/command.js";
 import { registerFileTools } from "./tools/files.js";
 import { registerManageTools } from "./tools/manage.js";
 import { registerSearchTools } from "./tools/search.js";
 import { registerSystemTools } from "./tools/system.js";
-import { registerArchiveTools } from "./tools/archive.js";
-
-import * as z from "zod";
 
 async function main() {
   const server = new McpServer({
@@ -77,7 +76,9 @@ async function main() {
       const n = recent || 20;
       const s = telemetry.summary();
       const recentCalls = telemetry.recent(n);
-      const recentText = recentCalls.map(m => `  ${m.toolName}: ${m.latency_ms}ms ${m.ok ? "OK" : "FAIL"}`).join("\n");
+      const recentText = recentCalls
+        .map((m) => `  ${m.toolName}: ${m.latency_ms}ms ${m.ok ? "OK" : "FAIL"}`)
+        .join("\n");
       const text = `Uptime: ${s.uptime_minutes}min | Calls: ${s.total_calls} | Avg: ${s.avg_latency_ms}ms | Errors: ${s.error_rate} | Cache: ${s.cache_hit_rate}\n\nRecent ${n}:\n${recentText}`;
       return {
         content: [{ type: "text", text }],
@@ -90,7 +91,7 @@ async function main() {
           cache_hit_rate: s.cache_hit_rate,
         },
       };
-    }
+    },
   );
 
   // ====================================================================
@@ -118,7 +119,7 @@ async function main() {
         content: [{ type: "text", text }],
         structuredContent: stats,
       };
-    }
+    },
   );
 
   // ====================================================================
@@ -137,14 +138,17 @@ async function main() {
     },
     async ({ tool }) => {
       const sizeBefore = toolCache.stats.size;
-      const cleared = tool
-        ? toolCache.invalidatePrefix(tool + ":")
-        : (toolCache.clear(), sizeBefore);
+      const cleared = tool ? toolCache.invalidatePrefix(tool + ":") : (toolCache.clear(), sizeBefore);
       return {
-        content: [{ type: "text", text: tool ? `Cleared cache for: ${tool} (${cleared} entries)` : `Cleared all caches (${cleared} entries)` }],
+        content: [
+          {
+            type: "text",
+            text: tool ? `Cleared cache for: ${tool} (${cleared} entries)` : `Cleared all caches (${cleared} entries)`,
+          },
+        ],
         structuredContent: { cleared },
       };
-    }
+    },
   );
 
   // ====================================================================
@@ -156,7 +160,9 @@ async function main() {
       title: "Session State",
       description: "View or modify session state: working directory, environment variables.",
       inputSchema: z.object({
-        action: z.enum(["get", "set_cwd", "set_env", "reset"]).describe("get=view state, set_cwd=change working dir, set_env=set env var, reset=clear session"),
+        action: z
+          .enum(["get", "set_cwd", "set_env", "reset"])
+          .describe("get=view state, set_cwd=change working dir, set_env=set env var, reset=clear session"),
         cwd: z.string().optional().describe("New working directory (for set_cwd)"),
         key: z.string().optional().describe("Env var name (for set_env)"),
         value: z.string().optional().describe("Env var value (for set_env)"),
@@ -171,29 +177,55 @@ async function main() {
       let changed = false;
       if (action === "set_cwd" && cwd) {
         const pathErr = validatePath(cwd, "session_state:set_cwd");
-        if (pathErr) return { content: [{ type: "text" as const, text: `Error: ${pathErr}` }], structuredContent: { snapshot: session.snapshotObj(), changed: false } };
-        try { const stat = await fs.stat(cwd); if (!stat.isDirectory()) throw new Error("not a directory"); } catch {
-          return { content: [{ type: "text" as const, text: `Error: path does not exist or is not a directory: ${cwd}` }], structuredContent: { snapshot: session.snapshotObj(), changed: false } };
+        if (pathErr)
+          return {
+            content: [{ type: "text" as const, text: `Error: ${pathErr}` }],
+            structuredContent: { snapshot: session.snapshotObj(), changed: false },
+          };
+        try {
+          const stat = await fs.stat(cwd);
+          if (!stat.isDirectory()) throw new Error("not a directory");
+        } catch {
+          return {
+            content: [{ type: "text" as const, text: `Error: path does not exist or is not a directory: ${cwd}` }],
+            structuredContent: { snapshot: session.snapshotObj(), changed: false },
+          };
         }
-        session.setCwd(cwd); changed = true;
+        session.setCwd(cwd);
+        changed = true;
       }
       if (action === "set_env" && key && value !== undefined) {
         if (!key.trim() || key.includes("=") || key.length > 256) {
-          return { content: [{ type: "text" as const, text: `Error: invalid env key "${key}" (must be non-empty, no '=', max 256 chars)` }], structuredContent: { snapshot: session.snapshotObj(), changed: false } };
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error: invalid env key "${key}" (must be non-empty, no '=', max 256 chars)`,
+              },
+            ],
+            structuredContent: { snapshot: session.snapshotObj(), changed: false },
+          };
         }
         if (typeof value === "string" && value.length > 32768) {
-          return { content: [{ type: "text" as const, text: `Error: env value too long (max 32768 chars)` }], structuredContent: { snapshot: session.snapshotObj(), changed: false } };
+          return {
+            content: [{ type: "text" as const, text: `Error: env value too long (max 32768 chars)` }],
+            structuredContent: { snapshot: session.snapshotObj(), changed: false },
+          };
         }
-        session.setEnv(key, value); changed = true;
+        session.setEnv(key, value);
+        changed = true;
       }
-      if (action === "reset") { session.reset(); changed = true; }
+      if (action === "reset") {
+        session.reset();
+        changed = true;
+      }
 
       const snap = session.snapshotObj();
       return {
         content: [{ type: "text", text: JSON.stringify(snap, null, 2) }],
         structuredContent: { snapshot: snap, changed },
       };
-    }
+    },
   );
 
   // ====================================================================
@@ -215,41 +247,48 @@ async function main() {
         content: [{ type: "text", text }],
         structuredContent: stats,
       };
-    }
+    },
   );
 
   // 注册资源: 健康检查（含版本/指标）
   // ====================================================================
-  server.resource(
-    "health",
-    new ResourceTemplate("health://status", { list: undefined }),
-    async () => {
-      const s = telemetry.summary();
-      return {
-        contents: [{
+  server.resource("health", new ResourceTemplate("health://status", { list: undefined }), async () => {
+    const s = telemetry.summary();
+    return {
+      contents: [
+        {
           uri: "health://status",
-          text: JSON.stringify({
-            status: "ok",
-            version: "3.1.0",
-            timestamp: new Date().toISOString(),
-            metrics: {
-              uptime_minutes: s.uptime_minutes,
-              total_calls: s.total_calls,
-              avg_latency_ms: s.avg_latency_ms,
-              error_rate: s.error_rate,
-              cache_hit_rate: s.cache_hit_rate,
+          text: JSON.stringify(
+            {
+              status: "ok",
+              version: "3.1.0",
+              timestamp: new Date().toISOString(),
+              metrics: {
+                uptime_minutes: s.uptime_minutes,
+                total_calls: s.total_calls,
+                avg_latency_ms: s.avg_latency_ms,
+                error_rate: s.error_rate,
+                cache_hit_rate: s.cache_hit_rate,
+              },
+              cache: toolCache.stats,
+              session: session.snapshot(),
             },
-            cache: toolCache.stats,
-            session: session.snapshot(),
-          }, null, 2),
-        }],
-      };
-    }
-  );
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  });
 
   // 注册 prompts
   server.prompt("usage-guide", "How to use Enhanced Terminal MCP tools", async () => ({
-    messages: [{ role: "user", content: { type: "text", text: `Enhanced Terminal MCP v3.1 provides 26 tools for file operations, command execution, search, and telemetry.
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: injectContext(`Enhanced Terminal MCP v3.1 provides 26 tools for file operations, command execution, search, and telemetry.
 
 NEW in v3.1:
 - telemetry_report: View tool call metrics (latency, error rate, cache hit rate)
@@ -257,11 +296,26 @@ NEW in v3.1:
 - session_state: Manage session working directory and env context
 - All tools now return structured output with outputSchema for LLM chainable decisions
 - Structured error codes with retryable/suggestion hints
-- Safety mode: strict/normal/off via MCP_SAFETY_MODE env var` } }],
+- Safety mode: strict/normal/off via MCP_SAFETY_MODE env var`),
+        },
+      },
+    ],
   }));
 
   server.prompt("safety-info", "Current safety configuration", async () => ({
-    messages: [{ role: "user", content: { type: "text", text: JSON.stringify({ version: "3.1.0", safety: process.env.MCP_SAFETY_MODE || "normal", tools: 26, cache: toolCache.stats }, null, 2) } }],
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: JSON.stringify(
+            { version: "3.1.0", safety: process.env.MCP_SAFETY_MODE || "normal", tools: 26, cache: toolCache.stats },
+            null,
+            2,
+          ),
+        },
+      },
+    ],
   }));
 
   const transport = new StdioServerTransport();
@@ -273,6 +327,7 @@ NEW in v3.1:
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info("server", "shutdown", "Graceful shutdown initiated");
+    session.flush();
     processPool.destroy();
     // 给 pending I/O 时间完成
     setTimeout(() => process.exit(0), 500).unref();
@@ -280,7 +335,11 @@ NEW in v3.1:
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  logger.info("server", "started", `Enhanced Terminal MCP v3.1.0 | safety=${process.env.MCP_SAFETY_MODE || "normal"} | 26 tools`);
+  logger.info(
+    "server",
+    "started",
+    `Enhanced Terminal MCP v3.1.0 | safety=${process.env.MCP_SAFETY_MODE || "normal"} | 26 tools`,
+  );
 }
 
 main().catch((e) => {

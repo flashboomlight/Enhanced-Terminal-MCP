@@ -26,7 +26,7 @@ export async function spawnStream(
     cwd?: string;
     env?: Record<string, string>;
     maxOutput?: number;
-  }
+  },
 ): Promise<StreamResult> {
   const timeout = opts?.timeout ?? 30000;
   const maxOut = opts?.maxOutput ?? 10 * 1024 * 1024;
@@ -52,7 +52,11 @@ export async function spawnStream(
       killed = true;
       child.kill("SIGTERM");
       // 给进程 2s 响应 SIGTERM，否则 SIGKILL
-      setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 2000).unref();
+      setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {}
+      }, 2000).unref();
     }, timeout);
 
     child.stdout!.on("data", (chunk: Buffer) => {
@@ -102,7 +106,7 @@ export async function spawnStream(
 export async function quickExec(
   command: string,
   timeout = 5000,
-  cwd?: string
+  cwd?: string,
 ): Promise<{ stdout: string; exitCode: number | null; timedOut: boolean }> {
   if (IS_WIN) {
     const r = await spawnStream("cmd.exe", ["/c", command], { timeout, cwd, maxOutput: 1024 * 1024 });

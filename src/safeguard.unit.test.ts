@@ -2,9 +2,10 @@
  * safeguard.ts 纯函数单元测试
  * 不依赖 MCP Server 实例的纯逻辑部分
  */
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { isCriticalProcess } from "./safeguard.js";
+
 import * as os from "os";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { isCriticalProcess } from "./safeguard.js";
 
 // ====================================================================
 // isCriticalProcess

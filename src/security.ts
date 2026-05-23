@@ -1,7 +1,11 @@
 // src/security.ts — 安全基础层：路径穿越检测、命令注入防护、危险路径/敏感文件黑名单
+
+import { platform } from "os";
 import * as path from "path";
-import { IS_WIN } from "./platform.js";
 import { logger } from "./logger.js";
+
+// 平台检测（内联，避免与 platform.ts 循环依赖）
+const _IS_WIN = platform() === "win32";
 
 // 禁止操作的系统关键路径
 const FORBIDDEN_PATHS_WIN = [
@@ -15,12 +19,18 @@ const FORBIDDEN_PATHS_WIN = [
   "C:\\Boot",
 ];
 const FORBIDDEN_PATHS_UNIX = [
-  "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/libexec",
-  "/boot", "/etc", "/proc", "/sys", "/dev",
+  "/bin",
+  "/sbin",
+  "/usr/bin",
+  "/usr/sbin",
+  "/usr/lib",
+  "/usr/libexec",
+  "/boot",
+  "/etc",
+  "/proc",
+  "/sys",
+  "/dev",
 ];
-
-// 平台缓存（使用统一的 IS_WIN from platform.ts）
-const _IS_WIN = IS_WIN;
 
 // 敏感文件名 / 扩展名（密钥、凭据、环境变量等）
 const SENSITIVE_FILE_PATTERNS: RegExp[] = [
@@ -29,7 +39,7 @@ const SENSITIVE_FILE_PATTERNS: RegExp[] = [
   /(^|[\\/])\.pypirc$/i,
   /(^|[\\/])\.netrc$/i,
   /(^|[\\/])\.git-credentials$/i,
-  /(^|[\\/])id_[a-z0-9]+$/i,                    // SSH private keys (不含 .pub)
+  /(^|[\\/])id_[a-z0-9]+$/i, // SSH private keys (不含 .pub)
   /(^|[\\/])known_hosts$/i,
   /(^|[\\/])authorized_keys$/i,
   /\.pem$/i,
@@ -94,9 +104,9 @@ export function isPathTraversal(inputPath: string): boolean {
   if (/%2e%2e|%252e%252e|%25252e|%2f%2e|%252f%252e|%c0%ae|%c0%af|%e0%80%ae/i.test(inputPath)) return true;
   // 检查原始输入中的 ".." 段
   const segments = inputPath.split(/[\\/]/);
-  if (segments.some(seg => seg === "..")) return true;
+  if (segments.some((seg) => seg === "..")) return true;
   const resolved = normalizePath(inputPath);
-  if (resolved.split(/[\\/]/).some(seg => seg === "..")) return true;
+  if (resolved.split(/[\\/]/).some((seg) => seg === "..")) return true;
   return false;
 }
 
@@ -108,11 +118,9 @@ export function isForbiddenPath(targetPath: string): boolean {
   const forbidden = getForbiddenPaths();
   const toCmp = (s: string) => (_IS_WIN ? s.toLowerCase() : s);
   const normCmp = toCmp(normalized);
-  return forbidden.some(fp => {
+  return forbidden.some((fp) => {
     const fpCmp = toCmp(fp);
-    return normCmp === fpCmp ||
-           normCmp.startsWith(fpCmp + "\\") ||
-           normCmp.startsWith(fpCmp + "/");
+    return normCmp === fpCmp || normCmp.startsWith(fpCmp + "\\") || normCmp.startsWith(fpCmp + "/");
   });
 }
 
@@ -122,8 +130,8 @@ export function isForbiddenPath(targetPath: string): boolean {
 export function isSensitivePath(targetPath: string): boolean {
   const normalized = normalizePath(targetPath);
   const dirPatterns = _IS_WIN ? SENSITIVE_DIR_PATTERNS_WIN : SENSITIVE_DIR_PATTERNS_UNIX;
-  if (dirPatterns.some(re => re.test(normalized))) return true;
-  if (SENSITIVE_FILE_PATTERNS.some(re => re.test(normalized))) return true;
+  if (dirPatterns.some((re) => re.test(normalized))) return true;
+  if (SENSITIVE_FILE_PATTERNS.some((re) => re.test(normalized))) return true;
   return false;
 }
 
