@@ -1,28 +1,32 @@
 /**
  * utils.ts 扩展单元测试 — 包含 child_process mock
  */
+import type { ChildProcess } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { safeExecFile as SafeExecFileType, safeExec as SafeExecType } from "./utils.js";
+
+type ExecCallback = (error: Error | null, stdout?: Buffer | string, stderr?: Buffer | string) => void;
 
 // ====================================================================
 // safeExec 和 safeExecFile 测试（mock child_process）
 // ====================================================================
 describe("safeExec (mocked)", () => {
-  let safeExec: Function;
+  let safeExec: typeof SafeExecType;
 
   beforeEach(async () => {
     vi.resetModules();
     // 模拟成功的 exec
     vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
+      exec: (_cmd: string, _opts: unknown, cb: ExecCallback) => {
         const stdout = Buffer.from("hello world");
         const stderr = Buffer.from("");
         // 异步回调
         setImmediate(() => cb(null, stdout, stderr));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
-      execFile: (_file: string, _args: string[], _opts: any, cb: Function) => {
+      execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         setImmediate(() => cb(null, "output", ""));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
 
@@ -34,7 +38,7 @@ describe("safeExec (mocked)", () => {
     }));
 
     const mod = await import("./utils.js");
-    safeExec = (mod as any).safeExec;
+    safeExec = mod.safeExec;
   });
 
   test("safeExec 正常执行返回 stdout", async () => {
@@ -49,15 +53,15 @@ describe("safeExec (mocked)", () => {
 });
 
 describe("safeExec (error cases)", () => {
-  let safeExec: Function;
+  let safeExec: typeof SafeExecType;
 
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        const error = { code: 1, message: "command failed" } as any;
+      exec: (_cmd: string, _opts: unknown, cb: ExecCallback) => {
+        const error = Object.assign(new Error("command failed"), { code: 1 });
         setImmediate(() => cb(error, Buffer.from(""), Buffer.from("")));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
       execFile: vi.fn(),
     }));
@@ -67,7 +71,7 @@ describe("safeExec (error cases)", () => {
       IS_WIN: true,
     }));
     const mod = await import("./utils.js");
-    safeExec = (mod as any).safeExec;
+    safeExec = mod.safeExec;
   });
 
   test("safeExec 命令失败且无输出时 reject", async () => {
@@ -76,15 +80,15 @@ describe("safeExec (error cases)", () => {
 });
 
 describe("safeExec (timeout)", () => {
-  let safeExec: Function;
+  let safeExec: typeof SafeExecType;
 
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        const error = { killed: true, code: null } as any;
+      exec: (_cmd: string, _opts: unknown, cb: ExecCallback) => {
+        const error = Object.assign(new Error("timeout"), { killed: true, code: null });
         setImmediate(() => cb(error, undefined, undefined));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
       execFile: vi.fn(),
     }));
@@ -94,7 +98,7 @@ describe("safeExec (timeout)", () => {
       IS_WIN: true,
     }));
     const mod = await import("./utils.js");
-    safeExec = (mod as any).safeExec;
+    safeExec = mod.safeExec;
   });
 
   test("safeExec 超时时 reject with Timeout", async () => {
@@ -106,12 +110,12 @@ describe("safeExec (exit code but has output)", () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        const error = { code: 1 } as any;
+      exec: (_cmd: string, _opts: unknown, cb: ExecCallback) => {
+        const error = Object.assign(new Error("command failed"), { code: 1 });
         const stdout = Buffer.from("partial output");
         const stderr = Buffer.from("error output");
         setImmediate(() => cb(error, stdout, stderr));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
       execFile: vi.fn(),
     }));
@@ -131,19 +135,19 @@ describe("safeExec (exit code but has output)", () => {
 });
 
 describe("safeExecFile (mocked)", () => {
-  let safeExecFile: Function;
+  let safeExecFile: typeof SafeExecFileType;
 
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
       exec: vi.fn(),
-      execFile: (_file: string, _args: string[], _opts: any, cb: Function) => {
+      execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         setImmediate(() => cb(null, "file-output", ""));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
     const mod = await import("./utils.js");
-    safeExecFile = (mod as any).safeExecFile;
+    safeExecFile = mod.safeExecFile;
   });
 
   test("safeExecFile 正常执行返回 stdout", async () => {
@@ -155,14 +159,14 @@ describe("safeExecFile (mocked)", () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
       exec: vi.fn(),
-      execFile: (_file: string, _args: string[], _opts: any, cb: Function) => {
+      execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         const error = new Error("not found");
         setImmediate(() => cb(error, "", ""));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
     const mod = await import("./utils.js");
-    const sf = (mod as any).safeExecFile;
+    const sf = mod.safeExecFile;
     await expect(sf("nonexistent", [], 5000)).rejects.toThrow("not found");
   });
 });

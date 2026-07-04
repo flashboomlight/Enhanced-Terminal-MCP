@@ -94,7 +94,7 @@ export function registerSystemTools(server: McpServer) {
 
       try {
         const spec = getKillSpec(pid, name, force);
-        const _result = await safeExecFile(spec.file, spec.args, 10000);
+        await safeExecFile(spec.file, spec.args, 10000);
         return success(`Killed: ${name || pid}`, { killed: true, pid: pid ?? undefined, name: name ?? undefined });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });

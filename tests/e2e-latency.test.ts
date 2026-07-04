@@ -1,5 +1,5 @@
 /**
- * 端到端延迟测试 — Enhanced Terminal MCP v3.0.0
+ * 端到端延迟测试 — Enhanced Terminal MCP v3.1.0
  *
  * 通过 MCP SDK Client 以子进程方式连接 Server，
  * 真实调用每个工具并测量完整往返延迟（含协议序列化/反序列化、进程 IPC）。
@@ -126,7 +126,7 @@ describe("Protocol Layer Latency", () => {
     console.log(`    ⏱ tools/list: ${ms}ms — found ${result.tools.length} tools`);
 
     expect(ms).toBeLessThanOrEqual(THRESHOLD.LIST_TOOLS);
-    expect(result.tools.length).toBe(26);
+    expect(result.tools.length).toBe(27);
   });
 
   test("prompts/list should respond within threshold", async () => {

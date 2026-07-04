@@ -77,7 +77,9 @@ class ProcessPool {
       this.overflow.splice(idx, 1);
       try {
         entry.proc.kill();
-      } catch {}
+      } catch (err) {
+        logger.debug("pool", "kill-failed", String(err));
+      }
     }
   }
 
@@ -89,7 +91,9 @@ class ProcessPool {
       if (!e.busy && now - e.lastActiveAt > this.idleTimeout) {
         try {
           e.proc.kill();
-        } catch {}
+        } catch (err) {
+          logger.debug("pool", "sweep-kill-failed", String(err));
+        }
         removed++;
         return false;
       }
@@ -115,12 +119,16 @@ class ProcessPool {
     for (const e of this.pool) {
       try {
         e.proc.kill();
-      } catch {}
+      } catch (err) {
+        logger.debug("pool", "destroy-kill-failed", String(err));
+      }
     }
     for (const e of this.overflow) {
       try {
         e.proc.kill();
-      } catch {}
+      } catch (err) {
+        logger.debug("pool", "destroy-overflow-kill-failed", String(err));
+      }
     }
     this.pool = [];
     this.overflow = [];

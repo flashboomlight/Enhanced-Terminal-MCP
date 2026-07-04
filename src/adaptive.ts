@@ -27,7 +27,7 @@ export function adaptiveTimeout(toolName: string, defaultMs?: number): number {
 
   if (!stats || stats.count < 5) return base;
 
-  // P95 粗略估算：avg × 3（经验系数，偏斜分布下可能不准，但足够作为超时保护）
+  // approximate high-percentile timeout: avg × 3（经验系数，偏斜分布下可能不准，但足够作为超时保护）
   const adaptive = Math.round(stats.avgLatency * 3);
   return Math.max(base, Math.min(adaptive, base * 4)); // 上限 4× 默认
 }

@@ -8,6 +8,7 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
+import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
 import { ErrorCode, fail, success } from "../result.js";
@@ -153,7 +154,9 @@ export function registerFileTools(server: McpServer) {
       try {
         await fs.stat(file_path);
         existed = true;
-      } catch {}
+      } catch (err) {
+        logger.debug("write_file", "stat-failed", String(err));
+      }
 
       if (existed && !append) {
         const block = await guardDestructiveAction("write_file", `覆写文件: ${file_path}`);
@@ -174,6 +177,12 @@ export function registerFileTools(server: McpServer) {
         toolCache.invalidateByValue(file_path);
         toolCache.invalidateByValue(path.dirname(file_path));
         logger.info("write_file", "written", file_path);
+        audit.record({
+          action: "file.write",
+          tool: "write_file",
+          detail: { path: file_path, size_bytes: stat.size, existed, append: !!append },
+          success: true,
+        });
         return success(`Written: ${file_path} (${formatSize(stat.size)})`, {
           path: file_path,
           size_bytes: stat.size,
@@ -181,6 +190,13 @@ export function registerFileTools(server: McpServer) {
           appended: !!append,
         });
       } catch (e: any) {
+        audit.record({
+          action: "file.write",
+          tool: "write_file",
+          detail: { path: file_path, existed },
+          success: false,
+          error: e.message,
+        });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
     }),
@@ -227,7 +243,8 @@ export function registerFileTools(server: McpServer) {
           let realP: string;
           try {
             realP = await fs.realpath(p);
-          } catch {
+          } catch (err) {
+            logger.debug("list_directory", "realpath-failed", String(err));
             realP = p;
           }
           if (visited.has(realP)) return;
@@ -356,7 +373,9 @@ export function registerFileTools(server: McpServer) {
         try {
           const s = await fs.stat(dir_path);
           existed = s.isDirectory();
-        } catch {}
+        } catch (err) {
+          logger.debug("make_directory", "stat-failed", String(err));
+        }
         await fs.mkdir(dir_path, { recursive: true });
         logger.info("make_directory", "created", dir_path);
         return success(`Created: ${dir_path}`, { path: dir_path, created: !existed });

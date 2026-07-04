@@ -75,7 +75,9 @@ describe("TelemetryStore", () => {
     telemetry.record(makeMetric({ toolName: "a", latency_ms: 100, ok: true, cacheHit: true }));
     telemetry.record(makeMetric({ toolName: "a", latency_ms: 200, ok: false, cacheHit: false }));
     const agg = telemetry.aggregate();
-    const stats = agg.get("a")!;
+    const stats = agg.get("a");
+    expect(stats).toBeDefined();
+    if (!stats) throw new Error("stats missing");
     expect(stats.count).toBe(2);
     expect(stats.avgLatency).toBe(150);
     expect(stats.errorRate).toBe("50.0%");
@@ -131,15 +133,6 @@ describe("ProcessPool", () => {
 
   beforeEach(async () => {
     // Dynamically create a pool instance for testing
-    const { spawn } = await import("node:child_process");
-    // Create pool class manually to avoid singleton
-    pool = {
-      entries: [] as any[],
-      maxSize: 4,
-      idleTimeout: 60000,
-      nextId: 1,
-    };
-
     // Use the exported singleton but test via its methods
     const mod = await import("./pool.js");
     pool = mod.processPool;

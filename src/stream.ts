@@ -55,7 +55,9 @@ export async function spawnStream(
       setTimeout(() => {
         try {
           child.kill("SIGKILL");
-        } catch {}
+        } catch (_err) {
+          /* ignore */
+        }
       }, 2000).unref();
     }, timeout);
 

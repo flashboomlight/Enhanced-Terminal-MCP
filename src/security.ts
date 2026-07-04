@@ -2,6 +2,7 @@
 
 import { platform } from "node:os";
 import * as path from "node:path";
+import { audit } from "./audit.js";
 import { logger } from "./logger.js";
 
 // 平台检测（内联，避免与 platform.ts 循环依赖）
@@ -143,12 +144,30 @@ export function validatePath(targetPath: string, operation: string): string | nu
     return "Path cannot be empty";
   }
   if (isPathTraversal(targetPath)) {
+    audit.record({
+      action: "safety.block",
+      detail: { operation, reason: "path traversal", path: targetPath },
+      success: false,
+      error: "Path traversal detected",
+    });
     return `Path traversal detected in ${operation}: ${targetPath}`;
   }
   if (isForbiddenPath(targetPath)) {
+    audit.record({
+      action: "safety.block",
+      detail: { operation, reason: "forbidden path", path: targetPath },
+      success: false,
+      error: "Forbidden path",
+    });
     return `Operation '${operation}' blocked: path is in protected system directory: ${targetPath}`;
   }
   if (isSensitivePath(targetPath)) {
+    audit.record({
+      action: "safety.block",
+      detail: { operation, reason: "sensitive path", path: targetPath },
+      success: false,
+      error: "Sensitive path",
+    });
     return `Operation '${operation}' blocked: path contains sensitive data: ${targetPath}`;
   }
   return null;
@@ -211,7 +230,8 @@ export function validateUrl(url: string): string | null {
   let parsed: URL;
   try {
     parsed = new URL(url);
-  } catch {
+  } catch (err) {
+    logger.debug("security", "url-parse-failed", String(err));
     return `Invalid URL: ${url}`;
   }
   const allowed = new Set(["http:", "https:"]);

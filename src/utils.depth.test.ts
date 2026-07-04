@@ -1,7 +1,10 @@
 /**
  * utils.ts 深度测试 — GBK 解码路径和边界
  */
+import type { ChildProcess } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+
+type ExecCallback = (error: Error | null, stdout?: Buffer | string, stderr?: Buffer | string) => void;
 
 // ====================================================================
 // GBK 解码路径测试
@@ -11,12 +14,12 @@ describe("safeExec (GBK decoding)", () => {
     vi.resetModules();
     // 模拟 exec 返回 GBK 编码数据
     vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        // 创建一个包含 \ufffd (UTF-8 替换字符) 的 buffer
+      exec: (_cmd: string, _opts: unknown, cb: ExecCallback) => {
+        // 创建一个包含 � (UTF-8 替换字符) 的 buffer
         // 这会触发 smartDecode 的 GBK 回退
         const buf = Buffer.from([0xc4, 0xe3, 0xba, 0xc3]); // 你好 in GBK
         setImmediate(() => cb(null, buf, Buffer.from("")));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
       execFile: vi.fn(),
     }));
@@ -43,11 +46,11 @@ describe("safeExec (UTF-8 with replacement char)", () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        // 制造一个无效的 UTF-8 序列（触发 \ufffd）
+      exec: (_cmd: string, _opts: unknown, cb: ExecCallback) => {
+        // 制造一个无效的 UTF-8 序列（触发 �）
         const buf = Buffer.from([0xff, 0xfe, 0x00, 0x00]);
         setImmediate(() => cb(null, buf, Buffer.from("")));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
       execFile: vi.fn(),
     }));
@@ -73,9 +76,9 @@ describe("safeExecFile (edge cases)", () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
       exec: vi.fn(),
-      execFile: (_file: string, _args: string[], _opts: any, cb: Function) => {
+      execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         setImmediate(() => cb(null, "", "error output"));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
     const { safeExecFile } = await import("./utils.js");
@@ -88,10 +91,10 @@ describe("safeExecFile (edge cases)", () => {
     vi.resetModules();
     vi.doMock("child_process", () => ({
       exec: vi.fn(),
-      execFile: (_file: string, _args: string[], _opts: any, cb: Function) => {
+      execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         // execFile 直接返回 string（不是 buffer）
         setImmediate(() => cb(null, "direct-string", ""));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
     const { safeExecFile } = await import("./utils.js");

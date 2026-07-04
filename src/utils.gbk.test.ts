@@ -2,7 +2,10 @@
  * utils.ts GBK fallback 路径测试
  * 覆盖 smartDecode 中 GBK TextDecoder 抛出异常时的 catch 分支 (line 80)
  */
+import type { ChildProcess } from "node:child_process";
 import { describe, expect, test, vi } from "vitest";
+
+type ExecCallback = (error: Error | null, stdout?: Buffer | string, stderr?: Buffer | string) => void;
 
 describe("smartDecode GBK fallback (TextDecoder stub)", () => {
   test("safeExec catches GBK decode failure gracefully", async () => {
@@ -13,12 +16,12 @@ describe("smartDecode GBK fallback (TextDecoder stub)", () => {
       "TextDecoder",
       class MockTextDecoder {
         encoding: string;
-        constructor(enc: string, _opts?: any) {
+        constructor(enc: string, _opts?: unknown) {
           this.encoding = enc;
         }
         decode(_buf: Buffer): string {
           if (this.encoding === "utf-8" || this.encoding === "utf8") {
-            return "\ufffd"; // 触发 GBK 回退
+            return "�"; // 触发 GBK 回退
           }
           // GBK 抛出异常 → 触发 .catch
           throw new Error("mock GBK TextDecoder failure");
@@ -27,9 +30,9 @@ describe("smartDecode GBK fallback (TextDecoder stub)", () => {
     );
 
     vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
+      exec: (_cmd: string, _opts: unknown, cb: ExecCallback) => {
         setImmediate(() => cb(null, Buffer.from("test"), Buffer.from("")));
-        return { on: vi.fn() };
+        return { on: vi.fn() } as unknown as ChildProcess;
       },
       execFile: vi.fn(),
     }));
@@ -42,7 +45,7 @@ describe("smartDecode GBK fallback (TextDecoder stub)", () => {
     const { safeExec } = await import("./utils.js");
     const result = await safeExec("test-cmd", 5000);
 
-    // UTF-8 回退应返回 \ufffd
-    expect(result.stdout).toBe("\ufffd");
+    // UTF-8 回退应返回 �
+    expect(result.stdout).toBe("�");
   });
 });

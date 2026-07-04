@@ -12,6 +12,7 @@ import {
   getNetworkSpec,
   getProcessListSpec,
   getShell,
+  getSystemInfoSpec,
   IS_LINUX,
   IS_MAC,
   IS_WIN,
@@ -71,6 +72,42 @@ describe("wrapCommand", () => {
     if (!IS_WIN) {
       expect(wrapCommand("echo hello")).toBe("echo hello");
     }
+  });
+
+  test("getProcessListSpec handles empty sanitized filter on Unix", () => {
+    if (!IS_WIN) {
+      const spec = getProcessListSpec(";;;", 10);
+      expect(spec.file).toBeTruthy();
+    }
+  });
+
+  test("getKillSpec throws when neither pid nor name provided", () => {
+    expect(() => getKillSpec(undefined, undefined)).toThrow("requires at least pid or name");
+  });
+
+  test("getKillSpec by name without pid on Unix uses pkill", () => {
+    if (!IS_WIN) {
+      const spec = getKillSpec(undefined, "node");
+      expect(spec.file).toBe("pkill");
+      expect(spec.args).toContain("node");
+    }
+  });
+
+  test("getNetworkSpec uses default hosts", () => {
+    if (!IS_WIN) {
+      const cfg = getNetworkSpec("config");
+      expect(cfg.args[1]).toContain("ifconfig");
+      const conn = getNetworkSpec("connections");
+      expect(conn.args[1]).toContain("netstat");
+      const dns = getNetworkSpec("dns");
+      expect(dns.args[1]).toContain("localhost");
+    }
+  });
+
+  test("getSystemInfoSpec returns valid CommandSpec", () => {
+    const spec = getSystemInfoSpec();
+    expect(spec.file).toBeTruthy();
+    expect(spec.args.length).toBeGreaterThan(0);
   });
 });
 

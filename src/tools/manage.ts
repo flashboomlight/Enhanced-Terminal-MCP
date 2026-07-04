@@ -6,6 +6,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
+import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
 import { ErrorCode, fail, success } from "../result.js";
@@ -50,6 +51,12 @@ export function registerManageTools(server: McpServer) {
           await fs.rename(source, destination);
         }
         logger.info("copy_move", `${operation === "copy" ? "copied" : "moved"}`, `${source} -> ${destination}`);
+        audit.record({
+          action: "file.move",
+          tool: "copy_move",
+          detail: { source, destination, operation },
+          success: true,
+        });
         toolCache.invalidateByValue(source);
         toolCache.invalidateByValue(destination);
         return success(`${operation === "copy" ? "Copied" : "Moved"}: ${source} -> ${destination}`, {
@@ -58,6 +65,13 @@ export function registerManageTools(server: McpServer) {
           operation,
         });
       } catch (e: any) {
+        audit.record({
+          action: "file.move",
+          tool: "copy_move",
+          detail: { source, destination, operation },
+          success: false,
+          error: e.message,
+        });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
     }),
@@ -100,12 +114,25 @@ export function registerManageTools(server: McpServer) {
           await fs.unlink(target_path);
         }
         logger.warn("delete_path", `deleted ${stat.isDirectory() ? "dir" : "file"}`, target_path);
+        audit.record({
+          action: "file.delete",
+          tool: "delete_path",
+          detail: { path: target_path, type: stat.isDirectory() ? "dir" : "file" },
+          success: true,
+        });
         toolCache.invalidateByValue(target_path);
         return success(`Deleted ${stat.isDirectory() ? "directory" : "file"}: ${target_path}`, {
           path: target_path,
           type: stat.isDirectory() ? "dir" : "file",
         });
       } catch (e: any) {
+        audit.record({
+          action: "file.delete",
+          tool: "delete_path",
+          detail: { path: target_path },
+          success: false,
+          error: e.message,
+        });
         if (e.code === "ENOENT")
           return fail(ErrorCode.PATH_NOT_FOUND, `Not found: ${target_path}`, { retryable: true, param: "target_path" });
         return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });

@@ -1,0 +1,44 @@
+# AGENTS.md
+
+本文件是 AI 协作的项目级硬约束入口。所有 CodeStable 子工作流默认遵守本文件的所有规则。
+
+## 项目信息
+
+- **项目名**：Enhanced Terminal MCP
+- **技术栈**：TypeScript + ESM + Node.js 20+
+- **包管理器**：npm
+- **构建输出**：`build/`
+- **主要入口**：`src/index.ts`
+
+## 代码规范
+
+- 使用 TypeScript ESM 语法，`import` 带 `.js` 扩展名
+- 优先使用 `node:` 前缀导入 Node.js 内置模块
+- 所有工具 handler 必须经 `wrapHandler` 包装
+- 所有工具返回统一的 `ToolResult` 协议
+- 函数和变量使用 camelCase，常量使用 UPPER_SNAKE_CASE
+- 字符串优先使用双引号
+- 不使用分号（Biome 配置决定）
+- 每个函数上方保留简洁注释说明职责
+- 禁止在业务代码中使用 `console.log`，统一使用 `logger`
+- 空 catch 块必须补 `logger.debug` 或 `logger.warn` 并说明原因
+
+## 禁止事项
+
+- 禁止修改安全规则、路径黑名单、错误码等核心行为，除非显式授权
+- 禁止删除仅测试使用的导出
+- 禁止在 feature 实现中未经测试直接改动 `src/index.ts` 大量注册逻辑
+- 禁止引入新的运行时依赖，除非已评估必要性与兼容性
+- 禁止破坏现有 26 个工具的输入输出契约
+
+## 已知坑
+
+- `fileURLToPath` 在 Windows 路径含空格时行为不稳定，路径解析优先使用 `dirname(fileURLToPath(import.meta.url))` + `path.join`
+- `build/` 目录下的 `version.js` 与 `src/version.ts` 共享相同的 package.json 相对路径逻辑
+- 命令执行在 Windows 下需通过 `cmd.exe /c chcp 65001 > nul && ...` 处理 UTF-8
+- 测试中的临时目录在 `afterEach` / `afterAll` 中必须清理，避免残留
+- `wrapHandler` 对 handler 返回值有结构要求，直接返回裸字符串会破坏接口
+
+## UI 验证要求
+
+- 本项目无前端 UI，所有改动通过 `npm run build`、`npx tsc --noEmit`、`npm run lint`、`npm test`、`npm run test:latency` 验证

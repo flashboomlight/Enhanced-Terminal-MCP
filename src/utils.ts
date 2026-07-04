@@ -1,5 +1,6 @@
 // src/utils.ts — 核心工具函数：命令执行、格式化
 import { exec, execFile } from "node:child_process";
+import { logger } from "./logger.js";
 import { getShell, wrapCommand } from "./platform.js";
 
 /**
@@ -9,7 +10,7 @@ import { getShell, wrapCommand } from "./platform.js";
 export function safeExec(cmd: string, timeout = 30000, cwd?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const fullCmd = wrapCommand(cmd);
-    const _proc = exec(
+    exec(
       fullCmd,
       {
         cwd: cwd || undefined,
@@ -19,7 +20,7 @@ export function safeExec(cmd: string, timeout = 30000, cwd?: string): Promise<{ 
         maxBuffer: 10 * 1024 * 1024,
         shell: getShell(),
         encoding: "buffer",
-      } as any,
+      },
       (error: any, stdoutBuf: any, stderrBuf: any) => {
         const stdout = smartDecode(stdoutBuf);
         const stderr = smartDecode(stderrBuf);
@@ -81,7 +82,8 @@ function smartDecode(buf: Buffer | null): string {
   if (!utf8.includes("\ufffd")) return utf8;
   try {
     return new TextDecoder("gbk", { fatal: false }).decode(buf);
-  } catch {
+  } catch (err) {
+    logger.debug("utils", "gbk-decode-failed", String(err));
     return utf8;
   }
 }

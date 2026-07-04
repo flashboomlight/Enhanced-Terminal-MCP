@@ -18,6 +18,18 @@ import { ErrorCode, fail, success } from "../result.js";
 import { validatePath } from "../security.js";
 import { wrapHandler } from "../wrap.js";
 
+/** 将 glob 模式（* 和 ?）转换为不区分大小写的正则 */
+export function globToRegex(pattern: string): RegExp {
+  const regexStr =
+    "^" +
+    pattern
+      .replace(/[\\^$+{}.()|[\]-]/g, "\\$&")
+      .replace(/\*/g, ".*")
+      .replace(/\?/g, ".") +
+    "$";
+  return new RegExp(regexStr, "i");
+}
+
 export function registerSearchTools(server: McpServer) {
   // ====================================================================
   const SearchFilesInput = z.object({
@@ -70,22 +82,14 @@ export function registerSearchTools(server: McpServer) {
                 done();
               });
             });
-          } catch {
-            /* fallback to native */
+          } catch (err) {
+            logger.debug("search_files", "everything-fallback", String(err));
           }
         }
 
         if (matches.length === 0) {
           const maxD = max_depth || 5;
-          // glob→regex: 转义所有正则元字符，然后将 * 和 ? 转为通配
-          const regexStr =
-            "^" +
-            pattern
-              .replace(/[\\^$+{}.()|[\]-]/g, "\\$&")
-              .replace(/\*/g, ".*")
-              .replace(/\?/g, ".") +
-            "$";
-          const reg = new RegExp(regexStr, "i");
+          const reg = globToRegex(pattern);
 
           async function walk(p: string, d: number) {
             if (d > maxD || matches.length >= maxR) return;
@@ -213,18 +217,25 @@ export function registerSearchTools(server: McpServer) {
       try {
         if (IS_WIN) {
           const execAsync = promisify(execFile);
-          const psScript = [
-            "param([string]$Dir, [string]$Filter, [string]$Regex, [int]$MaxR);",
-            "$ErrorActionPreference = 'SilentlyContinue';",
-            "Get-ChildItem -LiteralPath $Dir -Filter $Filter -Recurse -File |",
-            "  Select-String -Pattern $Regex -List |",
-            "  Select-Object -First $MaxR |",
-            '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
-          ].join(" ");
           try {
             const { stdout } = await execAsync(
               "powershell",
-              ["-NoProfile", "-Command", psScript, dir_path, fileFilter, pattern, String(maxR)],
+              [
+                "-NoProfile",
+                "-Command",
+                "& {",
+                "param([string]$Dir, [string]$Filter, [string]$Regex, [int]$MaxR)",
+                "$ErrorActionPreference = 'SilentlyContinue';",
+                "Get-ChildItem -LiteralPath $Dir -Filter $Filter -Recurse -File |",
+                "  Select-String -Pattern $Regex -List |",
+                "  Select-Object -First $MaxR |",
+                '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
+                "}",
+                dir_path,
+                fileFilter,
+                pattern,
+                String(maxR),
+              ],
               { timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
             );
             results.push(
@@ -233,8 +244,12 @@ export function registerSearchTools(server: McpServer) {
                 .map((l) => l.trim())
                 .filter((l) => l),
             );
-          } catch (e) {
+          } catch (e: any) {
             logger.warn("grep_content:ps:error", String(e));
+            return fail(ErrorCode.EXECUTION_FAILED, `PowerShell grep failed: ${e.message || String(e)}`, {
+              retryable: true,
+              detail: { dir_path, file_pattern: fileFilter, pattern },
+            });
           }
         }
 
@@ -249,8 +264,12 @@ export function registerSearchTools(server: McpServer) {
                 .map((l) => l.trim())
                 .filter((l) => l),
             );
-          } catch (e) {
+          } catch (e: any) {
             logger.warn("grep_content:grep:error", String(e));
+            return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${e.message || String(e)}`, {
+              retryable: true,
+              detail: { dir_path, file_pattern: fileFilter, pattern },
+            });
           }
         }
 
@@ -261,14 +280,7 @@ export function registerSearchTools(server: McpServer) {
           } catch (e: any) {
             return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: false, param: "pattern" });
           }
-          const fileRegexStr =
-            "^" +
-            fileFilter
-              .replace(/[\\^$+{}.()|[\]-]/g, "\\$&")
-              .replace(/\*/g, ".*")
-              .replace(/\?/g, ".") +
-            "$";
-          const fileRegex = new RegExp(fileRegexStr, "i");
+          const fileRegex = globToRegex(fileFilter);
 
           async function grepFile(fp: string) {
             const rl = createInterface({ input: createReadStream(fp, { encoding: "utf-8" }), crlfDelay: Infinity });

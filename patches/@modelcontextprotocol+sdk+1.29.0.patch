@@ -1,5 +1,5 @@
 diff --git a/node_modules/@modelcontextprotocol/sdk/dist/cjs/server/mcp.js b/node_modules/@modelcontextprotocol/sdk/dist/cjs/server/mcp.js
-index e10bb3d..53d3b77 100644
+index 9e1c874..4922ec8 100644
 --- a/node_modules/@modelcontextprotocol/sdk/dist/cjs/server/mcp.js
 +++ b/node_modules/@modelcontextprotocol/sdk/dist/cjs/server/mcp.js
 @@ -77,12 +77,17 @@ class McpServer {
@@ -21,7 +21,7 @@ index e10bb3d..53d3b77 100644
                      })(),
                      annotations: tool.annotations,
                      execution: tool.execution,
-@@ -810,7 +815,9 @@ class ResourceTemplate {
+@@ -811,7 +816,9 @@ class ResourceTemplate {
  exports.ResourceTemplate = ResourceTemplate;
  const EMPTY_OBJECT_JSON_SCHEMA = {
      type: 'object',
@@ -33,7 +33,7 @@ index e10bb3d..53d3b77 100644
  /**
   * Checks if a value looks like a Zod schema by checking for parse/safeParse methods.
 diff --git a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
-index 23639ce..429f37d 100644
+index 2314d88..6ef1b07 100644
 --- a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
 +++ b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
 @@ -74,12 +74,18 @@ export class McpServer {
@@ -56,7 +56,7 @@ index 23639ce..429f37d 100644
                      })(),
                      annotations: tool.annotations,
                      execution: tool.execution,
-@@ -805,7 +811,9 @@ export class ResourceTemplate {
+@@ -806,7 +812,9 @@ export class ResourceTemplate {
  }
  const EMPTY_OBJECT_JSON_SCHEMA = {
      type: 'object',

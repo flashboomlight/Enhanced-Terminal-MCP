@@ -5,8 +5,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { adaptiveTimeout } from "../adaptive.js";
+import { audit } from "../audit.js";
 import { logger } from "../logger.js";
-import { IS_WIN } from "../platform.js";
+import { pageCache } from "../paging.js";
+import { getShell, IS_WIN, wrapCommand } from "../platform.js";
 import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
@@ -15,12 +17,19 @@ import { session } from "../session.js";
 import { spawnStream } from "../stream.js";
 import { wrapHandler } from "../wrap.js";
 
+function buildShellArgs(rawCommand: string): { shell: string; args: string[] } {
+  const shell = getShell();
+  return { shell, args: IS_WIN ? ["/c", wrapCommand(rawCommand)] : ["-c", rawCommand] };
+}
+
 export function registerCommandTools(server: McpServer) {
   // ====================================================================
   const ExecuteCommandInput = z.object({
     command: z.string().describe("The command to execute"),
     cwd: z.string().optional().describe("Working directory (optional)"),
     timeout: z.number().optional().describe("Timeout in ms, default 30000"),
+    page: z.number().int().min(1).optional().describe("Page number to read from paged output, default 1"),
+    pageSize: z.number().int().min(1).max(10000).optional().describe("Characters per page, default 2000, max 10000"),
   });
   type ExecuteCommandInput = z.infer<typeof ExecuteCommandInput>;
 
@@ -35,6 +44,10 @@ export function registerCommandTools(server: McpServer) {
         stderr: z.string(),
         exit_code: z.number(),
         timed_out: z.boolean(),
+        page: z.number().optional(),
+        total_pages: z.number().optional(),
+        page_size: z.number().optional(),
+        total_chars: z.number().optional(),
       }),
       annotations: {
         readOnlyHint: false,
@@ -42,15 +55,23 @@ export function registerCommandTools(server: McpServer) {
         idempotentHint: false,
       },
     },
-    wrapHandler("execute_command", async ({ command, cwd, timeout }: ExecuteCommandInput) => {
+    wrapHandler("execute_command", async ({ command, cwd, timeout, page, pageSize }: ExecuteCommandInput) => {
       const t0 = Date.now();
       const dp = hasDangerousPattern(command);
-      if (dp)
+      if (dp) {
+        audit.record({
+          action: "safety.block",
+          tool: "execute_command",
+          detail: { command, pattern: dp },
+          success: false,
+          error: `Dangerous pattern: ${dp}`,
+        });
         return fail(ErrorCode.COMMAND_DANGEROUS, `Command blocked — dangerous pattern: ${dp}`, {
           retryable: false,
           param: "command",
           detail: { command, pattern: dp },
         });
+      }
 
       const rateErr = checkRateLimit(commandRateLimit, "execute_command");
       if (rateErr)
@@ -60,24 +81,38 @@ export function registerCommandTools(server: McpServer) {
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
 
       try {
-        const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
-        const shellArgs = IS_WIN ? ["/c", `chcp 65001 >nul && ${command}`] : ["-c", command];
+        const { shell, args } = buildShellArgs(command);
         const effectiveCwd = cwd || session.getCwd();
         const effectiveTimeout = timeout || adaptiveTimeout("execute_command");
-        const result = await spawnStream(shell, shellArgs, { timeout: effectiveTimeout, cwd: effectiveCwd });
+        const result = await spawnStream(shell, args, { timeout: effectiveTimeout, cwd: effectiveCwd });
         session.pushHistory(command);
 
-        if (result.timedOut)
+        if (result.timedOut) {
+          audit.record({
+            action: "command.execute",
+            tool: "execute_command",
+            detail: { command, cwd: effectiveCwd, timedOut: true },
+            success: false,
+            error: "Command timed out",
+          });
           return fail(ErrorCode.TIMEOUT, "Command timed out", {
             retryable: true,
             param: "timeout",
             suggestion: "Use a simpler command or increase timeout",
           });
+        }
 
         const output = result.stdout || "(no output)";
         const errInfo = result.stderr ? `\n[stderr]:\n${result.stderr.slice(0, 500)}` : "";
 
         if (result.exitCode !== 0) {
+          audit.record({
+            action: "command.execute",
+            tool: "execute_command",
+            detail: { command, cwd: effectiveCwd, exitCode: result.exitCode },
+            success: false,
+            error: result.stderr?.slice(0, 200) || `exit ${result.exitCode}`,
+          });
           return fail(
             ErrorCode.EXECUTION_FAILED,
             `Command failed (exit ${result.exitCode})\n[stdout]:\n${output.slice(0, 500)}${errInfo}`,
@@ -85,18 +120,81 @@ export function registerCommandTools(server: McpServer) {
           );
         }
         const maxChars = 2000;
-        const truncated = output.length > maxChars;
+        const _truncated = output.length > maxChars;
+        const defaultPageSize = 2000;
+        const requestedPageSize = pageSize || defaultPageSize;
+        const needsPaging = page !== undefined || output.length > requestedPageSize;
+
+        if (needsPaging) {
+          const cache = await pageCache.cache(
+            command,
+            effectiveCwd,
+            result.exitCode ?? 0,
+            output,
+            result.stderr || "",
+            requestedPageSize,
+          );
+          const pageResult = await pageCache.get(cache.id, page || 1, requestedPageSize);
+          if (!pageResult) {
+            return fail(ErrorCode.VALIDATION_ERROR, `Invalid page: ${page}`, {
+              retryable: true,
+              param: "page",
+              detail: { total_pages: cache.totalPages },
+            });
+          }
+          audit.record({
+            action: "command.execute",
+            tool: "execute_command",
+            detail: {
+              command,
+              cwd: effectiveCwd,
+              exitCode: 0,
+              latency_ms: Date.now() - t0,
+              page: pageResult.page,
+              total_pages: pageResult.total_pages,
+            },
+            success: true,
+          });
+          return success(
+            pageResult.content,
+            {
+              stdout: pageResult.content,
+              stderr: result.stderr,
+              exit_code: result.exitCode ?? -1,
+              timed_out: false,
+              page: pageResult.page,
+              total_pages: pageResult.total_pages,
+              page_size: pageResult.page_size,
+              total_chars: pageResult.total_chars,
+            },
+            { latency_ms: Date.now() - t0 },
+          );
+        }
+
+        audit.record({
+          action: "command.execute",
+          tool: "execute_command",
+          detail: { command, cwd: effectiveCwd, exitCode: 0, latency_ms: Date.now() - t0 },
+          success: true,
+        });
         return success(
-          truncated ? `${output.slice(0, maxChars)}\n... (truncated, ${output.length} chars total)` : output,
+          output,
           {
             stdout: result.stdout,
             stderr: result.stderr,
             exit_code: result.exitCode ?? -1,
             timed_out: false,
           },
-          { latency_ms: Date.now() - t0, truncated },
+          { latency_ms: Date.now() - t0 },
         );
       } catch (e: any) {
+        audit.record({
+          action: "command.execute",
+          tool: "execute_command",
+          detail: { command, cwd: cwd || session.getCwd() },
+          success: false,
+          error: e.message || "Unknown error",
+        });
         return fail(ErrorCode.EXECUTION_FAILED, e.message || "Unknown error", { retryable: true });
       }
     }),
@@ -157,9 +255,8 @@ export function registerCommandTools(server: McpServer) {
           const ct0 = Date.now();
           try {
             logger.info("batch_execute", `step ${idx + 1}/${commands.length}`, cmd);
-            const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
-            const shellArgs = IS_WIN ? ["/c", cmd] : ["-c", cmd];
-            const r = await spawnStream(shell, shellArgs, { timeout: 30000, cwd: cwd || session.getCwd() });
+            const { shell, args } = buildShellArgs(cmd);
+            const r = await spawnStream(shell, args, { timeout: 30000, cwd: cwd || session.getCwd() });
             return {
               command: cmd,
               stdout: r.stdout || "",
@@ -198,6 +295,13 @@ export function registerCommandTools(server: McpServer) {
         const summary = allOk
           ? `All ${results.length} commands OK`
           : `${results.filter((r) => r.ok).length}/${results.length} commands OK`;
+        audit.record({
+          action: "command.execute",
+          tool: "batch_execute",
+          detail: { commands, parallel: isParallel, allOk },
+          success: allOk,
+          error: allOk ? undefined : "Some commands failed",
+        });
         return success(summary, { results, summary }, { latency_ms: Date.now() - t0 });
       } catch (e: any) {
         return fail(ErrorCode.EXECUTION_FAILED, e.message || "Batch failed", { retryable: true });
@@ -236,22 +340,43 @@ export function registerCommandTools(server: McpServer) {
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
 
       try {
-        const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
-        const shellArgs = IS_WIN ? ["/c", `chcp 65001 >nul && ${command}`] : ["-c", command];
-        const result = await spawnStream(shell, shellArgs, { timeout: duration || 5000, cwd: cwd || session.getCwd() });
+        const { shell, args } = buildShellArgs(command);
+        const effectiveCwd = cwd || session.getCwd();
+        const result = await spawnStream(shell, args, { timeout: duration || 5000, cwd: effectiveCwd });
         const output = result.stdout || "(no output)";
-        if (result.timedOut)
+        if (result.timedOut) {
+          audit.record({
+            action: "command.execute",
+            tool: "watch_command",
+            detail: { command, cwd: effectiveCwd, timedOut: true },
+            success: false,
+            error: "Watch timed out",
+          });
           return success(
             `$ ${command}\n(timed out)\n${output}`,
             { output, captured_ms: duration || 5000 },
             { latency_ms: Date.now() - t0 },
           );
+        }
+        audit.record({
+          action: "command.execute",
+          tool: "watch_command",
+          detail: { command, cwd: effectiveCwd, exitCode: result.exitCode },
+          success: true,
+        });
         return success(
           `$ ${command}\n${output}`,
           { output, captured_ms: Date.now() - t0 },
           { latency_ms: Date.now() - t0 },
         );
       } catch (e: any) {
+        audit.record({
+          action: "command.execute",
+          tool: "watch_command",
+          detail: { command },
+          success: false,
+          error: e.message || "Watch failed",
+        });
         return fail(ErrorCode.EXECUTION_FAILED, e.message || "Watch failed", { retryable: true });
       }
     }),

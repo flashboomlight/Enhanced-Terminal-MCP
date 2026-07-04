@@ -105,7 +105,10 @@ export function getKillSpec(pid?: number, name?: string, force?: boolean): Comma
     return { file: "kill", args: [sig, String(pid)] };
   }
   // pkill 需要精确名（已在上游 sanitize 去掉通配）
-  return { file: "pkill", args: [sig, name!] };
+  if (!name) {
+    throw new Error("getKillSpec requires name when pid is not provided");
+  }
+  return { file: "pkill", args: [sig, name] };
 }
 
 /**

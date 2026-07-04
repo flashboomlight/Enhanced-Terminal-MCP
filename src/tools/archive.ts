@@ -45,7 +45,9 @@ export function registerArchiveTools(server: McpServer) {
         try {
           const s = await fs.stat(output_path);
           size_bytes = s.size;
-        } catch {}
+        } catch (err) {
+          logger.debug("compress_archive", "stat-failed", String(err));
+        }
         logger.info("compress_archive", "compressed", `${source_path} -> ${output_path}`);
         return success(`Compressed: ${source_path} -> ${output_path}${size_bytes ? ` (${size_bytes} bytes)` : ""}`, {
           source: source_path,

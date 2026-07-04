@@ -4,9 +4,8 @@
  */
 
 import * as fs from "node:fs/promises";
-import { tmpdir } from "node:os";
-import * as path from "node:path";
 import { logger } from "./logger.js";
+import { getLegacyStateFilePath, getStateFilePath } from "./state-dir.js";
 
 export interface SessionState {
   cwd: string;
@@ -15,13 +14,12 @@ export interface SessionState {
   createdAt: number;
 }
 
-const STATE_FILE = path.join(tmpdir(), ".enhanced-terminal-mcp-session.json");
-
 function freshState(): SessionState {
   return { cwd: process.cwd(), env: {}, history: [], createdAt: Date.now() };
 }
 
-class SessionStore {
+/** 导出类便于测试隔离 */
+export class SessionStore {
   private state: SessionState = freshState();
   private dirty = false;
 
@@ -98,50 +96,73 @@ class SessionStore {
   }
 
   /** 立即持久化（关闭时调用） */
-  flush(): void {
+  async flush(): Promise<void> {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
-    if (this.dirty) this.saveToDisk();
+    if (this.dirty) await this.saveToDisk();
   }
 
   private async saveToDisk(): Promise<void> {
     try {
+      const stateFile = await getStateFilePath();
       const data = {
         cwd: this.state.cwd,
         env: this.state.env,
         history: this.state.history.slice(-20), // 只保留最近 20 条
         createdAt: this.state.createdAt,
       };
-      await fs.writeFile(STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
+      const tmpFile = `${stateFile}.tmp`;
+      await fs.writeFile(tmpFile, JSON.stringify(data, null, 2), "utf-8");
+      await fs.rename(tmpFile, stateFile);
       this.dirty = false;
-      logger.info("session", "persisted", STATE_FILE);
+      logger.info("session", "persisted", stateFile);
     } catch (e) {
       logger.warn("session", "persist-failed", String(e));
     }
   }
 
   private loadFromDisk(): void {
+    this.loadNewFile().catch(() => this.loadLegacyFile());
+  }
+
+  private async loadNewFile(): Promise<void> {
+    const stateFile = await getStateFilePath();
     try {
-      fs.access(STATE_FILE)
-        .then(() => {
-          fs.readFile(STATE_FILE, "utf-8")
-            .then((raw) => {
-              const data = JSON.parse(raw);
-              if (data.cwd && typeof data.cwd === "string") this.state.cwd = data.cwd;
-              if (data.env && typeof data.env === "object") this.state.env = data.env;
-              if (data.history && Array.isArray(data.history)) this.state.history = data.history.slice(-50);
-              if (data.createdAt && typeof data.createdAt === "number") this.state.createdAt = data.createdAt;
-              logger.info("session", "restored", `cwd=${this.state.cwd}, history=${this.state.history.length}`);
-            })
-            .catch(() => logger.info("session", "no-prev-session", "starting fresh"));
-        })
-        .catch(() => {
-          /* no previous session file */
-        });
+      await fs.access(stateFile);
     } catch {
-      /* ignore */
+      throw new Error("new state file not found");
+    }
+    const raw = await fs.readFile(stateFile, "utf-8");
+    this.applyState(raw);
+    logger.info("session", "restored", `cwd=${this.state.cwd}, history=${this.state.history.length}`);
+  }
+
+  private loadLegacyFile(): void {
+    const legacyFile = getLegacyStateFilePath();
+    fs.access(legacyFile)
+      .then(() => fs.readFile(legacyFile, "utf-8"))
+      .then((raw) => {
+        this.applyState(raw);
+        logger.info("session", "legacy-restored", `cwd=${this.state.cwd}, history=${this.state.history.length}`);
+        // 迁移成功后立即写入新位置
+        this.saveToDisk().catch((e) => logger.warn("session", "migration-save-failed", String(e)));
+      })
+      .catch(() => {
+        logger.info("session", "no-prev-session", "starting fresh");
+      });
+  }
+
+  private applyState(raw: string): void {
+    try {
+      const data = JSON.parse(raw);
+      if (data.cwd && typeof data.cwd === "string") this.state.cwd = data.cwd;
+      if (data.env && typeof data.env === "object") this.state.env = data.env;
+      if (data.history && Array.isArray(data.history)) this.state.history = data.history.slice(-50);
+      if (data.createdAt && typeof data.createdAt === "number") this.state.createdAt = data.createdAt;
+    } catch {
+      logger.warn("session", "parse-failed", "starting fresh");
     }
   }
 }

@@ -39,3 +39,9 @@ npm-debug.log*
 
 # Backup files
 *.bak-*
+
+# Local CodeGraph index
+.codegraph/
+
+# Enhanced Terminal MCP runtime state
+.enhanced-terminal-mcp/
