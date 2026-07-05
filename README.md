@@ -13,7 +13,7 @@ Supports **27 tools** across 7 categories: command execution, file I/O, system m
 - **Session Persistence** — cwd, env vars, and command history survive restarts (auto-saved to `.enhanced-terminal-mcp/session.json`)
 - **Audit Logging** — structured JSON Lines audit log at `.enhanced-terminal-mcp/logs/audit.jsonl` (mode: `off` / `errors` / `all`)
 - **Temp Resource Manager** — TTL + LRU auto-recycled temp directories for page caches and future snapshots
-- **Command Output Paging** — large `execute_command` outputs can be read page-by-page via `cache_id` / `page` / `pageSize`
+- **Command Output Paging** — large `execute_command` outputs can be read page-by-page via validated `cache_id` / `page` / `pageSize`
 - **Rate Limiting** — token bucket (10 req/s) for command execution
 - **Windows Everything Integration** — sub-10ms file search via Everything CLI
 
@@ -44,6 +44,7 @@ npm install enhanced-terminal-mcp
 | `MCP_STATE_DIR` | `<project-root>/.enhanced-terminal-mcp` | State directory for session, audit logs, and temp files |
 | `MCP_AUDIT_MODE` | `errors` | Audit mode: `off` / `errors` / `all` |
 | `MCP_AUDIT_MAX_ENTRIES` | `10000` | Max audit log entries to retain |
+| `MCP_COMMAND_MAX_OUTPUT_BYTES` | `52428800` | Max captured stdout per command before returning an explicit truncation error |
 | `MCP_TEMP_TTL_MS` | `3600000` | Temp directory TTL in milliseconds |
 | `MCP_MAX_TEMP_DIRS` | `100` | Max temp directories before LRU eviction |
 | `MCP_TEMP_CLEANUP_INTERVAL_MS` | `300000` | Auto cleanup polling interval in milliseconds |
@@ -55,7 +56,7 @@ npm install enhanced-terminal-mcp
 |------|-------------|--------|
 | `execute_command` | Execute a shell command, or read cached paged output via `cache_id` (`page`/`pageSize`) | destructive |
 | `batch_execute` | Execute multiple commands sequentially (default) or in parallel with concurrency 4 | destructive |
-| `watch_command` | Run a command for a limited duration, capturing real-time output | read_only |
+| `watch_command` | Run a command for a limited duration, capturing output and failing on non-zero exit | destructive |
 
 ### File Tools
 | Tool | Description | Cache |
@@ -69,7 +70,7 @@ npm install enhanced-terminal-mcp
 ### File Management
 | Tool | Description |
 |------|-------------|
-| `copy_move` | Copy or move files/directories |
+| `copy_move` | Copy or move files/directories; protected by safety confirmation |
 | `delete_path` | Delete file or directory (requires recursive for non-empty dirs) |
 
 ### Search Tools
@@ -77,7 +78,7 @@ npm install enhanced-terminal-mcp
 |------|-------------|-------|
 | `search_files` | Pattern search with Everything on Windows, native fallback | 30s |
 | `everything_search` | Ultra-fast Everything search (Windows only) | 30s |
-| `grep_content` | Regex content search via PowerShell/grep/native | 30s |
+| `grep_content` | Regex content search via PowerShell/grep/native with global `max_results` | 30s |
 
 ### System Tools
 | Tool | Description |
@@ -91,9 +92,9 @@ npm install enhanced-terminal-mcp
 ### Archive Tools
 | Tool | Description |
 |------|-------------|
-| `compress_archive` | Zip compression |
-| `extract_archive` | Zip extraction |
-| `download_file` | HTTP(S) download with retry (exponential backoff) |
+| `compress_archive` | Zip compression; protected by safety confirmation |
+| `extract_archive` | Zip extraction; protected by safety confirmation |
+| `download_file` | HTTP(S) download with retry; protected by safety confirmation |
 
 ### Utility Tools
 | Tool | Description |
@@ -102,7 +103,7 @@ npm install enhanced-terminal-mcp
 | `temp_stats` | Temp resource statistics: dirs, size, oldest/newest age, removed count |
 | `cache_stats` | LRU cache statistics |
 | `cache_invalidate` | Clear specific or all caches |
-| `session_state` | View/modify session cwd and env (get/set_cwd/set_env/reset) |
+| `session_state` | View/modify session cwd and env (get/set_cwd/set_env/reset); env applies to command tools |
 | `pool_stats` | Shell process pool status |
 
 ### Resources

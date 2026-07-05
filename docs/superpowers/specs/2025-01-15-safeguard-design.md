@@ -1,5 +1,7 @@
 # SafeGuard 安全锁系统设计规格
 
+> 历史归档说明：本文记录 2025-01-15 的 v3.0 安全锁设计输入。当前实现已经在后续审计中扩展保护范围，并将 `watch_command` 标记为 destructive；以 `README.md`、`CHANGELOG.md` 与 `codestable/` 下的现状文档为准。
+
 ## 概述
 
 为 Enhanced Terminal MCP v3.0 的所有敏感操作增加集中式安全锁机制。通过三级安全模式、MCP Elicitation 交互式确认、关键资源硬性保护三层防御，实现「防误操作」级别的安全保障。

@@ -227,7 +227,7 @@ export function registerSearchTools(server: McpServer) {
                 "param([string]$Dir, [string]$Filter, [string]$Regex, [int]$MaxR)",
                 "$ErrorActionPreference = 'SilentlyContinue';",
                 "Get-ChildItem -LiteralPath $Dir -Filter $Filter -Recurse -File |",
-                "  Select-String -Pattern $Regex -List |",
+                "  Select-String -Pattern $Regex |",
                 "  Select-Object -First $MaxR |",
                 '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
                 "}",
@@ -256,20 +256,34 @@ export function registerSearchTools(server: McpServer) {
         if (!IS_WIN && results.length === 0) {
           try {
             const execAsync = promisify(execFile);
-            const grepArgs = ["-rn", `--include=${fileFilter}`, "-m", String(maxR), pattern, dir_path];
+            const grepArgs = ["-rnI", `--include=${fileFilter}`, pattern, dir_path];
             const { stdout } = await execAsync("grep", grepArgs, { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
             results.push(
               ...stdout
                 .split("\n")
                 .map((l) => l.trim())
-                .filter((l) => l),
+                .filter((l) => l)
+                .slice(0, maxR),
             );
           } catch (e: any) {
-            logger.warn("grep_content:grep:error", String(e));
-            return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${e.message || String(e)}`, {
-              retryable: true,
-              detail: { dir_path, file_pattern: fileFilter, pattern },
-            });
+            const stdout = typeof e.stdout === "string" ? e.stdout : e.stdout?.toString?.() || "";
+            if (e.code === 1 && !stdout) {
+              logger.debug("grep_content", "grep-no-matches", `${dir_path} ${pattern}`);
+            } else if (stdout) {
+              results.push(
+                ...stdout
+                  .split("\n")
+                  .map((l: string) => l.trim())
+                  .filter((l: string) => l)
+                  .slice(0, maxR),
+              );
+            } else {
+              logger.warn("grep_content:grep:error", String(e));
+              return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${e.message || String(e)}`, {
+                retryable: true,
+                detail: { dir_path, file_pattern: fileFilter, pattern },
+              });
+            }
           }
         }
 

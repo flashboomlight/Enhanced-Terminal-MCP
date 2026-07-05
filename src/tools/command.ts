@@ -22,6 +22,18 @@ function buildShellArgs(rawCommand: string): { shell: string; args: string[] } {
   return { shell, args: IS_WIN ? ["/c", wrapCommand(rawCommand)] : ["-c", rawCommand] };
 }
 
+function getCommandMaxOutputBytes(): number {
+  const configured = parseInt(process.env.MCP_COMMAND_MAX_OUTPUT_BYTES || "", 10);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(1024, configured);
+  }
+  return 50 * 1024 * 1024;
+}
+
+function getSessionEnv(): Record<string, string> {
+  return session.get().env;
+}
+
 export function registerCommandTools(server: McpServer) {
   // ====================================================================
   const ExecuteCommandInput = z.object({
@@ -122,7 +134,12 @@ export function registerCommandTools(server: McpServer) {
         const { shell, args } = buildShellArgs(command);
         const effectiveCwd = cwd || session.getCwd();
         const effectiveTimeout = timeout || adaptiveTimeout("execute_command");
-        const result = await spawnStream(shell, args, { timeout: effectiveTimeout, cwd: effectiveCwd });
+        const result = await spawnStream(shell, args, {
+          timeout: effectiveTimeout,
+          cwd: effectiveCwd,
+          env: getSessionEnv(),
+          maxOutput: getCommandMaxOutputBytes(),
+        });
         session.pushHistory(command);
 
         if (result.timedOut) {
@@ -138,6 +155,25 @@ export function registerCommandTools(server: McpServer) {
             param: "timeout",
             suggestion: "Use a simpler command or increase timeout",
           });
+        }
+
+        if (result.truncated) {
+          audit.record({
+            action: "command.execute",
+            tool: "execute_command",
+            detail: { command, cwd: effectiveCwd, maxOutputBytes: getCommandMaxOutputBytes() },
+            success: false,
+            error: "Command output exceeded max output limit",
+          });
+          return fail(
+            ErrorCode.EXECUTION_FAILED,
+            `Command output exceeded MCP_COMMAND_MAX_OUTPUT_BYTES (${getCommandMaxOutputBytes()} bytes)`,
+            {
+              retryable: true,
+              param: "command",
+              suggestion: "Write output to a file, request a smaller output, or raise MCP_COMMAND_MAX_OUTPUT_BYTES",
+            },
+          );
         }
 
         const output = result.stdout || "(no output)";
@@ -293,12 +329,19 @@ export function registerCommandTools(server: McpServer) {
           try {
             logger.info("batch_execute", `step ${idx + 1}/${commands.length}`, cmd);
             const { shell, args } = buildShellArgs(cmd);
-            const r = await spawnStream(shell, args, { timeout: 30000, cwd: cwd || session.getCwd() });
+            const r = await spawnStream(shell, args, {
+              timeout: 30000,
+              cwd: cwd || session.getCwd(),
+              env: getSessionEnv(),
+              maxOutput: getCommandMaxOutputBytes(),
+            });
             return {
               command: cmd,
               stdout: r.stdout || "",
-              stderr: r.stderr || "",
-              ok: r.exitCode === 0,
+              stderr: r.truncated
+                ? `${r.stderr || ""}${r.stderr ? "\n" : ""}[OUTPUT_TRUNCATED] Command output exceeded MCP_COMMAND_MAX_OUTPUT_BYTES`
+                : r.stderr || "",
+              ok: !r.truncated && r.exitCode === 0,
               latency_ms: Date.now() - ct0,
             };
           } catch (e: any) {
@@ -360,8 +403,12 @@ export function registerCommandTools(server: McpServer) {
       title: "Watch Command Output",
       description: "Execute a command and capture output for a limited duration. Useful for real-time monitoring.",
       inputSchema: WatchCommandInput,
-      outputSchema: z.object({ output: z.string(), captured_ms: z.number() }),
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false },
+      outputSchema: z.object({
+        output: z.string(),
+        captured_ms: z.number(),
+        exit_code: z.number().nullable().optional(),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("watch_command", async ({ command, duration, cwd }: WatchCommandInput) => {
       const t0 = Date.now();
@@ -379,7 +426,12 @@ export function registerCommandTools(server: McpServer) {
       try {
         const { shell, args } = buildShellArgs(command);
         const effectiveCwd = cwd || session.getCwd();
-        const result = await spawnStream(shell, args, { timeout: duration || 5000, cwd: effectiveCwd });
+        const result = await spawnStream(shell, args, {
+          timeout: duration || 5000,
+          cwd: effectiveCwd,
+          env: getSessionEnv(),
+          maxOutput: getCommandMaxOutputBytes(),
+        });
         const output = result.stdout || "(no output)";
         if (result.timedOut) {
           audit.record({
@@ -391,8 +443,42 @@ export function registerCommandTools(server: McpServer) {
           });
           return success(
             `$ ${command}\n(timed out)\n${output}`,
-            { output, captured_ms: duration || 5000 },
+            { output, captured_ms: duration || 5000, exit_code: result.exitCode },
             { latency_ms: Date.now() - t0 },
+          );
+        }
+        if (result.truncated) {
+          audit.record({
+            action: "command.execute",
+            tool: "watch_command",
+            detail: { command, cwd: effectiveCwd, maxOutputBytes: getCommandMaxOutputBytes() },
+            success: false,
+            error: "Watch output exceeded max output limit",
+          });
+          return fail(
+            ErrorCode.EXECUTION_FAILED,
+            `Watch output exceeded MCP_COMMAND_MAX_OUTPUT_BYTES (${getCommandMaxOutputBytes()} bytes)`,
+            {
+              retryable: true,
+              param: "command",
+              suggestion: "Use a narrower command or raise MCP_COMMAND_MAX_OUTPUT_BYTES",
+            },
+          );
+        }
+        if (result.exitCode !== 0) {
+          audit.record({
+            action: "command.execute",
+            tool: "watch_command",
+            detail: { command, cwd: effectiveCwd, exitCode: result.exitCode },
+            success: false,
+            error: result.stderr?.slice(0, 200) || `exit ${result.exitCode}`,
+          });
+          return fail(
+            ErrorCode.EXECUTION_FAILED,
+            `Watch command failed (exit ${result.exitCode})\n[stdout]:\n${output.slice(0, 500)}${
+              result.stderr ? `\n[stderr]:\n${result.stderr.slice(0, 500)}` : ""
+            }`,
+            { retryable: true },
           );
         }
         audit.record({
@@ -403,7 +489,7 @@ export function registerCommandTools(server: McpServer) {
         });
         return success(
           `$ ${command}\n${output}`,
-          { output, captured_ms: Date.now() - t0 },
+          { output, captured_ms: Date.now() - t0, exit_code: result.exitCode },
           { latency_ms: Date.now() - t0 },
         );
       } catch (e: any) {

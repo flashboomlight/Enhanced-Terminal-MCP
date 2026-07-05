@@ -1,5 +1,7 @@
 # Enhanced Terminal MCP v3.0 全面升级实施方案
 
+> 历史归档说明：本文记录 2025-01-15 的 v3.0 升级实施计划，内部代码片段和版本约束可能反映当时方案。当前发布面、Node 版本、安全保护范围与工具行为以 `README.md`、`CHANGELOG.md` 与 `codestable/` 下的现状文档为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 将 Enhanced Terminal MCP 从 v2.0 全面升级到 v3.0，涵盖安全加固、MCP 协议新特性适配、跨平台兼容、结构化输出、性能优化等 12 个方向。

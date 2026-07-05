@@ -12,6 +12,10 @@ export type SafetyMode = "strict" | "normal" | "off";
 const GUARDED_TOOLS = new Set([
   "delete_path",
   "write_file",
+  "copy_move",
+  "compress_archive",
+  "extract_archive",
+  "download_file",
   "kill_process",
   "execute_command",
   "batch_execute",

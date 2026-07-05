@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Audit logs are compacted to `MCP_AUDIT_MAX_ENTRIES` instead of growing without bound.
 - The npm package now uses a `files` whitelist, includes the Unix shebang for the bin entry, and keeps `patch-package` available for postinstall.
 - Cleared current npm audit findings by refreshing vulnerable transitive dependency versions.
+- `safeExec` / `safeExecFile` now reject non-zero exits even when stderr/stdout is present, preventing failed system/archive/download commands from being reported as successful.
+- Safety confirmation now covers `copy_move`, `compress_archive`, `extract_archive`, and `download_file`; `watch_command` is no longer annotated as read-only.
+- `execute_command` now applies `session_state set_env` values to spawned commands and returns an explicit error when stdout exceeds `MCP_COMMAND_MAX_OUTPUT_BYTES`.
+- `watch_command` now returns an error for non-zero command exits instead of reporting them as successful captures.
+- Paged output `cache_id` values are validated before disk lookup to prevent path traversal outside the temp cache root.
+- `grep_content` now applies `max_results` globally and can return multiple matches from the same file.
+- Dangerous PowerShell `Remove-Item` root-drive patterns now cover both `C:\` and `C:/` forms.
+- Package engines now declare the project requirement of Node.js 20+.
 
 ## [3.0.0] - Earlier
 

@@ -14,6 +14,7 @@ created: 2026-07-05
 
 - 大输出自动写入分页缓存
 - 通过 `cache_id` / `page` / `pageSize` 参数读取指定页
+- `cache_id` 只接受服务生成的缓存 ID，不能解析到临时缓存根目录之外
 - 不指定分页时小输出保持完整返回；大输出返回第一页和分页元数据
 - 缓存复用 Phase 3 临时资源管理器，自动 TTL 回收
 
@@ -24,7 +25,7 @@ created: 2026-07-05
 ```ts
 export interface PageCacheEntry {
   id: string;
-  file: string;
+  dir: string;
   command: string;
   cwd: string;
   exitCode: number;
@@ -49,14 +50,14 @@ export interface PageResult {
 export class PageCache {
   async cache(command: string, cwd: string, exitCode: number, stdout: string, stderr: string, pageSize?: number): Promise<PageCacheEntry>
   async get(id: string, page: number, pageSize?: number): Promise<PageResult | null>
-  touch(id: string): void
 }
 ```
 
 ### 缓存文件结构
 
-位于 `.enhanced-terminal-mcp/temp/page-cache/{id}/`：
+位于 `.enhanced-terminal-mcp/temp/page-cache-{timestamp}-{random}/`：
 
+- `.meta.json`：TempManager 元数据
 - `stdout.txt`：完整标准输出
 - `stderr.txt`：完整标准错误
 - `meta.json`：命令、cwd、exitCode、创建时间、页大小、总页数
@@ -84,7 +85,9 @@ export class PageCache {
    - `meta` 中不包含分页字段
 3. 后续调用提供 `cache_id`：
    - 直接读取缓存页，不重新执行命令
+   - 若 `cache_id` 不是 `page-cache-{timestamp}-{random}` 形态，或解析路径不在 temp root 内，按未找到处理
 4. 若 `page > total_pages`：返回错误 `VALIDATION_ERROR`
+5. 若 stdout 超过 `MCP_COMMAND_MAX_OUTPUT_BYTES`：返回明确错误，避免静默截断
 
 ### 输出 schema 扩展
 
@@ -110,6 +113,7 @@ total_chars?: number;
 |---|---|---|
 | `MCP_TEMP_TTL_MS` | `3600000` | 分页缓存 TTL |
 | `MCP_MAX_TEMP_DIRS` | `100` | 缓存数量上限 |
+| `MCP_COMMAND_MAX_OUTPUT_BYTES` | `52428800` | 单次命令 stdout 捕获上限 |
 
 ## 测试
 
@@ -118,11 +122,13 @@ total_chars?: number;
   - 大输出自动缓存并返回第一页
   - 翻页读取内容正确
   - 无效页码返回错误
+  - 非法 `cache_id` 不会穿越 temp root
 
 ## 验收标准
 
 - [ ] `execute_command` 支持 `cache_id` / `page` / `pageSize`
 - [ ] 大输出自动分页缓存
 - [ ] 翻页内容正确
+- [ ] 非法 `cache_id` 被拒绝
 - [ ] 不指定分页时行为不变
 - [ ] build / lint / test / latency 全绿

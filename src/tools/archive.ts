@@ -9,6 +9,7 @@ import { withRetry } from "../adaptive.js";
 import { logger } from "../logger.js";
 import { getCompressSpec, getDownloadSpec, getExtractSpec } from "../platform.js";
 import { ErrorCode, fail, success } from "../result.js";
+import { guardDestructiveAction } from "../safeguard.js";
 import { validatePath, validateUrl } from "../security.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
@@ -27,7 +28,7 @@ export function registerArchiveTools(server: McpServer) {
       description: "Compress files/directories into a zip archive.",
       inputSchema: CompressArchiveInput,
       outputSchema: z.object({ source: z.string(), output: z.string(), size_bytes: z.number().optional() }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("compress_archive", async ({ source_path, output_path }: CompressArchiveInput) => {
       for (const [p, l] of [
@@ -37,6 +38,9 @@ export function registerArchiveTools(server: McpServer) {
         const e = validatePath(p, `compress:${l}`);
         if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
       }
+
+      const block = await guardDestructiveAction("compress_archive", `压缩到归档: ${source_path} -> ${output_path}`);
+      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "output_path" });
 
       try {
         const spec = getCompressSpec(source_path, output_path);
@@ -73,7 +77,7 @@ export function registerArchiveTools(server: McpServer) {
       description: "Extract a zip archive to a directory.",
       inputSchema: ExtractArchiveInput,
       outputSchema: z.object({ archive: z.string(), output: z.string() }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("extract_archive", async ({ archive_path, output_dir }: ExtractArchiveInput) => {
       for (const [p, l] of [
@@ -83,6 +87,9 @@ export function registerArchiveTools(server: McpServer) {
         const e = validatePath(p, `extract:${l}`);
         if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
       }
+
+      const block = await guardDestructiveAction("extract_archive", `解压归档: ${archive_path} -> ${output_dir}`);
+      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "output_dir" });
 
       try {
         const spec = getExtractSpec(archive_path, output_dir);
@@ -107,13 +114,16 @@ export function registerArchiveTools(server: McpServer) {
       description: "Download a file from a URL to local path (HTTP/HTTPS only).",
       inputSchema: DownloadFileInput,
       outputSchema: z.object({ url: z.string(), path: z.string() }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("download_file", async ({ url, save_path }: DownloadFileInput) => {
       const pathErr = validatePath(save_path, "download:save_path");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "save_path" });
       const urlErr = validateUrl(url);
       if (urlErr) return fail(ErrorCode.URL_INVALID, urlErr, { retryable: true, param: "url" });
+
+      const block = await guardDestructiveAction("download_file", `下载文件: ${url} -> ${save_path}`);
+      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "save_path" });
 
       try {
         const spec = getDownloadSpec(url, save_path);

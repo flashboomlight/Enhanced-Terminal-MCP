@@ -94,6 +94,18 @@ describe("guardDestructiveAction", () => {
     expect(result).toContain("strict safety mode");
   });
 
+  test("guardDestructiveAction 在 strict 模式拦截文件写入型工具", async () => {
+    process.env.MCP_SAFETY_MODE = "strict";
+    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const mockServer = { server: { elicitInput: vi.fn() } } as any;
+    initSafeGuard(mockServer);
+
+    for (const tool of ["copy_move", "compress_archive", "extract_archive", "download_file"]) {
+      const result = await guardDestructiveAction(tool, "test write");
+      expect(result).toContain("strict safety mode");
+    }
+  });
+
   test("guardDestructiveAction 在 strict 模式放行非受保护工具", async () => {
     process.env.MCP_SAFETY_MODE = "strict";
     const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");

@@ -50,9 +50,9 @@ Enhanced Terminal MCP 是一个基于 Model Context Protocol (MCP) 的终端增�
 ├── session.json
 ├── logs/
 │   └── audit.jsonl
-└── temp/
-    └── page-cache/
-        └── {id}/
+    └── temp/
+        └── page-cache-{timestamp}-{random}/
+            ├── .meta.json
             ├── stdout.txt
             ├── stderr.txt
             └── meta.json
@@ -60,21 +60,22 @@ Enhanced Terminal MCP 是一个基于 Model Context Protocol (MCP) 的终端增�
 
 ## 5. 关键架构决定
 
-- 使用 TypeScript + ESM + Node16 module resolution
+- 使用 TypeScript + ESM + Node16 module resolution，运行时要求 Node.js 20+
 - 命令执行基于 `node:child_process` spawn 流式收集，避免大输出缓冲
 - 安全层前置：路径校验 + 危险模式检测 + 安全模式确认
 - 工具结果统一 `ToolResult` 协议，支持结构化输出
 - 会话状态 JSON 持久化到项目目录，支持服务重启恢复
 - 审计日志使用 JSON Lines 格式，按模式 `off/errors/all` 控制写入
 - 临时资源统一由 `TempManager` 管理，TTL + LRU 自动回收
-- 命令大输出写入分页缓存，支持 `cache_id`/`page`/`pageSize` 翻页
+- 命令大输出写入分页缓存，支持经校验的 `cache_id`/`page`/`pageSize` 翻页
 
 ## 6. 已知约束 / 硬边界
 
 - Windows 与 Unix shell 行为差异由 `src/platform.ts` 统一处理
-- 命令超时默认 30s，最大输出 10MB
+- 命令超时默认 30s，最大输出由 `MCP_COMMAND_MAX_OUTPUT_BYTES` 控制，默认 50MB
 - 命令历史保留 50 条，持久化时保留 20 条
 - 安全模式由 `MCP_SAFETY_MODE` 环境变量控制
+- 安全确认覆盖命令执行、删除、覆写、复制/移动、归档写入/解压和下载写入
 - 状态目录由 `MCP_STATE_DIR` 覆盖，默认位于项目根目录
 - 审计日志最大保留条目数由 `MCP_AUDIT_MAX_ENTRIES` 控制
 - 临时资源 TTL / 数量上限 / 清理间隔由 `MCP_TEMP_TTL_MS` / `MCP_MAX_TEMP_DIRS` / `MCP_TEMP_CLEANUP_INTERVAL_MS` 控制

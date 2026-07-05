@@ -29,7 +29,7 @@ export function registerManageTools(server: McpServer) {
       description: "Copy or move a file/directory to a new location.",
       inputSchema: CopyMoveInput,
       outputSchema: z.object({ source: z.string(), destination: z.string(), operation: z.string() }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("copy_move", async ({ source, destination, operation }: CopyMoveInput) => {
       for (const [p, label] of [

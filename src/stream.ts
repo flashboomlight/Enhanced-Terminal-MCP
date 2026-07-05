@@ -11,6 +11,7 @@ export interface StreamResult {
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
+  truncated: boolean;
   /** 完整的 stdout（流式收集完毕后的结果） */
   all: string;
 }
@@ -90,6 +91,7 @@ export async function spawnStream(
         stderr,
         exitCode: code,
         timedOut: killed,
+        truncated,
         all: stdout + (stderr ? `\n[stderr]\n${stderr}` : ""),
       });
     });

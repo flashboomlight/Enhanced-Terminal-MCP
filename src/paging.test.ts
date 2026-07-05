@@ -97,6 +97,15 @@ describe("page-cache", () => {
     expect(result).toBeNull();
   });
 
+  test("rejects cache_id values outside generated page-cache shape", async () => {
+    const cache = new PageCache();
+    await fs.mkdir(path.join(tmpStateDir, "temp", "outside"), { recursive: true });
+    await fs.writeFile(path.join(tmpStateDir, "temp", "outside", "meta.json"), "{}", "utf-8");
+
+    await expect(cache.get("../outside", 1)).resolves.toBeNull();
+    await expect(cache.get("page-cache-1-../../x", 1)).resolves.toBeNull();
+  });
+
   test("save failure is logged and propagated", async () => {
     const cache = new PageCache();
     const entry: any = {

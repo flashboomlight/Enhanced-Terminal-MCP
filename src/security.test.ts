@@ -275,6 +275,13 @@ describe("hasDangerousPattern", () => {
     expect(hasDangerousPattern("format C:")).toBeTruthy();
   });
 
+  test("检测 PowerShell Remove-Item 根盘删除", () => {
+    expect(hasDangerousPattern("Remove-Item -Recurse -Force C:\\")).toBeTruthy();
+    expect(hasDangerousPattern("Remove-Item -Recurse -Force C:/")).toBeTruthy();
+    expect(hasDangerousPattern("Remove-Item -Force -Recurse C:\\")).toBeTruthy();
+    expect(hasDangerousPattern("Remove-Item -Force -Recurse C:/")).toBeTruthy();
+  });
+
   test("安全命令不触发", () => {
     expect(hasDangerousPattern("echo hello")).toBeFalsy();
     expect(hasDangerousPattern("ls -la")).toBeFalsy();

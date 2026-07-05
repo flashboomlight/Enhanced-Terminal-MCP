@@ -202,8 +202,8 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /\$\(.*\brm\s+-[a-zA-Z]*[rRfF]/i,
   /`.*\brm\s+-[a-zA-Z]*[rRfF]/i,
   // PowerShell 危险命令（含缩写参数 -r, -fo, -rec）
-  /\bRemove-Item\s+.*-(?:Recurse|rec|r)\b.*-(?:Force|fo)\b.*[a-zA-Z]:\\/i,
-  /\bRemove-Item\s+.*-(?:Force|fo)\b.*-(?:Recurse|rec|r)\b.*[a-zA-Z]:\\/i,
+  /\bRemove-Item\s+.*-(?:Recurse|rec|r)\b.*-(?:Force|fo)\b.*[a-zA-Z]:[\\/]/i,
+  /\bRemove-Item\s+.*-(?:Force|fo)\b.*-(?:Recurse|rec|r)\b.*[a-zA-Z]:[\\/]/i,
   /\bFormat-Volume\b/i,
   /\bClear-Disk\b/i,
 ];

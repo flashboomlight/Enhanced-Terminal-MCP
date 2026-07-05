@@ -127,6 +127,11 @@ describe("Protocol Layer Latency", () => {
 
     expect(ms).toBeLessThanOrEqual(THRESHOLD.LIST_TOOLS);
     expect(result.tools.length).toBe(27);
+    for (const toolName of ["watch_command", "copy_move", "compress_archive", "extract_archive", "download_file"]) {
+      const tool = result.tools.find((t) => t.name === toolName);
+      expect(tool?.annotations?.readOnlyHint).toBe(false);
+      expect(tool?.annotations?.destructiveHint).toBe(true);
+    }
   });
 
   test("prompts/list should respond within threshold", async () => {

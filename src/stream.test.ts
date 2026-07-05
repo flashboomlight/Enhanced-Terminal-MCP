@@ -29,6 +29,7 @@ describe("spawnStream", () => {
   test("truncates output exceeding maxOutput", async () => {
     const result = await spawnStream("node", ["-e", "console.log('x'.repeat(10000))"], { maxOutput: 100 });
     expect(result.stdout).toContain("(TRUNCATED)");
+    expect(result.truncated).toBe(true);
   });
 
   test("caps stderr to 1MB", async () => {

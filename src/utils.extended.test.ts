@@ -126,11 +126,9 @@ describe("safeExec (exit code but has output)", () => {
     }));
   });
 
-  test("safeExec 有 stdout 时即使 exit code≠0 也 resolve", async () => {
+  test("safeExec 有 stdout/stderr 时 exit code≠0 也 reject", async () => {
     const { safeExec } = await import("./utils.js");
-    const result = await safeExec("partial-fail", 5000);
-    expect(result.stdout).toBe("partial output");
-    expect(result.stderr).toContain("EXIT CODE");
+    await expect(safeExec("partial-fail", 5000)).rejects.toThrow("partial output");
   });
 });
 
@@ -168,5 +166,20 @@ describe("safeExecFile (mocked)", () => {
     const mod = await import("./utils.js");
     const sf = mod.safeExecFile;
     await expect(sf("nonexistent", [], 5000)).rejects.toThrow("not found");
+  });
+
+  test("safeExecFile 错误且有 stderr 时仍 reject", async () => {
+    vi.resetModules();
+    vi.doMock("child_process", () => ({
+      exec: vi.fn(),
+      execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
+        const error = new Error("exit 7");
+        setImmediate(() => cb(error, "", "ERR"));
+        return { on: vi.fn() } as unknown as ChildProcess;
+      },
+    }));
+    const mod = await import("./utils.js");
+    const sf = mod.safeExecFile;
+    await expect(sf("cmd", [], 5000)).rejects.toThrow("ERR");
   });
 });

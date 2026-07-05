@@ -12,6 +12,12 @@ import { tempManager } from "./temp-manager.js";
 
 const DEFAULT_PAGE_SIZE = 2000;
 const MAX_PAGE_SIZE = 10000;
+const CACHE_ID_PATTERN = /^page-cache-\d+-[a-z0-9]{8}$/;
+
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
+}
 
 export interface PageCacheEntry {
   id: string;
@@ -121,13 +127,22 @@ export class PageCache {
   }
 
   private async scanById(id: string): Promise<PageCacheEntry | null> {
+    if (!CACHE_ID_PATTERN.test(id)) {
+      logger.debug("page-cache", "invalid-cache-id", id);
+      return null;
+    }
     try {
       const { getStateDir } = await import("./state-dir.js");
-      const root = path.join(await getStateDir(), "temp");
-      const dir = path.join(root, id);
+      const root = path.resolve(await getStateDir(), "temp");
+      const dir = path.resolve(root, id);
+      if (!isInside(root, dir)) {
+        logger.warn("page-cache", "cache-id-outside-root", id);
+        return null;
+      }
       const metaPath = path.join(dir, "meta.json");
       const raw = await fs.readFile(metaPath, "utf-8");
       const entry = JSON.parse(raw) as PageCacheEntry;
+      entry.id = id;
       entry.dir = dir;
       this.entries.set(id, entry);
       return entry;

@@ -27,10 +27,11 @@ export function safeExec(cmd: string, timeout = 30000, cwd?: string): Promise<{ 
         if (error) {
           if (error.killed) {
             reject(new Error(`Timeout (${timeout}ms)\n[CMD]: ${cmd}`));
-          } else if (!stdout && !stderr) {
-            reject(new Error(`Exit code ${error.code}\n[CMD]: ${cmd}\n[DETAIL]: ${error.message}`));
           } else {
-            resolve({ stdout, stderr: stderr ? `${stderr}\n[EXIT CODE] ${error.code}` : "" });
+            const parts = [`Exit code ${error.code ?? "unknown"}`, `[CMD]: ${cmd}`, `[DETAIL]: ${error.message}`];
+            if (stdout) parts.push(`[stdout]\n${stdout}`);
+            if (stderr) parts.push(`[stderr]\n${stderr}`);
+            reject(new Error(parts.join("\n")));
           }
         } else {
           resolve({ stdout, stderr });
@@ -60,14 +61,19 @@ export function safeExecFile(
         windowsHide: true,
       },
       (error, stdout, stderr) => {
-        if (error && !stdout && !stderr) {
-          reject(error);
-        } else {
-          resolve({
-            stdout: (stdout || "").toString(),
-            stderr: (stderr || "").toString(),
-          });
+        const stdoutText = (stdout || "").toString();
+        const stderrText = (stderr || "").toString();
+        if (error) {
+          const parts = [error.message];
+          if (stdoutText) parts.push(`[stdout]\n${stdoutText}`);
+          if (stderrText) parts.push(`[stderr]\n${stderrText}`);
+          reject(new Error(parts.join("\n")));
+          return;
         }
+        resolve({
+          stdout: stdoutText,
+          stderr: stderrText,
+        });
       },
     );
   });

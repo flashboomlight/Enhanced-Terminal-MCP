@@ -129,6 +129,44 @@ describe("Strict Mode — all destructive tools blocked", () => {
     expect(text).toContain("strict safety mode");
   });
 
+  test("copy_move is blocked in strict mode", async () => {
+    const result = await client.callTool({
+      name: "copy_move",
+      arguments: {
+        source: TMP_FILE,
+        destination: path.join(TMP_DIR, "strict-copy.txt"),
+        operation: "copy",
+      },
+    });
+    expect(result.isError).toBeTruthy();
+    const text = (result.content as any)[0]?.text;
+    expect(text).toContain("strict safety mode");
+  });
+
+  test("archive and download tools are blocked in strict mode", async () => {
+    const cases = [
+      {
+        name: "compress_archive",
+        arguments: { source_path: TMP_FILE, output_path: path.join(TMP_DIR, "strict.zip") },
+      },
+      {
+        name: "extract_archive",
+        arguments: { archive_path: path.join(TMP_DIR, "strict.zip"), output_dir: path.join(TMP_DIR, "extract") },
+      },
+      {
+        name: "download_file",
+        arguments: { url: "https://example.com/file.txt", save_path: path.join(TMP_DIR, "download.txt") },
+      },
+    ];
+
+    for (const item of cases) {
+      const result = await client.callTool(item);
+      expect(result.isError).toBeTruthy();
+      const text = (result.content as any)[0]?.text;
+      expect(text).toContain("strict safety mode");
+    }
+  });
+
   test("read-only tools still work in strict mode", async () => {
     const result = await client.callTool({
       name: "list_directory",
@@ -185,6 +223,37 @@ describe("Off Mode — safety checks skipped", () => {
       arguments: { file_path: target, content: "overwritten" },
     });
     expect(result.isError).toBeFalsy();
+  });
+
+  test("session_state set_env applies to later execute_command calls", async () => {
+    const value = `session-env-${Date.now()}`;
+    try {
+      const setResult = await client.callTool({
+        name: "session_state",
+        arguments: { action: "set_env", key: "ETM_SESSION_TEST", value },
+      });
+      expect(setResult.isError).toBeFalsy();
+
+      const commandResult = await client.callTool({
+        name: "execute_command",
+        arguments: { command: "node -p process.env.ETM_SESSION_TEST" },
+      });
+      expect(commandResult.isError).toBeFalsy();
+      const text = (commandResult.content as any)[0]?.text;
+      expect(text).toContain(value);
+    } finally {
+      await client.callTool({ name: "session_state", arguments: { action: "reset" } });
+    }
+  });
+
+  test("watch_command returns error when watched command exits non-zero", async () => {
+    const result = await client.callTool({
+      name: "watch_command",
+      arguments: { command: "node -p process.exitCode=7", duration: 2000 },
+    });
+    expect(result.isError).toBeTruthy();
+    const text = (result.content as any)[0]?.text;
+    expect(text).toContain("Watch command failed");
   });
 });
 
@@ -338,5 +407,17 @@ describe("Normal Mode — Elicitation fallback", () => {
     expect(result.isError).toBeTruthy();
     const text = (result.content as any)[0]?.text;
     expect(text).toContain("SAFETY");
+  });
+
+  test("copy_move triggers elicitation (which fails gracefully)", async () => {
+    const destination = path.join(TMP_DIR, "normal-copy.txt");
+    const result = await client.callTool({
+      name: "copy_move",
+      arguments: { source: TMP_FILE, destination, operation: "copy" },
+    });
+    expect(result.isError).toBeTruthy();
+    const text = (result.content as any)[0]?.text;
+    expect(text).toContain("SAFETY");
+    expect(fs.existsSync(destination)).toBe(false);
   });
 });
