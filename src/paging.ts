@@ -1,7 +1,7 @@
 /**
  * 命令输出分页缓存
  *
- * 将超大 stdout 写入临时目录，支持按 page/pageSize 翻页读取。
+ * 将超大 stdout 写入临时目录，支持按 cache_id/page/pageSize 翻页读取。
  * 缓存目录复用 TempManager，TTL/LRU 自动回收。
  */
 
@@ -28,6 +28,9 @@ export interface PageCacheEntry {
 
 export interface PageResult {
   content: string;
+  cache_id: string;
+  stderr: string;
+  exit_code: number;
   page: number;
   total_pages: number;
   page_size: number;
@@ -107,6 +110,9 @@ export class PageCache {
     const content = stdout.slice(start, start + effectivePageSize);
     return {
       content,
+      cache_id: entry.id,
+      stderr: entry.stderr,
+      exit_code: entry.exitCode,
       page: requestedPage,
       total_pages: totalPages,
       page_size: effectivePageSize,

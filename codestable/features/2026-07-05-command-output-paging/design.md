@@ -13,8 +13,8 @@ created: 2026-07-05
 ## 目标
 
 - 大输出自动写入分页缓存
-- 通过 `page` / `pageSize` 参数读取指定页
-- 不指定分页时保持现有行为（截断提示），但补充分页元数据
+- 通过 `cache_id` / `page` / `pageSize` 参数读取指定页
+- 不指定分页时小输出保持完整返回；大输出返回第一页和分页元数据
 - 缓存复用 Phase 3 临时资源管理器，自动 TTL 回收
 
 ## 设计
@@ -37,6 +37,9 @@ export interface PageCacheEntry {
 
 export interface PageResult {
   content: string;
+  cache_id: string;
+  stderr: string;
+  exit_code: number;
   page: number;
   total_pages: number;
   page_size: number;
@@ -63,6 +66,7 @@ export class PageCache {
 ```ts
 {
   command: string;
+  cache_id?: string;  // 读取既有分页缓存时使用；提供后不会重新执行 command
   cwd?: string;
   timeout?: number;
   page?: number;      // 默认 1
@@ -74,17 +78,20 @@ export class PageCache {
 
 1. 命令执行成功后，若 `page` 指定或 stdout 长度超过默认 `pageSize`（2000）：
    - 写入分页缓存
-   - 返回请求页内容 + `page` / `total_pages` / `page_size` / `total_chars`
+   - 返回请求页内容 + `cache_id` / `page` / `total_pages` / `page_size` / `total_chars`
 2. 若未指定 `page` 且输出未超限：
    - 返回完整输出（与现有行为一致）
    - `meta` 中不包含分页字段
-3. 若 `page > total_pages`：返回错误 `VALIDATION_ERROR`
+3. 后续调用提供 `cache_id`：
+   - 直接读取缓存页，不重新执行命令
+4. 若 `page > total_pages`：返回错误 `VALIDATION_ERROR`
 
 ### 输出 schema 扩展
 
 `execute_command` 的 outputSchema 增加可选字段：
 
 ```ts
+cache_id?: string;
 page?: number;
 total_pages?: number;
 page_size?: number;
@@ -114,7 +121,7 @@ total_chars?: number;
 
 ## 验收标准
 
-- [ ] `execute_command` 支持 `page` / `pageSize`
+- [ ] `execute_command` 支持 `cache_id` / `page` / `pageSize`
 - [ ] 大输出自动分页缓存
 - [ ] 翻页内容正确
 - [ ] 不指定分页时行为不变

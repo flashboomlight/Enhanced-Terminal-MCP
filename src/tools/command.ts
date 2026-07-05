@@ -25,7 +25,8 @@ function buildShellArgs(rawCommand: string): { shell: string; args: string[] } {
 export function registerCommandTools(server: McpServer) {
   // ====================================================================
   const ExecuteCommandInput = z.object({
-    command: z.string().describe("The command to execute"),
+    command: z.string().optional().describe("The command to execute. Required unless cache_id is provided."),
+    cache_id: z.string().optional().describe("Read a page from a previous paged command output without re-executing."),
     cwd: z.string().optional().describe("Working directory (optional)"),
     timeout: z.number().optional().describe("Timeout in ms, default 30000"),
     page: z.number().int().min(1).optional().describe("Page number to read from paged output, default 1"),
@@ -44,6 +45,7 @@ export function registerCommandTools(server: McpServer) {
         stderr: z.string(),
         exit_code: z.number(),
         timed_out: z.boolean(),
+        cache_id: z.string().optional(),
         page: z.number().optional(),
         total_pages: z.number().optional(),
         page_size: z.number().optional(),
@@ -55,8 +57,44 @@ export function registerCommandTools(server: McpServer) {
         idempotentHint: false,
       },
     },
-    wrapHandler("execute_command", async ({ command, cwd, timeout, page, pageSize }: ExecuteCommandInput) => {
+    wrapHandler("execute_command", async ({ command, cache_id, cwd, timeout, page, pageSize }: ExecuteCommandInput) => {
       const t0 = Date.now();
+      if (cache_id) {
+        try {
+          const pageResult = await pageCache.get(cache_id, page || 1, pageSize);
+          if (!pageResult) {
+            return fail(ErrorCode.PATH_NOT_FOUND, `Paged output not found or page is out of range: ${cache_id}`, {
+              retryable: true,
+              param: "cache_id",
+            });
+          }
+          return success(
+            pageResult.content,
+            {
+              stdout: pageResult.content,
+              stderr: pageResult.stderr,
+              exit_code: pageResult.exit_code,
+              timed_out: false,
+              cache_id: pageResult.cache_id,
+              page: pageResult.page,
+              total_pages: pageResult.total_pages,
+              page_size: pageResult.page_size,
+              total_chars: pageResult.total_chars,
+            },
+            { latency_ms: Date.now() - t0, page: pageResult.page, total_pages: pageResult.total_pages },
+          );
+        } catch (e: any) {
+          return fail(ErrorCode.EXECUTION_FAILED, e.message || "Failed to read paged output", { retryable: true });
+        }
+      }
+
+      if (!command) {
+        return fail(ErrorCode.VALIDATION_ERROR, "command is required unless cache_id is provided", {
+          retryable: true,
+          param: "command",
+        });
+      }
+
       const dp = hasDangerousPattern(command);
       if (dp) {
         audit.record({
@@ -119,8 +157,6 @@ export function registerCommandTools(server: McpServer) {
             { retryable: true },
           );
         }
-        const maxChars = 2000;
-        const _truncated = output.length > maxChars;
         const defaultPageSize = 2000;
         const requestedPageSize = pageSize || defaultPageSize;
         const needsPaging = page !== undefined || output.length > requestedPageSize;
@@ -162,12 +198,13 @@ export function registerCommandTools(server: McpServer) {
               stderr: result.stderr,
               exit_code: result.exitCode ?? -1,
               timed_out: false,
+              cache_id: pageResult.cache_id,
               page: pageResult.page,
               total_pages: pageResult.total_pages,
               page_size: pageResult.page_size,
               total_chars: pageResult.total_chars,
             },
-            { latency_ms: Date.now() - t0 },
+            { latency_ms: Date.now() - t0, page: pageResult.page, total_pages: pageResult.total_pages },
           );
         }
 

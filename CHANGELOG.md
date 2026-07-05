@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session persistence: cwd, env vars, and command history are auto-saved to `.enhanced-terminal-mcp/session.json` and restored on restart.
 - Structured JSON Lines audit log at `.enhanced-terminal-mcp/logs/audit.jsonl` with modes `off` / `errors` / `all`.
 - Temp Resource Manager with TTL + LRU eviction under `.enhanced-terminal-mcp/temp/`.
-- Command output paging for `execute_command` via `page` / `pageSize`.
+- Command output paging for `execute_command` via `cache_id` / `page` / `pageSize`.
 - Utility tools: `telemetry_report`, `cache_stats`, `cache_invalidate`, `session_state`, `pool_stats`, `temp_stats`.
 - `TempManager` supports background auto-cleanup and on-demand `cleanup()` / `stats()`.
 - Added unit tests for `search.ts` (`globToRegex`), `utility.ts` pure helpers, `stream.ts`, and Unix branches of `platform.ts`.
@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `grep_content` no longer silently returns success when PowerShell fails; it returns an explicit `EXECUTION_FAILED` error with retryable details.
 - `TempManager.init()` now correctly re-initializes when `MCP_STATE_DIR` changes between instances.
 - `SessionStore` exported as instantiable class for test isolation.
+- Normal safety mode now requires confirmation for all destructive tools, including command execution tools.
+- `execute_command` paged output now returns `cache_id`, and later pages can be read without re-running the command.
+- Audit logs are compacted to `MCP_AUDIT_MAX_ENTRIES` instead of growing without bound.
+- The npm package now uses a `files` whitelist, includes the Unix shebang for the bin entry, and keeps `patch-package` available for postinstall.
+- Cleared current npm audit findings by refreshing vulnerable transitive dependency versions.
 
 ## [3.0.0] - Earlier
 

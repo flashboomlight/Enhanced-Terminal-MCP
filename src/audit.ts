@@ -19,7 +19,9 @@ export interface AuditEntry {
 
 export type AuditMode = "off" | "errors" | "all";
 
-const MAX_AUDIT_ENTRIES = Math.max(100, parseInt(process.env.MCP_AUDIT_MAX_ENTRIES || "10000", 10) || 10000);
+function getMaxAuditEntries(): number {
+  return Math.max(100, parseInt(process.env.MCP_AUDIT_MAX_ENTRIES || "10000", 10) || 10000);
+}
 
 function getAuditMode(): AuditMode {
   const env = (process.env.MCP_AUDIT_MODE || "errors").toLowerCase().trim();
@@ -76,8 +78,21 @@ export class AuditLog {
       const logFile = await this.getLogFile();
       const lines = `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`;
       await fs.appendFile(logFile, lines, "utf-8");
+      await this.compact(logFile);
     } catch (e) {
       logger.warn("audit", "write-failed", String(e));
+    }
+  }
+
+  private async compact(logFile: string): Promise<void> {
+    const maxEntries = getMaxAuditEntries();
+    try {
+      const raw = await fs.readFile(logFile, "utf-8");
+      const lines = raw.split("\n").filter(Boolean);
+      if (lines.length <= maxEntries) return;
+      await fs.writeFile(logFile, `${lines.slice(-maxEntries).join("\n")}\n`, "utf-8");
+    } catch (e) {
+      logger.warn("audit", "compact-failed", String(e));
     }
   }
 
@@ -88,7 +103,7 @@ export class AuditLog {
       const raw = await fs.readFile(logFile, "utf-8");
       const lines = raw.split("\n").filter(Boolean);
       const entries = lines
-        .slice(-MAX_AUDIT_ENTRIES)
+        .slice(-getMaxAuditEntries())
         .map((line) => {
           try {
             return JSON.parse(line) as AuditEntry;

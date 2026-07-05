@@ -8,7 +8,7 @@ created: 2026-07-05
 
 ## 实现结果
 
-命令输出分页已实现，`execute_command` 支持 `page` / `pageSize` 参数，大输出自动写入分页缓存并按页返回。
+命令输出分页已实现，`execute_command` 支持 `cache_id` / `page` / `pageSize` 参数，大输出自动写入分页缓存并按页返回。
 
 ## 修改清单
 
@@ -16,7 +16,7 @@ created: 2026-07-05
 |---|---|
 | `src/paging.ts` | 新增：分页缓存，复用 `TempManager` 自动回收 |
 | `src/paging.test.ts` | 新增：分页缓存单元测试 |
-| `src/tools/command.ts` | `execute_command` 增加 `page` / `pageSize`，大输出自动分页 |
+| `src/tools/command.ts` | `execute_command` 增加 `cache_id` / `page` / `pageSize`，大输出自动分页，后续页不重跑命令 |
 
 ## 验证
 
@@ -32,6 +32,7 @@ created: 2026-07-05
 
 ```ts
 {
+  cache_id?: string;  // 读取既有分页缓存时使用
   page?: number;      // 默认 1
   pageSize?: number;  // 默认 2000，最大 10000
 }
@@ -41,6 +42,7 @@ outputSchema 增加可选字段：
 
 ```ts
 {
+  cache_id?: string;
   page?: number;
   total_pages?: number;
   page_size?: number;
@@ -51,7 +53,8 @@ outputSchema 增加可选字段：
 ## 行为
 
 - 未指定 `page` 且输出未超过 `pageSize`：返回完整输出，与旧行为一致
-- 指定 `page` 或输出超过 `pageSize`：写入分页缓存，返回请求页
+- 指定 `page` 或输出超过 `pageSize`：写入分页缓存，返回请求页和 `cache_id`
+- 后续提供 `cache_id`：直接读取缓存页，不重新执行命令
 - 无效页码返回 `VALIDATION_ERROR`
 
 ## 配置

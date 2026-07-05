@@ -122,6 +122,23 @@ describe("guardDestructiveAction", () => {
     expect(result).toBeNull();
   });
 
+  test("guardDestructiveAction normal 模式下命令工具也需要确认", async () => {
+    process.env.MCP_SAFETY_MODE = "normal";
+    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const elicitInput = vi.fn().mockResolvedValue({
+      action: "accept",
+      content: { confirm: true },
+    });
+    const mockServer = {
+      server: { elicitInput },
+    } as any;
+    initSafeGuard(mockServer);
+
+    const result = await guardDestructiveAction("execute_command", "test command");
+    expect(result).toBeNull();
+    expect(elicitInput).toHaveBeenCalledOnce();
+  });
+
   test("guardDestructiveAction normal 模式下用户取消则拒绝", async () => {
     process.env.MCP_SAFETY_MODE = "normal";
     const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");

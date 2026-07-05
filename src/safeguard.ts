@@ -19,8 +19,7 @@ const GUARDED_TOOLS = new Set([
 ]);
 
 // ===== normal 模式下需要 Elicitation 确认的工具（GUARDED_TOOLS 的子集） =====
-// execute_command/batch_execute/watch_command 依赖 hasDangerousPattern 检查，不需要 elicitation
-const ELICITATION_TOOLS = new Set(["delete_path", "write_file", "kill_process"]);
+const ELICITATION_TOOLS = new Set(GUARDED_TOOLS);
 
 // ===== 关键进程黑名单（所有模式下禁止杀死） =====
 const CRITICAL_PROCESSES_WIN = new Set([

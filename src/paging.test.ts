@@ -47,6 +47,9 @@ describe("page-cache", () => {
     const page1 = await cache.get(entry.id, 1, 2000);
     expect(page1).not.toBeNull();
     expect(page1?.content).toBe("a".repeat(2000));
+    expect(page1?.cache_id).toBe(entry.id);
+    expect(page1?.stderr).toBe("");
+    expect(page1?.exit_code).toBe(0);
     expect(page1?.page).toBe(1);
     expect(page1?.total_pages).toBe(3);
     expect(page1?.total_chars).toBe(5000);

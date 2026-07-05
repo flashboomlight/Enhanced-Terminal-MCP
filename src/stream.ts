@@ -3,6 +3,7 @@
  * 替代 exec 全量缓冲，大输出场景首字节延迟从 5s→50ms
  */
 import { spawn } from "node:child_process";
+import { logger } from "./logger.js";
 import { IS_WIN } from "./platform.js";
 
 export interface StreamResult {
@@ -55,8 +56,8 @@ export async function spawnStream(
       setTimeout(() => {
         try {
           child.kill("SIGKILL");
-        } catch (_err) {
-          /* ignore */
+        } catch (err) {
+          logger.debug("stream", "sigkill-failed", String(err));
         }
       }, 2000).unref();
     }, timeout);

@@ -266,6 +266,38 @@ describe("Command Execution Latency", () => {
     expect(text).toContain("hello-latency-test");
   });
 
+  test("execute_command paged output can be read by cache_id without rerun", async () => {
+    const scriptPath = path.join(TMP_DIR, "paged-output.js");
+    fs.writeFileSync(
+      scriptPath,
+      "process.stdout.write('A'.repeat(2500)); process.stdout.write('B'.repeat(1000));",
+      "utf-8",
+    );
+    const result = await client.callTool({
+      name: "execute_command",
+      arguments: {
+        command: `node ${scriptPath}`,
+        pageSize: 2000,
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const first = result.structuredContent as any;
+    expect(first.cache_id).toBeTruthy();
+    expect(first.page).toBe(1);
+    expect(first.total_pages).toBe(2);
+    expect(first.stdout).toContain("A");
+
+    const page2 = await client.callTool({
+      name: "execute_command",
+      arguments: { cache_id: first.cache_id, page: 2, pageSize: 2000 },
+    });
+    expect(page2.isError).toBeFalsy();
+    const second = page2.structuredContent as any;
+    expect(second.cache_id).toBe(first.cache_id);
+    expect(second.page).toBe(2);
+    expect(second.stdout).toContain("B");
+  });
+
   test("batch_execute (2 echoes) should respond within threshold", async () => {
     const elapsed = timer();
     const result = await client.callTool({

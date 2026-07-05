@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Enhanced Terminal MCP Server — 入口
  *

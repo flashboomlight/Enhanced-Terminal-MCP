@@ -319,15 +319,15 @@ describe("Normal Mode — Elicitation fallback", () => {
     expect(result.isError).toBeFalsy();
   });
 
-  test("safe command works without elicitation in normal mode", async () => {
+  test("safe command requires elicitation in normal mode", async () => {
     const result = await client.callTool({
       name: "execute_command",
       arguments: { command: "echo normal-safe" },
     });
-    // 非危险命令不触发安全锁
-    expect(result.isError).toBeFalsy();
+    expect(result.isError).toBeTruthy();
     const text = (result.content as any)[0]?.text;
-    expect(text).toContain("normal-safe");
+    expect(text).toContain("SAFETY");
+    expect(text).toContain("Elicitation");
   });
 
   test("kill_process triggers elicitation (which fails gracefully)", async () => {

@@ -12,11 +12,13 @@ import { resetStateDirCache } from "./state-dir.js";
 describe("audit", () => {
   let originalStateDir: string | undefined;
   let originalAuditMode: string | undefined;
+  let originalAuditMaxEntries: string | undefined;
   let tmpStateDir: string;
 
   beforeEach(async () => {
     originalStateDir = process.env.MCP_STATE_DIR;
     originalAuditMode = process.env.MCP_AUDIT_MODE;
+    originalAuditMaxEntries = process.env.MCP_AUDIT_MAX_ENTRIES;
     tmpStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-audit-test-"));
     process.env.MCP_STATE_DIR = tmpStateDir;
     process.env.MCP_AUDIT_MODE = "all";
@@ -28,6 +30,8 @@ describe("audit", () => {
     else delete process.env.MCP_STATE_DIR;
     if (originalAuditMode !== undefined) process.env.MCP_AUDIT_MODE = originalAuditMode;
     else delete process.env.MCP_AUDIT_MODE;
+    if (originalAuditMaxEntries !== undefined) process.env.MCP_AUDIT_MAX_ENTRIES = originalAuditMaxEntries;
+    else delete process.env.MCP_AUDIT_MAX_ENTRIES;
     resetStateDirCache();
     await fs.rm(tmpStateDir, { recursive: true, force: true });
   });
@@ -83,5 +87,20 @@ describe("audit", () => {
     } else {
       expect(exists).toBe(false);
     }
+  });
+
+  test("flush compacts audit log to max retained entries", async () => {
+    process.env.MCP_AUDIT_MAX_ENTRIES = "100";
+    const audit = makeAudit();
+    for (let i = 0; i < 105; i++) {
+      audit.record({ action: `entry-${i}`, detail: {}, success: true });
+    }
+    await audit.flush();
+
+    const logFile = path.join(tmpStateDir, "logs", "audit.jsonl");
+    const raw = await fs.readFile(logFile, "utf-8");
+    const lines = raw.trim().split("\n");
+    expect(lines.length).toBe(100);
+    expect((JSON.parse(lines[0]) as AuditEntry).action).toBe("entry-5");
   });
 });

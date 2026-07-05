@@ -60,7 +60,7 @@ status: active
 
 **关键交付**：
 - `src/paging.ts`：输出分页缓存、页码计算
-- 更新 `execute_command`：支持 `page` / `pageSize` 参数
+- 更新 `execute_command`：支持 `cache_id` / `page` / `pageSize` 参数
 - 分页缓存写入 `temp/page-cache/`，TTL 自动清理
 
 **验收**：大输出可分页返回；不指定分页时行为不变；缓存自动回收。

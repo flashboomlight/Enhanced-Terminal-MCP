@@ -425,7 +425,7 @@ export function registerUtilityTools(server: McpServer) {
 NEW in v3.1:
 - telemetry_report: View tool call metrics (latency, error rate, cache hit rate, temp stats, audit status)
 - temp_stats: View temporary resource usage and auto-recycled counts
-- execute_command paging: Use page/pageSize to read large outputs incrementally
+- execute_command paging: Use cache_id/page/pageSize to read large outputs incrementally without re-running commands
 - audit logging: Structured JSON Lines log at .enhanced-terminal-mcp/logs/audit.jsonl
 - session_state: Manage session working directory and env context
 - cache_stats / cache_invalidate: Manage LRU result cache

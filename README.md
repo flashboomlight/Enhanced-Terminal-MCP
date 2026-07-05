@@ -13,7 +13,7 @@ Supports **27 tools** across 7 categories: command execution, file I/O, system m
 - **Session Persistence** — cwd, env vars, and command history survive restarts (auto-saved to `.enhanced-terminal-mcp/session.json`)
 - **Audit Logging** — structured JSON Lines audit log at `.enhanced-terminal-mcp/logs/audit.jsonl` (mode: `off` / `errors` / `all`)
 - **Temp Resource Manager** — TTL + LRU auto-recycled temp directories for page caches and future snapshots
-- **Command Output Paging** — large `execute_command` outputs can be read page-by-page via `page` / `pageSize`
+- **Command Output Paging** — large `execute_command` outputs can be read page-by-page via `cache_id` / `page` / `pageSize`
 - **Rate Limiting** — token bucket (10 req/s) for command execution
 - **Windows Everything Integration** — sub-10ms file search via Everything CLI
 
@@ -39,7 +39,7 @@ npm install enhanced-terminal-mcp
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm), `off` (no checks) |
+| `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm destructive tools), `off` (no checks) |
 | `MCP_LOG_LEVEL` | `info` | Log level: debug / info / warn / error |
 | `MCP_STATE_DIR` | `<project-root>/.enhanced-terminal-mcp` | State directory for session, audit logs, and temp files |
 | `MCP_AUDIT_MODE` | `errors` | Audit mode: `off` / `errors` / `all` |
@@ -53,7 +53,7 @@ npm install enhanced-terminal-mcp
 ### Command Tools
 | Tool | Description | Safety |
 |------|-------------|--------|
-| `execute_command` | Execute a single shell command with timeout, exit code, and optional output paging (`page`/`pageSize`) | destructive |
+| `execute_command` | Execute a shell command, or read cached paged output via `cache_id` (`page`/`pageSize`) | destructive |
 | `batch_execute` | Execute multiple commands sequentially (default) or in parallel with concurrency 4 | destructive |
 | `watch_command` | Run a command for a limited duration, capturing real-time output | read_only |
 
@@ -117,8 +117,8 @@ npm install enhanced-terminal-mcp
 
 ```
 MCP Client (stdio) → McpServer
-  ├─ 6 tool modules (command, files, manage, search, system, archive)
-  ├─ 5 utility tools (telemetry, cache, session, pool)
+  ├─ 7 tool modules (command, files, manage, search, system, archive, utility)
+  ├─ 6 utility tools (telemetry, temp, cache, session, pool)
   ├─ wrapHandler middleware (telemetry + LRU cache)
   ├─ Security layer (path validation, dangerous patterns, secrets)
   ├─ SafeGuard (3-level safety mode)

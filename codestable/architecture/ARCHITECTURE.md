@@ -67,7 +67,7 @@ Enhanced Terminal MCP 是一个基于 Model Context Protocol (MCP) 的终端增�
 - 会话状态 JSON 持久化到项目目录，支持服务重启恢复
 - 审计日志使用 JSON Lines 格式，按模式 `off/errors/all` 控制写入
 - 临时资源统一由 `TempManager` 管理，TTL + LRU 自动回收
-- 命令大输出写入分页缓存，支持 `page`/`pageSize` 翻页
+- 命令大输出写入分页缓存，支持 `cache_id`/`page`/`pageSize` 翻页
 
 ## 6. 已知约束 / 硬边界
 
