@@ -31,7 +31,7 @@ describe("safeExec (GBK decoding)", () => {
   });
 
   test("safeExec GBK 解码回退路径", async () => {
-    const { safeExec } = await import("./utils.js");
+    const { safeExec } = await import("../../src/utils.js");
     const result = await safeExec("gbk-command", 5000);
     expect(result.stdout).toBeTruthy();
     // 应该有内容（中文或替换后的文本）
@@ -61,7 +61,7 @@ describe("safeExec (UTF-8 with replacement char)", () => {
   });
 
   test("safeExec 处理含 UTF-8 替换字符的输出", async () => {
-    const { safeExec } = await import("./utils.js");
+    const { safeExec } = await import("../../src/utils.js");
     const result = await safeExec("broken-utf8", 5000);
     // 即使 UTF-8 失败，GBK 回退或原始值也应该返回
     expect(typeof result.stdout).toBe("string");
@@ -81,7 +81,7 @@ describe("safeExecFile (edge cases)", () => {
         return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
-    const { safeExecFile } = await import("./utils.js");
+    const { safeExecFile } = await import("../../src/utils.js");
     const result = await safeExecFile("cmd", [], 5000);
     expect(result.stderr).toBe("error output");
     expect(result.stdout).toBe("");
@@ -97,7 +97,7 @@ describe("safeExecFile (edge cases)", () => {
         return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
-    const { safeExecFile } = await import("./utils.js");
+    const { safeExecFile } = await import("../../src/utils.js");
     const result = await safeExecFile("cmd", [], 5000);
     expect(result.stdout).toBe("direct-string");
   });

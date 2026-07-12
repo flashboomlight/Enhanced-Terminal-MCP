@@ -2,7 +2,7 @@
  * Rate limiter unit tests
  */
 import { describe, expect, it } from "vitest";
-import { checkRateLimit, TokenBucket } from "./ratelimit.js";
+import { checkRateLimit, TokenBucket } from "../../src/ratelimit.js";
 
 describe("TokenBucket", () => {
   it("allows consumption within rate", () => {

@@ -5,7 +5,7 @@
 import * as fs from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 
-import { VERSION } from "./version.js";
+import { VERSION } from "../../src/version.js";
 
 describe("version", () => {
   test("VERSION 读取 package.json 版本号", () => {

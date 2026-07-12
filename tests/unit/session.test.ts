@@ -6,7 +6,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { resetStateDirCache } from "./state-dir.js";
+import { resetStateDirCache } from "../../src/state-dir.js";
 
 describe("session", () => {
   let tmpStateDir: string;
@@ -28,7 +28,7 @@ describe("session", () => {
 
   test("fresh state starts from process cwd", async () => {
     // 每次重新导入以获得新实例
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     expect(store.getCwd()).toBe(process.cwd());
     expect(store.get()).toEqual({
@@ -40,7 +40,7 @@ describe("session", () => {
   });
 
   test("set cwd marks dirty and persists after flush", async () => {
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     const newCwd = path.join(tmpStateDir, "nested");
     store.setCwd(newCwd);
@@ -53,14 +53,14 @@ describe("session", () => {
   });
 
   test("env roundtrip", async () => {
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     store.setEnv("FOO", "bar");
     expect(store.getEnv("FOO")).toBe("bar");
   });
 
   test("history trimmed to 50 in memory and 20 persisted", async () => {
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     for (let i = 0; i < 55; i++) {
       store.pushHistory(`cmd-${i}`);
@@ -79,7 +79,7 @@ describe("session", () => {
   });
 
   test("reset clears state", async () => {
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     store.setEnv("X", "y");
     store.pushHistory("cmd");
@@ -90,7 +90,7 @@ describe("session", () => {
   });
 
   test("snapshot reflects state", async () => {
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     store.setEnv("A", "1");
     store.setEnv("B", "2");
@@ -104,14 +104,14 @@ describe("session", () => {
   });
 
   test("restores from persisted state", async () => {
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     store.setCwd(tmpStateDir);
     store.setEnv("KEY", "value");
     store.pushHistory("cmd1");
     await store.flush();
 
-    const { SessionStore: SessionStore2 } = await import("./session.js");
+    const { SessionStore: SessionStore2 } = await import("../../src/session.js");
     const store2 = new SessionStore2();
     await new Promise((r) => setTimeout(r, 50));
     expect(store2.getCwd()).toBe(tmpStateDir);
@@ -130,7 +130,7 @@ describe("session", () => {
     await fs.writeFile(legacyPath, JSON.stringify(legacyData));
 
     try {
-      const { SessionStore } = await import("./session.js");
+      const { SessionStore } = await import("../../src/session.js");
       const store = new SessionStore();
       // legacy 加载是异步的，等待迁移保存完成
       await new Promise((r) => setTimeout(r, 100));
@@ -145,13 +145,13 @@ describe("session", () => {
     await fs.mkdir(tmpStateDir, { recursive: true });
     await fs.writeFile(path.join(tmpStateDir, "session.json"), "not-json");
 
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     expect(store.getCwd()).toBe(process.cwd());
   });
 
   test("persist failure is logged but not thrown", async () => {
-    const { SessionStore } = await import("./session.js");
+    const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     store.setCwd(tmpStateDir);
 

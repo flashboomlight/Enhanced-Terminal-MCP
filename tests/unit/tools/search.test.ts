@@ -6,7 +6,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, test } from "vitest";
-import { globToRegex, registerSearchTools } from "../tools/search.js";
+import { globToRegex, registerSearchTools } from "../../../src/tools/search.js";
 
 describe("search tools pure logic", () => {
   test("globToRegex matches wildcard patterns", () => {

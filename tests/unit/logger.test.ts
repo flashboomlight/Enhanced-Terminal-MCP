@@ -19,7 +19,7 @@ describe("logger", () => {
   });
 
   test("logger.info 在 info 级别产生输出", async () => {
-    const { logger } = await import("./logger.js");
+    const { logger } = await import("../../src/logger.js");
     logger.info("test-tool", "test-action", "detail");
     expect(captured.length).toBe(1);
     expect(captured[0]).toContain("[INFO]");
@@ -29,7 +29,7 @@ describe("logger", () => {
   });
 
   test("logger.info 无 detail 也可", async () => {
-    const { logger } = await import("./logger.js");
+    const { logger } = await import("../../src/logger.js");
     captured = [];
     logger.info("tool", "action");
     expect(captured.length).toBe(1);
@@ -38,14 +38,14 @@ describe("logger", () => {
   });
 
   test("logger.debug 在 info 级别不输出", async () => {
-    const { logger } = await import("./logger.js");
+    const { logger } = await import("../../src/logger.js");
     captured = [];
     logger.debug("tool", "action");
     expect(captured.length).toBe(0);
   });
 
   test("logger.warn 在 info 级别输出", async () => {
-    const { logger } = await import("./logger.js");
+    const { logger } = await import("../../src/logger.js");
     captured = [];
     logger.warn("tool", "warning", "detail");
     expect(captured.length).toBe(1);
@@ -53,7 +53,7 @@ describe("logger", () => {
   });
 
   test("logger.error 在 info 级别输出", async () => {
-    const { logger } = await import("./logger.js");
+    const { logger } = await import("../../src/logger.js");
     captured = [];
     logger.error("tool", "error", "fatal");
     expect(captured.length).toBe(1);
@@ -62,7 +62,7 @@ describe("logger", () => {
   });
 
   test("日志格式包含 ISO 时间戳", async () => {
-    const { logger } = await import("./logger.js");
+    const { logger } = await import("../../src/logger.js");
     captured = [];
     logger.info("timing", "check");
     const msg = captured[0];

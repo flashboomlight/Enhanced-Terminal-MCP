@@ -17,7 +17,7 @@ import {
   validateHost,
   validatePath,
   validateUrl,
-} from "./security.js";
+} from "../../src/security.js";
 
 // ====================================================================
 // normalizePath

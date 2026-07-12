@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { quickExec, spawnStream } from "./stream.js";
+import { quickExec, spawnStream } from "../../src/stream.js";
 
 describe("spawnStream", () => {
   test("captures stdout and exit code", async () => {

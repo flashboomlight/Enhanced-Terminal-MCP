@@ -86,4 +86,5 @@ Enhanced Terminal MCP 是一个基于 Model Context Protocol (MCP) 的终端增�
 - 临时资源 TTL / 数量上限 / 清理间隔由 `MCP_TEMP_TTL_MS` / `MCP_MAX_TEMP_DIRS` / `MCP_TEMP_CLEANUP_INTERVAL_MS` 控制
 - 分页单页大小默认 2000 字符，最大 10000 字符
 - 结果缓存默认 128 条、滑动 TTL、约 32MB 近似内存上限
-- hardBlock 为尽力而为的黑名单，高阶绕过需命令白名单重设计（超当前范围）
+- hardBlock 为尽力而为的黑名单；可选 `MCP_COMMAND_POLICY=allow` 启用前缀白名单（仍叠加 hardBlock）
+- 结果缓存对含密钥扫描命中的内容不写入 LRU

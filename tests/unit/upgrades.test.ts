@@ -11,10 +11,10 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 // 【性能-1】telemetry 增量计数器
 // ====================================================================
 describe("【性能-1】telemetry 增量计数器", () => {
-  let telemetry: typeof import("./telemetry.js")["telemetry"];
+  let telemetry: typeof import("../../src/telemetry.js")["telemetry"];
 
   beforeEach(async () => {
-    const mod = await import("./telemetry.js");
+    const mod = await import("../../src/telemetry.js");
     telemetry = mod.telemetry;
     telemetry.reset();
   });
@@ -56,7 +56,7 @@ describe("【性能-1】telemetry 增量计数器", () => {
 // ====================================================================
 describe("【性能-3】stream.ts Buffer 收集", () => {
   test("正常小输出完整返回", async () => {
-    const { spawnStream } = await import("./stream.js");
+    const { spawnStream } = await import("../../src/stream.js");
     const cmd = process.platform === "win32" ? "cmd.exe" : "/bin/sh";
     const args = process.platform === "win32" ? ["/c", "echo hello-buffer"] : ["-c", "echo hello-buffer"];
     const result = await spawnStream(cmd, args, { timeout: 5000 });
@@ -66,7 +66,7 @@ describe("【性能-3】stream.ts Buffer 收集", () => {
   });
 
   test("超过 maxOutput 时截断并包含 TRUNCATED 标记", async () => {
-    const { spawnStream } = await import("./stream.js");
+    const { spawnStream } = await import("../../src/stream.js");
     const cmd = process.platform === "win32" ? "powershell.exe" : "/bin/sh";
     const args =
       process.platform === "win32"
@@ -77,7 +77,7 @@ describe("【性能-3】stream.ts Buffer 收集", () => {
   });
 
   test("stderr 独立收集不丢失", async () => {
-    const { spawnStream } = await import("./stream.js");
+    const { spawnStream } = await import("../../src/stream.js");
     const cmd = process.platform === "win32" ? "cmd.exe" : "/bin/sh";
     const args = process.platform === "win32" ? ["/c", "echo err-msg 1>&2"] : ["-c", "echo err-msg >&2"];
     const result = await spawnStream(cmd, args, { timeout: 5000 });
@@ -96,20 +96,20 @@ describe("【功能-1】session.cwd 继承", () => {
   });
 
   afterEach(async () => {
-    const { session } = await import("./session.js");
+    const { session } = await import("../../src/session.js");
     session.reset();
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   test("getCwd 返回 setCwd 设置的值", async () => {
-    const { session } = await import("./session.js");
+    const { session } = await import("../../src/session.js");
     session.setCwd(tmpDir);
     expect(session.getCwd()).toBe(tmpDir);
   });
 
   test("spawnStream 使用 session.getCwd() 在正确目录执行", async () => {
-    const { session } = await import("./session.js");
-    const { spawnStream } = await import("./stream.js");
+    const { session } = await import("../../src/session.js");
+    const { spawnStream } = await import("../../src/stream.js");
     session.setCwd(tmpDir);
 
     const cmd = process.platform === "win32" ? "cmd.exe" : "/bin/sh";
@@ -127,7 +127,7 @@ describe("【功能-1】session.cwd 继承", () => {
 // ====================================================================
 describe("【功能-2】LRUCache.invalidateByValue", () => {
   test("按子串匹配清除缓存条目", async () => {
-    const { LRUCache } = await import("./cache.js");
+    const { LRUCache } = await import("../../src/cache.js");
     const cache = new LRUCache<string>(64, 60000);
 
     cache.set('read_file:{"file_path":"D:\\\\test\\\\a.txt"}', "content-a");
@@ -141,7 +141,7 @@ describe("【功能-2】LRUCache.invalidateByValue", () => {
   });
 
   test("无匹配时返回 0", async () => {
-    const { LRUCache } = await import("./cache.js");
+    const { LRUCache } = await import("../../src/cache.js");
     const cache = new LRUCache<string>(64, 60000);
     cache.set("key1", "val1");
     expect(cache.invalidateByValue("nonexistent")).toBe(0);
@@ -155,7 +155,7 @@ describe("【功能-3】batch_execute 并发限制", () => {
   test("并行模式下不超过 4 个并发", async () => {
     // 通过时间差验证：如果 8 个 100ms 命令并发限制为 4，
     // 总耗时应 >= 200ms（两批），而非 ~100ms（全并行）
-    const { spawnStream } = await import("./stream.js");
+    const { spawnStream } = await import("../../src/stream.js");
     const IS_WIN = process.platform === "win32";
 
     const commands = Array(8)
@@ -207,7 +207,7 @@ describe("【功能-4】compress_archive 返回 size_bytes", () => {
     const outFile = path.join(tmpDir, "out.zip");
 
     // 直接用正确的 PowerShell 命令创建 zip（绕过 getCompressSpec 的已有 bug）
-    const { spawnStream } = await import("./stream.js");
+    const { spawnStream } = await import("../../src/stream.js");
     const cmd = "powershell.exe";
     const args = [
       "-NoProfile",

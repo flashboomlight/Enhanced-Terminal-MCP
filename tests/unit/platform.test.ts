@@ -17,7 +17,7 @@ import {
   IS_MAC,
   IS_WIN,
   wrapCommand,
-} from "./platform.js";
+} from "../../src/platform.js";
 
 // ====================================================================
 // 平台常量

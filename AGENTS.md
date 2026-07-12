@@ -40,6 +40,9 @@
 - 测试中的临时目录在 `afterEach` / `afterAll` 中必须清理，避免残留
 - `wrapHandler` 对 handler 返回值有结构要求，直接返回裸字符串会破坏接口
 - `hardBlock` 是命令执行的不可关闭底线(全模式含 off 生效),调整安全模式或命令工具入口时不得移除;详见 `codestable/compound/2026-07-11-decision-hardblock-uncloseable-baseline.md`
+- 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；e2e 在 `tests/`
+- `postinstall` 使用 `scripts/apply-mcp-sdk-patch.mjs`（零依赖），`patch-package` 仅 devDependency
+- 命令策略：`MCP_COMMAND_POLICY=blocklist|allow`，allow 时用 `MCP_COMMAND_ALLOW` 前缀白名单
 
 ## UI 验证要求
 

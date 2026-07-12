@@ -10,7 +10,7 @@ import {
   formatTempStatsMessage,
   validateEnvKey,
   validateEnvValue,
-} from "./utility.js";
+} from "../../../src/tools/utility.js";
 
 describe("utility tools pure logic", () => {
   test("formatCacheInvalidateMessage for specific tool", () => {

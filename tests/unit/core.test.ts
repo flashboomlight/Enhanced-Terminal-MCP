@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 // ============================================================
 // cache.ts
 // ============================================================
-import { LRUCache } from "./cache.js";
+import { LRUCache } from "../../src/cache.js";
 
 describe("LRUCache", () => {
   let cache: LRUCache<string>;
@@ -105,7 +105,7 @@ describe("LRUCache", () => {
 // ============================================================
 // result.ts
 // ============================================================
-import { ErrorCode, Errors, fail, success, toCallToolResult } from "./result.js";
+import { ErrorCode, Errors, fail, success, toCallToolResult } from "../../src/result.js";
 
 describe("result", () => {
   test("success() returns correct structure", () => {
@@ -219,7 +219,7 @@ describe("result", () => {
 // ============================================================
 // session.ts
 // ============================================================
-import { session } from "./session.js";
+import { session } from "../../src/session.js";
 
 describe("SessionStore", () => {
   beforeEach(() => session.reset());
@@ -282,7 +282,7 @@ describe("SessionStore", () => {
 // ============================================================
 // scan.ts
 // ============================================================
-import { isCredentialFilePath, scanContent } from "./scan.js";
+import { isCredentialFilePath, scanContent } from "../../src/scan.js";
 
 describe("scanContent", () => {
   test("detects OpenAI key", () => {
@@ -335,7 +335,7 @@ describe("isCredentialFilePath", () => {
 // ============================================================
 // regex.ts
 // ============================================================
-import { getRegex, regexCache } from "./regex.js";
+import { getRegex, regexCache } from "../../src/regex.js";
 
 describe("getRegex", () => {
   beforeEach(() => regexCache.clear());
@@ -365,7 +365,7 @@ describe("getRegex", () => {
 // ============================================================
 // context.ts
 // ============================================================
-import { contextSuffix, injectContext } from "./context.js";
+import { contextSuffix, injectContext } from "../../src/context.js";
 
 describe("context", () => {
   beforeEach(() => session.reset());

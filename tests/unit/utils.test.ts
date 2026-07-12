@@ -2,7 +2,7 @@
  * utils.ts 单元测试
  */
 import { describe, expect, test } from "vitest";
-import { formatSize } from "./utils.js";
+import { formatSize } from "../../src/utils.js";
 
 // ====================================================================
 // formatSize

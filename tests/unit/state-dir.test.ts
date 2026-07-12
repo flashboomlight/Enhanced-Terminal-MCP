@@ -6,7 +6,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { resetStateDirCache } from "./state-dir.js";
+import { resetStateDirCache } from "../../src/state-dir.js";
 
 describe("state-dir", () => {
   let originalStateDir: string | undefined;
@@ -32,7 +32,7 @@ describe("state-dir", () => {
     const customDir = path.join(tmpProjectDir, "custom-state");
     process.env.MCP_STATE_DIR = customDir;
 
-    const { getStateDir } = await import("./state-dir.js");
+    const { getStateDir } = await import("../../src/state-dir.js");
     const dir = await getStateDir();
     expect(dir).toBe(path.resolve(customDir));
     const stat = await fs.stat(dir);
@@ -41,14 +41,14 @@ describe("state-dir", () => {
 
   test("getStateFilePath returns session.json under state dir", async () => {
     process.env.MCP_STATE_DIR = tmpProjectDir;
-    const { getStateFilePath, getStateDir } = await import("./state-dir.js");
+    const { getStateFilePath, getStateDir } = await import("../../src/state-dir.js");
     const filePath = await getStateFilePath();
     const dir = await getStateDir();
     expect(filePath).toBe(path.join(dir, "session.json"));
   });
 
   test("getLegacyStateFilePath points to temp dir", async () => {
-    const { getLegacyStateFilePath } = await import("./state-dir.js");
+    const { getLegacyStateFilePath } = await import("../../src/state-dir.js");
     const legacy = getLegacyStateFilePath();
     expect(legacy).toContain(".enhanced-terminal-mcp-session.json");
     expect(path.dirname(legacy)).toBe(os.tmpdir());
@@ -60,7 +60,7 @@ describe("state-dir", () => {
     const customDir = path.join(tmpProjectDir, "sync-state");
     process.env.MCP_STATE_DIR = customDir;
     resetStateDirCache();
-    const { getStateDirSync } = await import("./state-dir.js");
+    const { getStateDirSync } = await import("../../src/state-dir.js");
     const dir = getStateDirSync();
     expect(dir).toBe(path.resolve(customDir));
     const exists = await fs
@@ -73,7 +73,7 @@ describe("state-dir", () => {
   test("mkdir failure logs warning and throws", async () => {
     process.env.MCP_STATE_DIR = path.join("\\\\invalid\\path\\for\\state");
     resetStateDirCache();
-    const { getStateDir } = await import("./state-dir.js");
+    const { getStateDir } = await import("../../src/state-dir.js");
     await expect(getStateDir()).rejects.toThrow("Failed to create state directory");
   });
 });

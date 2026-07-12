@@ -6,7 +6,7 @@ Supports **27 tools** across 7 categories: command execution, file I/O, system m
 
 ## Features
 
-- **3-Level Safety System** — strict/normal/off via `MCP_SAFETY_MODE`, 覆盖常见危险命令模式, critical process protection
+- **3-Level Safety System** — strict/normal/off via `MCP_SAFETY_MODE`, hardBlock baseline always on; optional `MCP_COMMAND_POLICY=allow`
 - **Path & URL Security** — traversal detection, forbidden paths, sensitive file patterns, secret scanning
 - **Performance Optimized** — LRU result cache (128-entry, sliding TTL, ~32MB cap), adaptive timeouts, spawn-based streaming
 - **Structured Errors** — 18 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
@@ -39,7 +39,9 @@ npm install enhanced-terminal-mcp
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm destructive tools), `off` (no checks) |
+| `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm destructive tools), `off` (no checks; hardBlock still on) |
+| `MCP_COMMAND_POLICY` | `blocklist` | `blocklist` (dangerous patterns + hardBlock) or `allow` (prefix allowlist + hardBlock) |
+| `MCP_COMMAND_ALLOW` | built-in prefixes | Comma-separated command prefixes when policy is `allow` (e.g. `npm ,git ,node `) |
 | `MCP_LOG_LEVEL` | `info` | Log level: debug / info / warn / error |
 | `MCP_STATE_DIR` | `<project-root>/.enhanced-terminal-mcp` | State directory for session, audit logs, and temp files |
 | `MCP_AUDIT_MODE` | `errors` | Audit mode: `off` / `errors` / `all` |

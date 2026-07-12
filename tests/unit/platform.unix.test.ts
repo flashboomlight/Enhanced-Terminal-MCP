@@ -23,7 +23,7 @@ const {
   getSystemInfoSpec,
   IS_WIN,
   wrapCommand,
-} = await import("./platform.js");
+} = await import("../../src/platform.js");
 
 describe("platform Unix branches", () => {
   const originalShell = process.env.SHELL;

@@ -26,7 +26,7 @@ describe("initSafeGuard", () => {
 
   test("initSafeGuard 默认模式为 normal", async () => {
     delete process.env.MCP_SAFETY_MODE;
-    const { initSafeGuard, getSafetyMode } = await import("./safeguard.js");
+    const { initSafeGuard, getSafetyMode } = await import("../../src/safeguard.js");
     const mockServer = { server: { elicitInput: vi.fn() } } as any;
     initSafeGuard(mockServer);
     expect(getSafetyMode()).toBe("normal");
@@ -34,7 +34,7 @@ describe("initSafeGuard", () => {
 
   test("initSafeGuard 读取 MCP_SAFETY_MODE=strict", async () => {
     process.env.MCP_SAFETY_MODE = "strict";
-    const { initSafeGuard, getSafetyMode } = await import("./safeguard.js");
+    const { initSafeGuard, getSafetyMode } = await import("../../src/safeguard.js");
     const mockServer = { server: { elicitInput: vi.fn() } } as any;
     initSafeGuard(mockServer);
     expect(getSafetyMode()).toBe("strict");
@@ -42,7 +42,7 @@ describe("initSafeGuard", () => {
 
   test("initSafeGuard 读取 MCP_SAFETY_MODE=off", async () => {
     process.env.MCP_SAFETY_MODE = "off";
-    const { initSafeGuard, getSafetyMode } = await import("./safeguard.js");
+    const { initSafeGuard, getSafetyMode } = await import("../../src/safeguard.js");
     const mockServer = { server: { elicitInput: vi.fn() } } as any;
     initSafeGuard(mockServer);
     expect(getSafetyMode()).toBe("off");
@@ -50,7 +50,7 @@ describe("initSafeGuard", () => {
 
   test("initSafeGuard 无效值回退到 normal", async () => {
     process.env.MCP_SAFETY_MODE = "invalid";
-    const { initSafeGuard, getSafetyMode } = await import("./safeguard.js");
+    const { initSafeGuard, getSafetyMode } = await import("../../src/safeguard.js");
     const mockServer = { server: { elicitInput: vi.fn() } } as any;
     initSafeGuard(mockServer);
     expect(getSafetyMode()).toBe("normal");
@@ -76,7 +76,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction 在 off 模式直接放行", async () => {
     process.env.MCP_SAFETY_MODE = "off";
-    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     const mockServer = { server: { elicitInput: vi.fn() } } as any;
     initSafeGuard(mockServer);
 
@@ -86,7 +86,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction 在 strict 模式拦截受保护工具", async () => {
     process.env.MCP_SAFETY_MODE = "strict";
-    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     const mockServer = { server: { elicitInput: vi.fn() } } as any;
     initSafeGuard(mockServer);
 
@@ -96,7 +96,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction 在 strict 模式拦截文件写入型工具", async () => {
     process.env.MCP_SAFETY_MODE = "strict";
-    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     const mockServer = { server: { elicitInput: vi.fn() } } as any;
     initSafeGuard(mockServer);
 
@@ -108,7 +108,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction 在 strict 模式放行非受保护工具", async () => {
     process.env.MCP_SAFETY_MODE = "strict";
-    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     const mockServer = { server: { elicitInput: vi.fn() } } as any;
     initSafeGuard(mockServer);
 
@@ -119,7 +119,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction normal 模式下用户确认则放行", async () => {
     process.env.MCP_SAFETY_MODE = "normal";
-    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     const mockServer = {
       server: {
         elicitInput: vi.fn().mockResolvedValue({
@@ -136,7 +136,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction normal 模式下命令工具也需要确认", async () => {
     process.env.MCP_SAFETY_MODE = "normal";
-    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     const elicitInput = vi.fn().mockResolvedValue({
       action: "accept",
       content: { confirm: true },
@@ -153,7 +153,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction normal 模式下用户取消则拒绝", async () => {
     process.env.MCP_SAFETY_MODE = "normal";
-    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     const mockServer = {
       server: {
         elicitInput: vi.fn().mockResolvedValue({
@@ -170,7 +170,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction normal 模式下 Elicitation 抛出异常降级拒绝", async () => {
     process.env.MCP_SAFETY_MODE = "normal";
-    const { initSafeGuard, guardDestructiveAction } = await import("./safeguard.js");
+    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     const mockServer = {
       server: {
         elicitInput: vi.fn().mockRejectedValue(new Error("not supported")),
@@ -185,7 +185,7 @@ describe("guardDestructiveAction", () => {
 
   test("guardDestructiveAction 未初始化时返回错误", async () => {
     process.env.MCP_SAFETY_MODE = "normal";
-    const { guardDestructiveAction } = await import("./safeguard.js");
+    const { guardDestructiveAction } = await import("../../src/safeguard.js");
 
     // 不调用 initSafeGuard — _server 为 null
     const result = await guardDestructiveAction("delete_path", "test delete");

@@ -6,8 +6,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { PageCache } from "./paging.js";
-import { resetStateDirCache } from "./state-dir.js";
+import { PageCache } from "../../src/paging.js";
+import { resetStateDirCache } from "../../src/state-dir.js";
 
 describe("page-cache", () => {
   let originalStateDir: string | undefined;

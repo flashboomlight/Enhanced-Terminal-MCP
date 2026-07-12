@@ -3,7 +3,7 @@
  */
 import type { ChildProcess } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { safeExecFile as SafeExecFileType, safeExec as SafeExecType } from "./utils.js";
+import type { safeExecFile as SafeExecFileType, safeExec as SafeExecType } from "../../src/utils.js";
 
 type ExecCallback = (error: Error | null, stdout?: Buffer | string, stderr?: Buffer | string) => void;
 
@@ -37,7 +37,7 @@ describe("safeExec (mocked)", () => {
       IS_WIN: true,
     }));
 
-    const mod = await import("./utils.js");
+    const mod = await import("../../src/utils.js");
     safeExec = mod.safeExec;
   });
 
@@ -70,7 +70,7 @@ describe("safeExec (error cases)", () => {
       wrapCommand: (cmd: string) => cmd,
       IS_WIN: true,
     }));
-    const mod = await import("./utils.js");
+    const mod = await import("../../src/utils.js");
     safeExec = mod.safeExec;
   });
 
@@ -97,7 +97,7 @@ describe("safeExec (timeout)", () => {
       wrapCommand: (cmd: string) => cmd,
       IS_WIN: true,
     }));
-    const mod = await import("./utils.js");
+    const mod = await import("../../src/utils.js");
     safeExec = mod.safeExec;
   });
 
@@ -127,7 +127,7 @@ describe("safeExec (exit code but has output)", () => {
   });
 
   test("safeExec 有 stdout/stderr 时 exit code≠0 也 reject", async () => {
-    const { safeExec } = await import("./utils.js");
+    const { safeExec } = await import("../../src/utils.js");
     await expect(safeExec("partial-fail", 5000)).rejects.toThrow("partial output");
   });
 });
@@ -144,7 +144,7 @@ describe("safeExecFile (mocked)", () => {
         return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
-    const mod = await import("./utils.js");
+    const mod = await import("../../src/utils.js");
     safeExecFile = mod.safeExecFile;
   });
 
@@ -163,7 +163,7 @@ describe("safeExecFile (mocked)", () => {
         return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
-    const mod = await import("./utils.js");
+    const mod = await import("../../src/utils.js");
     const sf = mod.safeExecFile;
     await expect(sf("nonexistent", [], 5000)).rejects.toThrow("not found");
   });
@@ -178,7 +178,7 @@ describe("safeExecFile (mocked)", () => {
         return { on: vi.fn() } as unknown as ChildProcess;
       },
     }));
-    const mod = await import("./utils.js");
+    const mod = await import("../../src/utils.js");
     const sf = mod.safeExecFile;
     await expect(sf("cmd", [], 5000)).rejects.toThrow("ERR");
   });

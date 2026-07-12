@@ -29,8 +29,8 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
   });
 
   test("getCompressSpec 生成的命令实际能压缩文件", async () => {
-    const { getCompressSpec } = await import("./platform.js");
-    const { safeExecFile } = await import("./utils.js");
+    const { getCompressSpec } = await import("../../src/platform.js");
+    const { safeExecFile } = await import("../../src/utils.js");
 
     const src = path.join(tmpDir, "source.txt");
     const dst = path.join(tmpDir, "output.zip");
@@ -49,8 +49,8 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
   });
 
   test("getExtractSpec 生成的命令实际能解压文件", async () => {
-    const { getCompressSpec, getExtractSpec } = await import("./platform.js");
-    const { safeExecFile } = await import("./utils.js");
+    const { getCompressSpec, getExtractSpec } = await import("../../src/platform.js");
+    const { safeExecFile } = await import("../../src/utils.js");
 
     const src = path.join(tmpDir, "source.txt");
     const zipFile = path.join(tmpDir, "archive.zip");
@@ -71,7 +71,7 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
   });
 
   test("getDownloadSpec 生成正确的内联命令结构", async () => {
-    const { getDownloadSpec } = await import("./platform.js");
+    const { getDownloadSpec } = await import("../../src/platform.js");
     const spec = getDownloadSpec("https://example.com/file.txt", "C:\\tmp\\out.txt");
 
     expect(spec.file).toBe("powershell.exe");
@@ -83,7 +83,7 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
   });
 
   test("路径含单引号时正确转义", async () => {
-    const { getCompressSpec } = await import("./platform.js");
+    const { getCompressSpec } = await import("../../src/platform.js");
     const spec = getCompressSpec("C:\\it's a test\\file.txt", "C:\\out\\it's.zip");
     // PowerShell 单引号转义：' -> ''
     expect(spec.args[2]).toContain("it''s a test");
@@ -120,7 +120,7 @@ describe("【性能-B】Everything 搜索结果目录过滤逻辑", () => {
 // ====================================================================
 describe("【功能-A】文件操作后缓存失效", () => {
   test("delete_path 后相关缓存被清除", async () => {
-    const { LRUCache } = await import("./cache.js");
+    const { LRUCache } = await import("../../src/cache.js");
     const cache = new LRUCache<string>(64, 60000);
 
     const filePath = "D:\\test\\to-delete.txt";
@@ -136,7 +136,7 @@ describe("【功能-A】文件操作后缓存失效", () => {
   });
 
   test("copy_move 后源和目标路径缓存都被清除", async () => {
-    const { LRUCache } = await import("./cache.js");
+    const { LRUCache } = await import("../../src/cache.js");
     const cache = new LRUCache<string>(64, 60000);
 
     const src = "D:\\src\\file.txt".replace(/\\/g, "\\\\");
@@ -158,8 +158,8 @@ describe("【功能-A】文件操作后缓存失效", () => {
 // ====================================================================
 describe("【功能-B】adaptiveTimeout 集成", () => {
   test("无历史数据时返回默认值 30000", async () => {
-    const { adaptiveTimeout } = await import("./adaptive.js");
-    const { telemetry } = await import("./telemetry.js");
+    const { adaptiveTimeout } = await import("../../src/adaptive.js");
+    const { telemetry } = await import("../../src/telemetry.js");
     telemetry.reset();
 
     const timeout = adaptiveTimeout("execute_command");
@@ -167,8 +167,8 @@ describe("【功能-B】adaptiveTimeout 集成", () => {
   });
 
   test("有足够历史数据时返回自适应值", async () => {
-    const { adaptiveTimeout } = await import("./adaptive.js");
-    const { telemetry } = await import("./telemetry.js");
+    const { adaptiveTimeout } = await import("../../src/adaptive.js");
+    const { telemetry } = await import("../../src/telemetry.js");
     telemetry.reset();
 
     // 模拟 10 次调用，平均延迟 15000ms
@@ -190,8 +190,8 @@ describe("【功能-B】adaptiveTimeout 集成", () => {
   });
 
   test("自适应值不超过 4× 默认值", async () => {
-    const { adaptiveTimeout } = await import("./adaptive.js");
-    const { telemetry } = await import("./telemetry.js");
+    const { adaptiveTimeout } = await import("../../src/adaptive.js");
+    const { telemetry } = await import("../../src/telemetry.js");
     telemetry.reset();
 
     // 模拟极高延迟
@@ -217,17 +217,17 @@ describe("【功能-B】adaptiveTimeout 集成", () => {
 // ====================================================================
 describe("【功能-C】list_directory 缓存策略", () => {
   test("TOOL_TTL 中 list_directory 为 5000ms", async () => {
-    const { TOOL_TTL } = await import("./cache.js");
+    const { TOOL_TTL } = await import("../../src/cache.js");
     expect(TOOL_TTL.list_directory).toBe(5000);
   });
 
   test("TOOL_TTL 中 get_system_info 为 60000ms", async () => {
-    const { TOOL_TTL } = await import("./cache.js");
+    const { TOOL_TTL } = await import("../../src/cache.js");
     expect(TOOL_TTL.get_system_info).toBe(60000);
   });
 
   test("LRUCache.set 使用自定义 TTL 后按时过期", async () => {
-    const { LRUCache } = await import("./cache.js");
+    const { LRUCache } = await import("../../src/cache.js");
     const cache = new LRUCache<string>(64, 60000); // 默认 60s
 
     // 用 1ms TTL 设置
@@ -242,7 +242,7 @@ describe("【功能-C】list_directory 缓存策略", () => {
   });
 
   test("write_file 后父目录缓存被失效", async () => {
-    const { LRUCache } = await import("./cache.js");
+    const { LRUCache } = await import("../../src/cache.js");
     const cache = new LRUCache<string>(64, 60000);
 
     const _filePath = "D:\\project\\src\\new-file.ts";

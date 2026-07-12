@@ -2,8 +2,8 @@
  * Handler wrapper unit tests
  */
 import { describe, expect, it } from "vitest";
-import { success, type ToolResult } from "./result.js";
-import { wrapHandler } from "./wrap.js";
+import { success, type ToolResult } from "../../src/result.js";
+import { wrapHandler } from "../../src/wrap.js";
 
 describe("wrapHandler", () => {
   it("wraps handler and returns CallToolResult", async () => {
@@ -39,7 +39,7 @@ describe("wrapHandler", () => {
   });
 
   it("does not cache failed results", async () => {
-    const { fail, ErrorCode } = await import("./result.js");
+    const { fail, ErrorCode } = await import("../../src/result.js");
     let callCount = 0;
     const handler = async (): Promise<ToolResult> => {
       callCount++;

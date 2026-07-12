@@ -42,7 +42,7 @@ describe("smartDecode GBK fallback (TextDecoder stub)", () => {
       IS_WIN: true,
     }));
 
-    const { safeExec } = await import("./utils.js");
+    const { safeExec } = await import("../../src/utils.js");
     const result = await safeExec("test-cmd", 5000);
 
     // UTF-8 回退应返回 �

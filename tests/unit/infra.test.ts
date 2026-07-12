@@ -37,17 +37,17 @@ vi.mock("child_process", async (importOriginal) => {
 // telemetry.ts
 // ====================================================================
 describe("TelemetryStore", () => {
-  let telemetry: typeof import("./telemetry.js")["telemetry"];
+  let telemetry: typeof import("../../src/telemetry.js")["telemetry"];
 
   beforeEach(async () => {
-    const mod = await import("./telemetry.js");
+    const mod = await import("../../src/telemetry.js");
     telemetry = mod.telemetry;
     telemetry.reset();
   });
 
   const makeMetric = (
-    overrides: Partial<import("./telemetry.js").ToolCallMetric> = {},
-  ): import("./telemetry.js").ToolCallMetric => ({
+    overrides: Partial<import("../../src/telemetry.js").ToolCallMetric> = {},
+  ): import("../../src/telemetry.js").ToolCallMetric => ({
     toolName: "test_tool",
     latency_ms: 100,
     ok: true,
@@ -135,7 +135,7 @@ describe("ProcessPool", () => {
   };
 
   beforeEach(async () => {
-    const mod = await import("./pool.js");
+    const mod = await import("../../src/pool.js");
     pool = mod.processPool;
   });
 
@@ -167,11 +167,11 @@ describe("ProcessPool", () => {
 // stream.ts
 // ====================================================================
 describe("stream", () => {
-  let spawnStream: typeof import("./stream.js")["spawnStream"];
-  let quickExec: typeof import("./stream.js")["quickExec"];
+  let spawnStream: typeof import("../../src/stream.js")["spawnStream"];
+  let quickExec: typeof import("../../src/stream.js")["quickExec"];
 
   beforeEach(async () => {
-    const mod = await import("./stream.js");
+    const mod = await import("../../src/stream.js");
     spawnStream = mod.spawnStream;
     quickExec = mod.quickExec;
   });
@@ -209,15 +209,15 @@ describe("stream", () => {
 // adaptive.ts
 // ====================================================================
 describe("adaptive", () => {
-  let adaptiveTimeout: typeof import("./adaptive.js")["adaptiveTimeout"];
-  let withRetry: typeof import("./adaptive.js")["withRetry"];
-  let telemetry: typeof import("./telemetry.js")["telemetry"];
+  let adaptiveTimeout: typeof import("../../src/adaptive.js")["adaptiveTimeout"];
+  let withRetry: typeof import("../../src/adaptive.js")["withRetry"];
+  let telemetry: typeof import("../../src/telemetry.js")["telemetry"];
 
   beforeEach(async () => {
-    const mod = await import("./adaptive.js");
+    const mod = await import("../../src/adaptive.js");
     adaptiveTimeout = mod.adaptiveTimeout;
     withRetry = mod.withRetry;
-    const tMod = await import("./telemetry.js");
+    const tMod = await import("../../src/telemetry.js");
     telemetry = tMod.telemetry;
     telemetry.reset();
   });

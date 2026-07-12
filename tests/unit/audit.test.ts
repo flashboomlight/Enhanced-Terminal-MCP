@@ -6,8 +6,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { type AuditEntry, AuditLog } from "./audit.js";
-import { resetStateDirCache } from "./state-dir.js";
+import { type AuditEntry, AuditLog } from "../../src/audit.js";
+import { resetStateDirCache } from "../../src/state-dir.js";
 
 describe("audit", () => {
   let originalStateDir: string | undefined;

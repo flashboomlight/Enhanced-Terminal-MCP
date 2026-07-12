@@ -5,7 +5,7 @@
 
 import * as os from "node:os";
 import { describe, expect, test } from "vitest";
-import { isCriticalProcess } from "./safeguard.js";
+import { isCriticalProcess } from "../../src/safeguard.js";
 
 // ====================================================================
 // isCriticalProcess

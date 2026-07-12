@@ -11,7 +11,7 @@ import {
   getKillSpec,
   getNetworkSpec,
   getProcessListSpec,
-} from "./platform.js";
+} from "../../src/platform.js";
 
 const IS_WIN = os.platform() === "win32";
 

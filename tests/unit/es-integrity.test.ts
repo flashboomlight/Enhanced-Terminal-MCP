@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { ES_EXE_PATH, ES_EXE_SHA256, ensureEsExeIntegrity, resetEsIntegrityCache } from "./es-integrity.js";
+import { ES_EXE_PATH, ES_EXE_SHA256, ensureEsExeIntegrity, resetEsIntegrityCache } from "../../src/es-integrity.js";
 
 describe("es-integrity", () => {
   beforeEach(() => {

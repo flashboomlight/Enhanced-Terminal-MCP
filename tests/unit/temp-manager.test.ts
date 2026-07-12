@@ -6,8 +6,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { resetStateDirCache } from "./state-dir.js";
-import { TempManager } from "./temp-manager.js";
+import { resetStateDirCache } from "../../src/state-dir.js";
+import { TempManager } from "../../src/temp-manager.js";
 
 describe("temp-manager", () => {
   let originalStateDir: string | undefined;
