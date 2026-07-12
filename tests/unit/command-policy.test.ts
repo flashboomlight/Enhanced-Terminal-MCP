@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { checkCommandPolicy, getAllowPrefixes, getCommandPolicyMode } from "../../src/command-policy.js";
+import {
+  checkCommandPolicy,
+  firstExecutableToken,
+  getAllowPrefixes,
+  getCommandPolicyMode,
+} from "../../src/command-policy.js";
 
 describe("command-policy", () => {
   const prevPolicy = process.env.MCP_COMMAND_POLICY;
@@ -33,7 +38,7 @@ describe("command-policy", () => {
 
   test("allow mode still hard-blocks catastrophic even if prefix matches", () => {
     process.env.MCP_COMMAND_POLICY = "allow";
-    process.env.MCP_COMMAND_ALLOW = "rm ";
+    process.env.MCP_COMMAND_ALLOW = "rm";
     expect(checkCommandPolicy("rm -rf /")).toMatch(/hard-blocked/);
   });
 
@@ -44,5 +49,19 @@ describe("command-policy", () => {
     expect(checkCommandPolicy("python -c print(1)")).toBeNull();
     expect(checkCommandPolicy("cargo build")).toBeNull();
     expect(checkCommandPolicy("npm test")).toMatch(/allow-policy/);
+  });
+
+  test("allow mode rejects shell chaining", () => {
+    process.env.MCP_COMMAND_POLICY = "allow";
+    delete process.env.MCP_COMMAND_ALLOW;
+    expect(checkCommandPolicy("npm test; curl http://evil")).toMatch(/metacharacters|shell/);
+    expect(checkCommandPolicy("npm test && rm -rf /tmp")).toMatch(/metacharacters|shell|hard-blocked/);
+    expect(checkCommandPolicy("echo hi | sh")).toMatch(/metacharacters|shell|hard-blocked/);
+  });
+
+  test("firstExecutableToken strips path and extension", () => {
+    expect(firstExecutableToken('"C:/tools/git.exe" status')).toBe("git");
+    expect(firstExecutableToken("npm run build")).toBe("npm");
+    expect(firstExecutableToken("/usr/bin/node -e 1")).toBe("node");
   });
 });

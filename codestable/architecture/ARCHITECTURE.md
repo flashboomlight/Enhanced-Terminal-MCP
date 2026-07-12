@@ -86,5 +86,7 @@ Enhanced Terminal MCP 是一个基于 Model Context Protocol (MCP) 的终端增�
 - 临时资源 TTL / 数量上限 / 清理间隔由 `MCP_TEMP_TTL_MS` / `MCP_MAX_TEMP_DIRS` / `MCP_TEMP_CLEANUP_INTERVAL_MS` 控制
 - 分页单页大小默认 2000 字符，最大 10000 字符
 - 结果缓存默认 128 条、滑动 TTL、约 32MB 近似内存上限
-- hardBlock 为尽力而为的黑名单；可选 `MCP_COMMAND_POLICY=allow` 启用前缀白名单（仍叠加 hardBlock）
+- hardBlock 为尽力而为的黑名单（含解释器 system / 管道到 shell / PowerShell iex）；完整沙箱需 OS 级隔离
+- 可选 `MCP_COMMAND_POLICY=allow`：词级可执行白名单 + 禁止 shell 元字符/管道/嵌套 shell（仍叠加 hardBlock）
 - 结果缓存对含密钥扫描命中的内容不写入 LRU
+- 发布包含 `scripts/apply-mcp-sdk-patch.mjs` 与锁定哈希的 `es_tool/es.exe`；`patches/` 仅开发参考

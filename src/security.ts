@@ -329,6 +329,14 @@ const HARD_BLOCK_PATTERNS: RegExp[] = [
   /\b(?:halt|poweroff|reboot)\s+-/i,
   // chmod 777 全盘
   /\bchmod\s+-R\s+0*777\s+\//i,
+  // 解释器内联 system / 子 shell 删盘（perl/ruby/python/php 常见形态）
+  /\b(?:perl|ruby|php)\s+(?:-e|-E)\s+.*(?:system|exec|passthru|`)\s*\(?\s*['"][^'"]*rm\s+-[a-zA-Z]*[rRfF]/i,
+  /\bpython(?:3)?\s+-c\s+.*(?:os\.system|subprocess|os\.remove|shutil\.rmtree)/i,
+  // 管道到 shell 执行
+  /\|\s*(?:sh|bash|zsh|dash|cmd(?:\.exe)?)\b/i,
+  // PowerShell 危险原生命令
+  /\b(?:Invoke-Expression|iex)\b/i,
+  /\bRemove-Item\s+.*-(?:Recurse|Force).*(?:[A-Za-z]:\\|[A-Za-z]:\/|\$env:|C:\\|D:\\)/i,
 ];
 
 export function hardBlock(cmd: string): string | null {

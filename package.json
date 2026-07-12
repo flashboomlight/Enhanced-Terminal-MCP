@@ -10,7 +10,7 @@
   "files": [
     "build/",
     "es_tool/es.exe",
-    "patches/",
+    "scripts/apply-mcp-sdk-patch.mjs",
     "README.md",
     "CHANGELOG.md"
   ],

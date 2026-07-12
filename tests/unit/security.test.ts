@@ -318,6 +318,13 @@ describe("hardBlock", () => {
     expect(hardBlock("npm run build")).toBeFalsy();
     expect(hardBlock("rm -rf ./dist")).toBeFalsy();
   });
+
+  test("拦截解释器内联 system 与管道到 shell", () => {
+    expect(hardBlock("python -c \"import os; os.system('rm -rf /')\"")).toBeTruthy();
+    expect(hardBlock("perl -e 'system(\"rm -rf /\")'")).toBeTruthy();
+    expect(hardBlock("echo payload | bash")).toBeTruthy();
+    expect(hardBlock("Invoke-Expression $evil")).toBeTruthy();
+  });
 });
 
 // ====================================================================

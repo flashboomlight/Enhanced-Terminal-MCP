@@ -1,39 +1,45 @@
 /**
  * 命令策略：默认黑名单 + hardBlock；可选 allow 白名单（MCP_COMMAND_POLICY=allow）
  *
- * allow 模式仅允许：
- * 1) 前缀匹配 MCP_COMMAND_ALLOW 列表（逗号分隔，如 "npm ,git ,node "）
- * 2) 或匹配内置安全前缀（ls/dir/echo/pwd/cat/type 等只读类）
- * 仍会先跑 hardBlock。
+ * allow 模式：
+ * 1) 始终先 hardBlock
+ * 2) 拒绝 shell 控制元字符 / 管道 / 命令拼接（防 "npm test; curl evil"）
+ * 3) 首个可执行词或整串前缀匹配 MCP_COMMAND_ALLOW（逗号分隔）或内置默认
+ *
+ * 非 allow 模式仍为 hasDangerousPattern 黑名单。
  */
 import { hardBlock, hasDangerousPattern } from "./security.js";
 
 export type CommandPolicyMode = "blocklist" | "allow";
 
 const DEFAULT_ALLOW_PREFIXES = [
-  "ls ",
-  "ls\t",
-  "dir ",
-  "dir\t",
-  "echo ",
+  "ls",
+  "dir",
+  "echo",
   "pwd",
-  "cd ",
-  "cat ",
-  "type ",
-  "head ",
-  "tail ",
-  "git ",
-  "npm ",
-  "npx ",
-  "node ",
-  "tsc ",
-  "vitest ",
-  "biome ",
+  "cd",
+  "cat",
+  "type",
+  "head",
+  "tail",
+  "git",
+  "npm",
+  "npx",
+  "node",
+  "tsc",
+  "vitest",
+  "biome",
   "whoami",
   "hostname",
   "date",
   "uname",
 ];
+
+/**
+ * allow 模式下禁止的 shell 控制序列（未做完整引号解析，宁可误拦也不放行拼接）
+ */
+const SHELL_META =
+  /(?:[;|`$<>]|\n|\r|&&|\|\||\$\(|`|\b(?:eval|source|exec)\b|\bsh\s+-c\b|\bbash\s+-c\b|\bcmd(?:\.exe)?\s+\/c\b|\bpowershell\b|\bpwsh\b)/i;
 
 export function getCommandPolicyMode(): CommandPolicyMode {
   const raw = (process.env.MCP_COMMAND_POLICY || "blocklist").toLowerCase().trim();
@@ -54,6 +60,31 @@ function normalizeCmd(cmd: string): string {
   return cmd.replace(/^\s+/, "").replace(/^chcp\s+65001\s*>nul\s*&&\s*/i, "");
 }
 
+/** 取首个可执行词（去掉路径与 .exe/.cmd/.bat） */
+export function firstExecutableToken(cmd: string): string {
+  const trimmed = normalizeCmd(cmd).trim();
+  const withoutEnv = trimmed.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+/, "");
+  const m = withoutEnv.match(/^("([^"]+)"|'([^']+)'|(\S+))/);
+  if (!m) return "";
+  const token = (m[2] || m[3] || m[4] || "").replace(/\\/g, "/");
+  const base = token.includes("/") ? token.slice(token.lastIndexOf("/") + 1) : token;
+  return base.replace(/\.(exe|cmd|bat|ps1)$/i, "").toLowerCase();
+}
+
+function isAllowlisted(cmd: string, prefixes: string[]): boolean {
+  const lower = normalizeCmd(cmd).toLowerCase().trim();
+  const token = firstExecutableToken(cmd);
+  for (const raw of prefixes) {
+    const p = raw.toLowerCase().trim();
+    if (!p) continue;
+    // 词级：首 token 等于 allow 项
+    if (token === p) return true;
+    // 多词前缀：整串以 "p " 开头或完全等于 p
+    if (lower === p || lower.startsWith(`${p} `) || lower.startsWith(`${p}\t`)) return true;
+  }
+  return false;
+}
+
 /**
  * 统一命令策略检查。
  * 返回拦截原因字符串，或 null 表示通过。
@@ -62,28 +93,22 @@ export function checkCommandPolicy(command: string): string | null {
   const cmd = normalizeCmd(command);
   if (!cmd) return "Empty command";
 
-  // hardBlock 始终优先
   const hb = hardBlock(cmd);
   if (hb) return `hard-blocked: ${hb}`;
 
   const mode = getCommandPolicyMode();
   if (mode === "allow") {
+    if (SHELL_META.test(cmd)) {
+      return "allow-policy: shell metacharacters or nested shells are not allowed in allow mode";
+    }
     const prefixes = getAllowPrefixes();
-    const lower = cmd.toLowerCase();
-    const ok = prefixes.some((p) => {
-      const pl = p.toLowerCase().trimEnd();
-      if (lower === pl) return true;
-      // 前缀后须空白，避免 python 匹配 pythonism
-      if (lower.startsWith(`${pl} `) || lower.startsWith(`${pl}\t`)) return true;
-      return false;
-    });
-    if (!ok) {
-      return `allow-policy: command not in allowlist (set MCP_COMMAND_ALLOW or use MCP_COMMAND_POLICY=blocklist)`;
+    if (!isAllowlisted(cmd, prefixes)) {
+      const token = firstExecutableToken(cmd) || "?";
+      return `allow-policy: executable "${token}" not in allowlist (set MCP_COMMAND_ALLOW or use MCP_COMMAND_POLICY=blocklist)`;
     }
     return null;
   }
 
-  // blocklist 模式：危险模式
   const dp = hasDangerousPattern(cmd);
   if (dp) return `dangerous-pattern: ${dp}`;
   return null;
