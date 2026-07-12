@@ -47,4 +47,4 @@ Enhanced Terminal MCP 的安全模型分三级:`strict` / `normal` / `off`。`of
 - **未来调整安全模式逻辑时**:不得移除或降级三个命令工具中的 `hardBlock` 调用。若要改 hardBlock 的调用位置或生效范围,须确认 off 模式仍有等价的不可关闭底线
 - **扩展 `HARD_BLOCK_PATTERNS` 时**:新增模式须逐 issue 评估误报面——hardBlock 在所有模式下生效,误报会阻断 normal/off 模式下的合法命令。宁可漏拦灾难性边缘 case(高阶绕过),不可误拦常用命令
 - **AGENTS.md 红线**:本约束属 AGENTS.md "禁止修改安全规则、路径黑名单、错误码等核心行为,除非显式授权"的覆盖范围。`HARD_BLOCK_PATTERNS` 与 `hardBlock` 函数视为安全规则核心,改动需逐 issue 显式授权
-- **已知边界**:hardBlock 不追求完备,`perl -e 'system("rm -rf /")'`、自定义编码链等高阶绕过仍可能。这是 P1 修复的已知边界,彻底解决需方案 C(命令白名单),超本 issue 范围
+- **已知边界**:hardBlock 不追求完备。2026-07-12 已扩展解释器 system / 管道到 shell / PowerShell iex 等常见形态,但自定义编码链、多阶段载荷、未覆盖语言绑定仍可能绕过。这是应用层黑名单的固有边界,不是漏改一行代码。形式化执行隔离见 `2026-07-12-decision-command-execution-not-sandbox.md` 与 roadmap `remaining-hardening` 的 B 轨;可选收紧见 `MCP_COMMAND_POLICY=allow`

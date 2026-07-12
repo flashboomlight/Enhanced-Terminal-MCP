@@ -1,0 +1,124 @@
+roadmap: remaining-hardening
+created: 2026-07-12
+last_reviewed: 2026-07-12
+
+items:
+  - slug: cmd-hardblock-regression-corpus
+    description: 建立 hardBlock / allow / dangerous 回归语料库与 CI 单测（必须拦 / 必须放 / 允许误拦）
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: true
+    notes: 最小闭环；不改默认产品行为
+
+  - slug: cmd-policy-audit-metrics
+    description: 策略拦截写入 audit/telemetry 可聚合字段（mode、reason 类别）
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: null
+
+  - slug: secrets-scan-tiers
+    description: 密钥扫描分级环境变量 off|write|cache|strict，默认保持现网行为
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: null
+
+  - slug: secrets-read-policy
+    description: 可选读路径密钥策略（告警 / 拒绝返回），默认不破坏 read_file
+    depends_on: [secrets-scan-tiers]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: null
+
+  - slug: contract-batch-ratelimit
+    description: batch_execute 限流可配置（按批/按条/burst），默认保持按批 1 token
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: null
+
+  - slug: contract-pool-stats-retire
+    description: 退休或诚实结构化 pool_stats（删除工具需契约授权）
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 删除工具前必须用户显式授权
+
+  - slug: contract-truncate-success
+    description: 大输出截断改为 ok+truncated+partial（改 outputSchema，需契约授权）
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: AGENTS 契约红线，须逐 issue 授权
+
+  - slug: publish-sbom-hash-doc
+    description: 发布面文档固定节（es 哈希、补丁脚本、锁定依赖说明）
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: null
+
+  - slug: publish-es-optional
+    description: es.exe 可选安装或平台分包，缩小非 Windows 包体
+    depends_on: [publish-sbom-hash-doc]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 改变 package files / 安装路径
+
+  - slug: deps-zod-v4-spike
+    description: zod v4 迁移 spike 与 go/no-go，不默认 merge 生产
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: spike only
+
+  - slug: model-argv-execute-design
+    description: 设计 argv/非 shell 执行模式（新工具或显式参数），批准前不改默认行为
+    depends_on: [cmd-hardblock-regression-corpus]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 产品模型级；先 design
+
+  - slug: model-os-sandbox-spike
+    description: OS 级沙箱（Job Object/seccomp/容器）可行性 spike
+    depends_on: [model-argv-execute-design]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: spike only；可能引入运行时依赖
+
+  - slug: no-claim-regex-shell-completeness
+    description: 不承诺在保留 shell 整串执行前提下用正则达到形式化命令安全
+    depends_on: []
+    status: dropped
+    feature: null
+    minimal_loop: false
+    notes: C 轨永久边界；见 decision-command-execution-not-sandbox
+
+  - slug: no-default-force-allow-policy
+    description: 不把 MCP_COMMAND_POLICY=allow 设为默认，以免摧毁任意 shell 产品能力
+    depends_on: []
+    status: dropped
+    feature: null
+    minimal_loop: false
+    notes: C 轨产品边界
+
+  - slug: no-default-gitleaks-runtime-dep
+    description: 不默认将 gitleaks/trufflehog 等重型扫描器打入 production dependencies
+    depends_on: []
+    status: dropped
+    feature: null
+    minimal_loop: false
+    notes: 可选引擎另开 secrets-optional-engine 评估

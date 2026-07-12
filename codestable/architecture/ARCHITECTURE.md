@@ -90,3 +90,11 @@ Enhanced Terminal MCP 是一个基于 Model Context Protocol (MCP) 的终端增�
 - 可选 `MCP_COMMAND_POLICY=allow`：词级可执行白名单 + 禁止 shell 元字符/管道/嵌套 shell（仍叠加 hardBlock）
 - 结果缓存对含密钥扫描命中的内容不写入 LRU
 - 发布包含 `scripts/apply-mcp-sdk-patch.mjs` 与锁定哈希的 `es_tool/es.exe`；`patches/` 仅开发参考
+
+## 7. 规划入口（非现状）
+
+剩余未闭环工作与**明确不做**边界见规划层（勿把计划写回本节当现状）：
+
+- `codestable/roadmap/remaining-hardening/remaining-hardening-roadmap.md`
+- `codestable/roadmap/remaining-hardening/remaining-hardening-items.yaml`
+- 约束决策：`compound/2026-07-12-decision-command-execution-not-sandbox.md`
