@@ -1,154 +1,51 @@
 /**
- * Shell 进程预热池 — 复用 keep-alive 子进程避免冷启动开销
+ * Shell 进程预热池 —— 当前未激活，仅保留 stats 供 pool_stats 工具呈现。
  *
- * 惰性初始化：不在模块加载时 spawn 进程，仅在首次 acquire() 时按需创建。
- * shutdown 时统一销毁。
+ * 历史上这里设计了 acquire()/release() 来复用 keep-alive 子进程避免冷启动开销，
+ * 但实际命令执行走 spawnStream 按需 spawn，预热复用从未接入 command.ts。
+ * 因此本模块只保留：
+ *   - stats()  供 pool_stats 工具读取（返回真实状态：池为空、未激活）
+ *   - startSweep()/destroy()  生命周期钩子（index.ts 调用，当前为空操作保留接口）
  *
- * 注意：acquire()/release() 当前未被 command.ts 调用 —— 命令执行走 spawnStream
- * 按需 spawn，预热复用未激活。本模块仅 stats（供 pool_stats 工具）+ startSweep/
- * destroy（生命周期）被使用。若未来要激活预热复用，需评估预热 shell 的状态污染
- * （chcp/环境变量残留）对后续命令的影响。
+ * 若未来要激活预热复用：
+ *   1. spawn 时用 stdio:"ignore" 避免未读 pipe 阻塞子进程（旧实现的 pipe 泄漏）
+ *   2. release 时等 exit 事件并 unref，避免 zombie
+ *   3. 评估预热 shell 的状态污染（chcp/环境变量残留）对后续命令的影响
  */
-import { type ChildProcess, spawn } from "node:child_process";
 import { logger } from "./logger.js";
-import { getShell, IS_WIN } from "./platform.js";
 
-interface PoolEntry {
-  proc: ChildProcess;
-  busy: boolean;
-  lastActiveAt: number;
-  id: number;
+interface PoolStats {
+  size: number;
+  max: number;
+  idle: number;
+  busy: number;
 }
 
 class ProcessPool {
-  private pool: PoolEntry[] = [];
-  private overflow: PoolEntry[] = [];
   private maxSize: number;
-  private idleTimeout: number;
-  private nextId = 1;
-  private shell: string;
-  private shellArgs: string[];
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(maxSize = 4, idleTimeoutMs = 60000) {
+  constructor(maxSize = 4) {
     this.maxSize = maxSize;
-    this.idleTimeout = idleTimeoutMs;
-    this.shell = getShell();
-    this.shellArgs = IS_WIN ? ["/q"] : [];
   }
 
-  /** 获取一个空闲进程，没有则创建 */
-  acquire(): PoolEntry {
-    const idle = this.pool.find((e) => !e.busy);
-    if (idle) {
-      idle.busy = true;
-      return idle;
-    }
-
-    if (this.pool.length < this.maxSize) {
-      const proc = spawn(this.shell, this.shellArgs, {
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-      });
-      proc.on("error", (err) => {
-        logger.warn("pool", "spawn-error", err.message);
-      });
-      const entry: PoolEntry = { proc, busy: true, lastActiveAt: Date.now(), id: this.nextId++ };
-      this.pool.push(entry);
-      logger.info("pool", "spawned", `shell pid=${proc.pid} pool=${this.pool.length}`);
-      return entry;
-    }
-
-    // 全满：创建临时进程
-    const proc = spawn(this.shell, this.shellArgs, {
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    proc.on("error", (err) => {
-      logger.warn("pool", "spawn-error", err.message);
-    });
-    const entry: PoolEntry = { proc, busy: true, lastActiveAt: Date.now(), id: this.nextId++ };
-    this.overflow.push(entry);
-    logger.warn("pool", "overflow", `pool full (${this.maxSize}), spawned temporary process pid=${proc.pid}`);
-    return entry;
+  /** 池统计 —— 当前预热未激活，返回真实空池状态 */
+  get stats(): PoolStats {
+    return { size: 0, max: this.maxSize, idle: 0, busy: 0 };
   }
 
-  /** 归还进程 */
-  release(entry: PoolEntry): void {
-    entry.busy = false;
-    entry.lastActiveAt = Date.now();
-    const idx = this.overflow.indexOf(entry);
-    if (idx !== -1) {
-      this.overflow.splice(idx, 1);
-      try {
-        entry.proc.kill();
-      } catch (err) {
-        logger.debug("pool", "kill-failed", String(err));
-      }
-    }
+  /** 生命周期钩子 —— 预热未激活时为空操作（保留以兼容 index.ts 调用） */
+  startSweep(_intervalMs = 30000): void {
+    // 预热未激活，无需定时清理
   }
 
-  /** 清理空闲超时的进程 */
-  sweep(): number {
-    const now = Date.now();
-    let removed = 0;
-    this.pool = this.pool.filter((e) => {
-      if (!e.busy && now - e.lastActiveAt > this.idleTimeout) {
-        try {
-          e.proc.kill();
-        } catch (err) {
-          logger.debug("pool", "sweep-kill-failed", String(err));
-        }
-        removed++;
-        return false;
-      }
-      return true;
-    });
-    if (removed > 0) logger.info("pool", "swept", `${removed} idle processes`);
-    return removed;
-  }
-
-  /** 启动定时清理（由 main() 显式调用） */
-  startSweep(intervalMs = 30000) {
-    if (this.sweepTimer) return;
-    this.sweepTimer = setInterval(() => this.sweep(), intervalMs);
-    this.sweepTimer.unref();
-  }
-
-  /** 全量销毁 */
   destroy(): void {
     if (this.sweepTimer) {
       clearInterval(this.sweepTimer);
       this.sweepTimer = null;
     }
-    for (const e of this.pool) {
-      try {
-        e.proc.kill();
-      } catch (err) {
-        logger.debug("pool", "destroy-kill-failed", String(err));
-      }
-    }
-    for (const e of this.overflow) {
-      try {
-        e.proc.kill();
-      } catch (err) {
-        logger.debug("pool", "destroy-overflow-kill-failed", String(err));
-      }
-    }
-    this.pool = [];
-    this.overflow = [];
-    logger.info("pool", "destroyed", "all processes killed");
-  }
-
-  get stats() {
-    return {
-      size: this.pool.length,
-      max: this.maxSize,
-      idle: this.pool.filter((e) => !e.busy).length,
-      busy: this.pool.filter((e) => e.busy).length,
-    };
+    logger.info("pool", "destroyed", "pool inactive, no processes to clean");
   }
 }
 
-export const processPool = new ProcessPool(4, 60000);
-// 注意：不再在模块加载时自动 startSweep()，由 index.ts main() 显式调用
+export const processPool = new ProcessPool(4);

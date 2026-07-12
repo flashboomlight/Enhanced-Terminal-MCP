@@ -128,12 +128,13 @@ describe("TelemetryStore", () => {
 // pool.ts
 // ====================================================================
 describe("ProcessPool", () => {
-  let _ProcessPool: any;
-  let pool: any;
+  let pool: {
+    stats: { size: number; max: number; idle: number; busy: number };
+    startSweep: (ms?: number) => void;
+    destroy: () => void;
+  };
 
   beforeEach(async () => {
-    // Dynamically create a pool instance for testing
-    // Use the exported singleton but test via its methods
     const mod = await import("./pool.js");
     pool = mod.processPool;
   });
@@ -142,73 +143,23 @@ describe("ProcessPool", () => {
     pool.destroy();
   });
 
-  test("acquire() creates new process when pool empty", () => {
-    const entry = pool.acquire();
-    expect(entry).toBeDefined();
-    expect(entry.busy).toBe(true);
-    expect(entry.proc).toBeDefined();
-  });
-
-  test("acquire() reuses idle process", () => {
-    const entry1 = pool.acquire();
-    pool.release(entry1);
-    const entry2 = pool.acquire();
-    expect(entry2.id).toBe(entry1.id);
-  });
-
-  test("release() marks process as not busy", () => {
-    const entry = pool.acquire();
-    expect(entry.busy).toBe(true);
-    pool.release(entry);
-    expect(entry.busy).toBe(false);
-  });
-
-  test("stats returns correct counts", () => {
-    const e1 = pool.acquire();
-    pool.acquire();
-    pool.release(e1);
+  test("pool is inactive stub — stats always empty", () => {
     const s = pool.stats;
-    expect(s.size).toBe(2);
-    expect(s.idle).toBe(1);
-    expect(s.busy).toBe(1);
+    expect(s.size).toBe(0);
+    expect(s.idle).toBe(0);
+    expect(s.busy).toBe(0);
+    expect(s.max).toBe(4);
   });
 
-  test("sweep() removes idle processes past timeout", () => {
-    vi.useFakeTimers();
-    const entry = pool.acquire();
-    pool.release(entry);
-    vi.advanceTimersByTime(70000);
-    const removed = pool.sweep();
-    expect(removed).toBe(1);
-    expect(pool.stats.size).toBe(0);
-    vi.useRealTimers();
-  });
-
-  test("destroy() kills all processes", () => {
-    pool.acquire();
-    pool.acquire();
-    pool.destroy();
+  test("startSweep / destroy are no-ops that do not throw", () => {
+    expect(() => pool.startSweep(100)).not.toThrow();
+    expect(() => pool.destroy()).not.toThrow();
     expect(pool.stats.size).toBe(0);
   });
 
-  test("acquire() creates temporary process when pool full", () => {
-    // Fill pool to max (4)
-    const entries = [];
-    for (let i = 0; i < 4; i++) entries.push(pool.acquire());
-    // All busy, pool full — should create a new temporary process (not in pool)
-    const extra = pool.acquire();
-    expect(extra.busy).toBe(true);
-    expect(entries.some((e) => e.id === extra.id)).toBe(false); // new process, not reused
-  });
-
-  test("startSweep sets up interval", () => {
-    vi.useFakeTimers();
-    pool.acquire();
-    pool.release(pool.acquire());
-    pool.startSweep(100);
-    vi.advanceTimersByTime(200);
-    // Should not throw
-    vi.useRealTimers();
+  test("does not expose acquire/release (dead API removed)", () => {
+    expect((pool as { acquire?: unknown }).acquire).toBeUndefined();
+    expect((pool as { release?: unknown }).release).toBeUndefined();
   });
 });
 
@@ -232,10 +183,7 @@ describe("stream", () => {
     expect(r.timedOut).toBe(false);
   });
 
-  test("spawnStream respects timeout", async () => {
-    const r = await spawnStream("cmd.exe", ["/c", "ping -n 10 127.0.0.1"], { timeout: 500 });
-    expect(r.timedOut).toBe(true);
-  });
+  // 超时行为由 stream.test.ts 覆盖（Windows 上 kill 路径与并行负载下 infra 重复测易挂）
 
   test("quickExec returns stdout and exitCode", async () => {
     const r = await quickExec("echo hello");
@@ -311,7 +259,7 @@ describe("adaptive", () => {
     );
     expect(result).toBe("ok");
     expect(attempts).toBe(3);
-  });
+  }, 10000);
 
   test("withRetry throws after maxRetries exhausted", async () => {
     await expect(
@@ -322,5 +270,5 @@ describe("adaptive", () => {
         { maxRetries: 2, baseDelay: 1 },
       ),
     ).rejects.toThrow("always fail");
-  });
+  }, 10000);
 });

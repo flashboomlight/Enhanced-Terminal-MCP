@@ -8,7 +8,7 @@ Supports **27 tools** across 7 categories: command execution, file I/O, system m
 
 - **3-Level Safety System** — strict/normal/off via `MCP_SAFETY_MODE`, 覆盖常见危险命令模式, critical process protection
 - **Path & URL Security** — traversal detection, forbidden paths, sensitive file patterns, secret scanning
-- **Performance Optimized** — LRU result cache (128-entry, 30s TTL), adaptive timeouts, process pool (4 pre-warmed shells), spawn-based streaming
+- **Performance Optimized** — LRU result cache (128-entry, sliding TTL, ~32MB cap), adaptive timeouts, spawn-based streaming
 - **Structured Errors** — 18 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
 - **Session Persistence** — cwd, env vars, and command history survive restarts (auto-saved to `.enhanced-terminal-mcp/session.json`)
 - **Audit Logging** — structured JSON Lines audit log at `.enhanced-terminal-mcp/logs/audit.jsonl` (mode: `off` / `errors` / `all`)
@@ -125,7 +125,7 @@ MCP Client (stdio) → McpServer
   ├─ SafeGuard (3-level safety mode)
   ├─ Rate limiting (token bucket)
   ├─ Session persistence (JSON file)
-  ├─ ProcessPool (pre-warmed shells)
+  ├─ ProcessPool (inactive stub; stats only — execution uses spawnStream)
   ├─ Adaptive timeouts (P95-based × 3)
   └─ Structured errors (18 codes)
 ```
