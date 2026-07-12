@@ -31,8 +31,9 @@ export function registerSystemTools(server: McpServer) {
         const result = await safeExecFile(spec.file, spec.args, 30000);
         logger.info("get_system_info", "collected", "system info gathered");
         return success(result.stdout.trim(), { info: result.stdout.trim() });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
       }
     }),
   );
@@ -58,8 +59,9 @@ export function registerSystemTools(server: McpServer) {
         const spec = getProcessListSpec(filter, top || 20);
         const result = await safeExecFile(spec.file, spec.args, 10000);
         return success(`Running Processes:\n${result.stdout.trim()}`, { output: result.stdout.trim() });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
       }
     }),
   );
@@ -96,8 +98,9 @@ export function registerSystemTools(server: McpServer) {
         const spec = getKillSpec(pid, name, force);
         await safeExecFile(spec.file, spec.args, 10000);
         return success(`Killed: ${name || pid}`, { killed: true, pid: pid ?? undefined, name: name ?? undefined });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
       }
     }),
   );
@@ -131,8 +134,9 @@ export function registerSystemTools(server: McpServer) {
         const spec = getNetworkSpec(act, target);
         const result = await safeExecFile(spec.file, spec.args, 15000);
         return success(result.stdout.trim(), { output: result.stdout.trim(), action: act });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
       }
     }),
   );
@@ -179,8 +183,9 @@ export function registerSystemTools(server: McpServer) {
           ? `${allLines.slice(0, maxVars).join("\n")}\n... (${allLines.length - maxVars} more)`
           : allLines.join("\n");
         return success(`Environment Variables (sensitive keys hidden):\n${text}`, { vars });
-      } catch (e: any) {
-        return fail(ErrorCode.INTERNAL_ERROR, e.message, { retryable: false });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
       }
     }),
   );

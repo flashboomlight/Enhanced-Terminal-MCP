@@ -5,7 +5,7 @@
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -17,6 +17,15 @@ import { getRegex } from "../regex.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { validatePath } from "../security.js";
 import { wrapHandler } from "../wrap.js";
+
+// 按 AGENTS.md 已知坑约定：用 path.join + dirname(fileURLToPath(import.meta.url)) 解析 es.exe，
+// 避免 fileURLToPath(new URL(...)) 在 Windows 含空格路径下行为不稳定。
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const ES_EXE_PATH = join(MODULE_DIR, "..", "..", "es_tool", "es.exe");
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 /** 将 glob 模式（* 和 ?）转换为不区分大小写的正则 */
 export function globToRegex(pattern: string): RegExp {
@@ -65,22 +74,27 @@ export function registerSearchTools(server: McpServer) {
       try {
         if (IS_WIN) {
           try {
-            const esPath = fileURLToPath(new URL("../../es_tool/es.exe", import.meta.url));
+            const esPath = ES_EXE_PATH;
             const normalizedDir = resolve(dir_path).toLowerCase();
             await new Promise<void>((done) => {
               const args = ["-s", "-n", String(maxR * 2), pattern];
-              execFile(esPath, args, { maxBuffer: 10 * 1024 * 1024, timeout: 10000 }, (_err: any, stdout: string) => {
-                if (stdout) {
-                  for (const l of stdout.split("\n")) {
-                    const trimmed = l.trim();
-                    if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
-                      matches.push(trimmed);
-                      if (matches.length >= maxR) break;
+              execFile(
+                esPath,
+                args,
+                { maxBuffer: 10 * 1024 * 1024, timeout: 10000 },
+                (_err: unknown, stdout: string) => {
+                  if (stdout) {
+                    for (const l of stdout.split("\n")) {
+                      const trimmed = l.trim();
+                      if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
+                        matches.push(trimmed);
+                        if (matches.length >= maxR) break;
+                      }
                     }
                   }
-                }
-                done();
-              });
+                  done();
+                },
+              );
             });
           } catch (err) {
             logger.debug("search_files", "everything-fallback", String(err));
@@ -103,7 +117,7 @@ export function registerSearchTools(server: McpServer) {
                 } else if (reg.test(e.name)) matches.push(fp);
               }
             } catch (e) {
-              logger.warn("search_files:walk:error", p, String(e));
+              logger.warn("search_files", "walk-error", `${p}: ${String(e)}`);
             }
           }
           await walk(dir_path, 0);
@@ -116,8 +130,8 @@ export function registerSearchTools(server: McpServer) {
           { matches, total: matches.length, search_ms: ms, truncated: matches.length >= maxR },
           { truncated: matches.length >= maxR, latency_ms: ms },
         );
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );
@@ -157,14 +171,14 @@ export function registerSearchTools(server: McpServer) {
       }
 
       try {
-        const esPathWin = fileURLToPath(new URL("../../es_tool/es.exe", import.meta.url));
+        const esPathWin = ES_EXE_PATH;
         const results: string[] = [];
 
         await new Promise<void>((resolve) => {
           const args = ["-s", "-n", String(maxR)];
           if (dir_filter) args.push("-path", dir_filter);
           args.push(query);
-          execFile(esPathWin, args, { maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (_e: any, stdout: string) => {
+          execFile(esPathWin, args, { maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (_e: unknown, stdout: string) => {
             if (stdout)
               results.push(
                 ...stdout
@@ -182,8 +196,8 @@ export function registerSearchTools(server: McpServer) {
           total: results.length,
           search_ms: ms,
         });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );
@@ -212,8 +226,8 @@ export function registerSearchTools(server: McpServer) {
       // 主路径预检 pattern：语法 + ReDoS 防护（与 fallback 路径统一）
       try {
         getRegex(pattern, "gi");
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: false, param: "pattern" });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
       }
       const t0 = Date.now();
       const maxR = max_results || 50;
@@ -250,9 +264,9 @@ export function registerSearchTools(server: McpServer) {
                 .map((l) => l.trim())
                 .filter((l) => l),
             );
-          } catch (e: any) {
-            logger.warn("grep_content:ps:error", String(e));
-            return fail(ErrorCode.EXECUTION_FAILED, `PowerShell grep failed: ${e.message || String(e)}`, {
+          } catch (e: unknown) {
+            logger.warn("grep_content", "ps-error", String(e));
+            return fail(ErrorCode.EXECUTION_FAILED, `PowerShell grep failed: ${errMsg(e)}`, {
               retryable: true,
               detail: { dir_path, file_pattern: fileFilter, pattern },
             });
@@ -271,21 +285,28 @@ export function registerSearchTools(server: McpServer) {
                 .filter((l) => l)
                 .slice(0, maxR),
             );
-          } catch (e: any) {
-            const stdout = typeof e.stdout === "string" ? e.stdout : e.stdout?.toString?.() || "";
-            if (e.code === 1 && !stdout) {
+          } catch (e: unknown) {
+            const rawOut = (e as { stdout?: unknown }).stdout;
+            const stdout =
+              typeof rawOut === "string"
+                ? rawOut
+                : rawOut != null && typeof (rawOut as { toString?: () => string }).toString === "function"
+                  ? String((rawOut as { toString: () => string }).toString())
+                  : "";
+            const code = (e as { code?: unknown }).code;
+            if (code === 1 && !stdout) {
               logger.debug("grep_content", "grep-no-matches", `${dir_path} ${pattern}`);
             } else if (stdout) {
               results.push(
                 ...stdout
                   .split("\n")
-                  .map((l: string) => l.trim())
-                  .filter((l: string) => l)
+                  .map((l) => l.trim())
+                  .filter((l) => l)
                   .slice(0, maxR),
               );
             } else {
-              logger.warn("grep_content:grep:error", String(e));
-              return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${e.message || String(e)}`, {
+              logger.warn("grep_content", "grep-error", String(e));
+              return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${errMsg(e)}`, {
                 retryable: true,
                 detail: { dir_path, file_pattern: fileFilter, pattern },
               });
@@ -297,8 +318,8 @@ export function registerSearchTools(server: McpServer) {
           let regex: RegExp;
           try {
             regex = getRegex(pattern, "gi");
-          } catch (e: any) {
-            return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: false, param: "pattern" });
+          } catch (e: unknown) {
+            return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
           }
           const fileRegex = globToRegex(fileFilter);
 
@@ -327,14 +348,14 @@ export function registerSearchTools(server: McpServer) {
                   try {
                     await grepFile(fp);
                   } catch (e) {
-                    logger.warn("grep_content:grepFile:error", fp, String(e));
+                    logger.warn("grep_content", "grep-file-error", `${fp}: ${String(e)}`);
                   }
                 } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
                   await walk(fp, depth + 1);
                 }
               }
             } catch (e) {
-              logger.warn("grep_content:walk:error", p, String(e));
+              logger.warn("grep_content", "walk-error", `${p}: ${String(e)}`);
             }
           }
           await walk(dir_path, 0);
@@ -347,8 +368,8 @@ export function registerSearchTools(server: McpServer) {
           total: results.length,
           search_ms: ms,
         });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );

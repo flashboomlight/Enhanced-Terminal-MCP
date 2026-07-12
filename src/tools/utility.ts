@@ -10,14 +10,14 @@ import { toolCache } from "../cache.js";
 import { injectContext } from "../context.js";
 import { logger } from "../logger.js";
 import { processPool } from "../pool.js";
-import { success, type ToolResult } from "../result.js";
+import { ErrorCode, fail, success, type ToolResult } from "../result.js";
 import { validatePath } from "../security.js";
 import { session } from "../session.js";
 import { getStateDirSync } from "../state-dir.js";
 import { telemetry } from "../telemetry.js";
 import { tempManager } from "../temp-manager.js";
 import { VERSION } from "../version.js";
-import { wrapHandler } from "../wrap.js";
+import { getRegisteredToolCount, wrapHandler } from "../wrap.js";
 
 /** 格式化缓存清理结果文本 */
 export function formatCacheInvalidateMessage(tool: string | undefined, cleared: number): string {
@@ -239,6 +239,14 @@ export function registerUtilityTools(server: McpServer) {
         value?: string;
       }): Promise<ToolResult> => {
         let changed = false;
+        // action 枚举外值直接拒绝（schema 是 enum，但签名退化为 string）
+        if (action !== "get" && action !== "set_cwd" && action !== "set_env" && action !== "reset") {
+          return fail(ErrorCode.VALIDATION_ERROR, `Unknown action: ${action}`, {
+            retryable: false,
+            param: "action",
+            suggestion: "Use one of: get, set_cwd, set_env, reset",
+          });
+        }
         if (action === "set_cwd" && cwd) {
           const pathErr = validatePath(cwd, "session_state:set_cwd");
           if (pathErr) {
@@ -249,7 +257,7 @@ export function registerUtilityTools(server: McpServer) {
               success: false,
               error: pathErr,
             });
-            return success(`Error: ${pathErr}`, { snapshot: session.snapshotObj(), changed: false });
+            return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "cwd" });
           }
           try {
             const stat = await fs.stat(cwd);
@@ -263,12 +271,17 @@ export function registerUtilityTools(server: McpServer) {
               success: false,
               error: "not a directory",
             });
-            return success(`Error: path does not exist or is not a directory: ${cwd}`, {
-              snapshot: session.snapshotObj(),
-              changed: false,
+            return fail(ErrorCode.PATH_NOT_FOUND, `path does not exist or is not a directory: ${cwd}`, {
+              retryable: true,
+              param: "cwd",
             });
           }
-          session.setCwd(cwd);
+          try {
+            session.setCwd(cwd);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            return fail(ErrorCode.PATH_FORBIDDEN, msg, { retryable: false, param: "cwd" });
+          }
           audit.record({
             action: "session.set_cwd",
             tool: "session_state",
@@ -287,10 +300,14 @@ export function registerUtilityTools(server: McpServer) {
               success: false,
               error: keyErr,
             });
-            return success(`Error: invalid env key "${key}" (must be non-empty, no '=', max 256 chars)`, {
-              snapshot: session.snapshotObj(),
-              changed: false,
-            });
+            return fail(
+              ErrorCode.VALIDATION_ERROR,
+              `invalid env key "${key}" (must be non-empty, no '=', max 256 chars)`,
+              {
+                retryable: false,
+                param: "key",
+              },
+            );
           }
           const valueErr = validateEnvValue(value);
           if (valueErr) {
@@ -301,12 +318,17 @@ export function registerUtilityTools(server: McpServer) {
               success: false,
               error: valueErr,
             });
-            return success(`Error: env value too long (max 32768 chars)`, {
-              snapshot: session.snapshotObj(),
-              changed: false,
+            return fail(ErrorCode.VALIDATION_ERROR, `env value too long (max 32768 chars)`, {
+              retryable: false,
+              param: "value",
             });
           }
-          session.setEnv(key, value);
+          try {
+            session.setEnv(key, value);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            return fail(ErrorCode.VALIDATION_ERROR, msg, { retryable: false, param: "key" });
+          }
           audit.record({
             action: "session.set_env",
             tool: "session_state",
@@ -370,7 +392,7 @@ export function registerUtilityTools(server: McpServer) {
     }),
   );
 
-  logger.info("utility_tools", "registered", "7 utility tools registered");
+  logger.info("utility_tools", "registered", "6 utility tools registered");
 
   // ====================================================================
   // 资源: 健康检查
@@ -420,7 +442,7 @@ export function registerUtilityTools(server: McpServer) {
         role: "user",
         content: {
           type: "text",
-          text: injectContext(`Enhanced Terminal MCP v${VERSION} provides 27 tools for file operations, command execution, search, telemetry, and temp resources.
+          text: injectContext(`Enhanced Terminal MCP v${VERSION} provides ${getRegisteredToolCount()} tools for file operations, command execution, search, telemetry, and temp resources.
 
 NEW in v3.1:
 - telemetry_report: View tool call metrics (latency, error rate, cache hit rate, temp stats, audit status)
@@ -444,7 +466,12 @@ NEW in v3.1:
         content: {
           type: "text",
           text: JSON.stringify(
-            { version: VERSION, safety: process.env.MCP_SAFETY_MODE || "normal", tools: 27, cache: toolCache.stats },
+            {
+              version: VERSION,
+              safety: process.env.MCP_SAFETY_MODE || "normal",
+              tools: getRegisteredToolCount(),
+              cache: toolCache.stats,
+            },
             null,
             2,
           ),

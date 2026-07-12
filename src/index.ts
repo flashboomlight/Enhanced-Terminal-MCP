@@ -30,6 +30,7 @@ import { registerSearchTools } from "./tools/search.js";
 import { registerSystemTools } from "./tools/system.js";
 import { registerUtilityTools } from "./tools/utility.js";
 import { VERSION } from "./version.js";
+import { getRegisteredToolCount } from "./wrap.js";
 
 async function main() {
   const server = new McpServer({
@@ -89,7 +90,7 @@ async function main() {
   logger.info(
     "server",
     "started",
-    `Enhanced Terminal MCP v${VERSION} | safety=${process.env.MCP_SAFETY_MODE || "normal"} | 27 tools`,
+    `Enhanced Terminal MCP v${VERSION} | safety=${process.env.MCP_SAFETY_MODE || "normal"} | ${getRegisteredToolCount()} tools`,
   );
 }
 

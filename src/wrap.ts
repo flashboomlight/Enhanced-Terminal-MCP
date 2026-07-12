@@ -7,6 +7,12 @@ import { CACHEABLE_TOOLS, LRUCache, TOOL_TTL, toolCache } from "./cache.js";
 import { type ToolResult, toCallToolResult } from "./result.js";
 import { telemetry } from "./telemetry.js";
 
+/** 已注册工具总数 —— 每次 wrapHandler 包装一个工具自增，供日志/文档动态统计 */
+let _registeredToolCount = 0;
+export function getRegisteredToolCount(): number {
+  return _registeredToolCount;
+}
+
 /**
  * 包装工具 handler：自动记录 telemetry + 缓存命中
  */
@@ -14,6 +20,7 @@ export function wrapHandler<T extends Record<string, unknown>>(
   toolName: string,
   fn: (args: T) => Promise<ToolResult>,
 ): (args: T) => Promise<CallToolResult> {
+  _registeredToolCount++;
   const cacheable = CACHEABLE_TOOLS.has(toolName);
 
   return async (args: T): Promise<CallToolResult> => {
