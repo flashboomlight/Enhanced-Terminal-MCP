@@ -4,6 +4,18 @@ import { logger } from "./logger.js";
 import { getShell, wrapCommand } from "./platform.js";
 
 /**
+ * 读取数字型环境变量，统一解析 + 下限 + 默认值
+ * 消除各模块重复的 parseInt(process.env.X || "default") 模式
+ */
+export function envInt(name: string, defaultVal: number, min = 1): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultVal;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < min) return defaultVal;
+  return parsed;
+}
+
+/**
  * 安全执行 shell 命令（通过 shell 解释器）
  * 用于需要 shell 特性（管道/重定向）的场景，大输出场景优先使用 spawnStream。
  */

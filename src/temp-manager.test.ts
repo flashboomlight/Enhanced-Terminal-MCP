@@ -121,6 +121,55 @@ describe("temp-manager", () => {
     expect((tm2 as any).dirs.has(dir.id)).toBe(true);
   });
 
+  test("scan tolerates corrupt .meta.json and falls back to defaults", async () => {
+    const tm1 = new TempManager();
+    const dir = await tm1.create("corrupt");
+    // 写入损坏的 meta.json（非 JSON）
+    await fs.writeFile(path.join(dir.dir, ".meta.json"), "{not valid json");
+
+    const tm2 = new TempManager();
+    await tm2.init();
+    // 损坏 meta 不应崩溃，目录仍被扫描到，createdAt 用默认值
+    expect((tm2 as any).dirs.has(dir.id)).toBe(true);
+    const entry = (tm2 as any).dirs.get(dir.id);
+    expect(entry.createdAt).toBeGreaterThan(0);
+    expect(entry.lastAccessedAt).toBeGreaterThan(0);
+  });
+
+  test("LRU does not evict when at or below max", async () => {
+    // MCP_MAX_TEMP_DIRS=2（beforeEach 设定）
+    const tm = new TempManager();
+    await tm.create("a");
+    await tm.create("b");
+    // 恰好 2 个，不超 max，cleanup 不应 LRU 淘汰（仅 TTL 淘汰，TTL=100ms 内不触发）
+    const result = await tm.cleanup();
+    expect(result.removed).toBe(0);
+    expect(result.remaining).toBe(2);
+  });
+
+  test("LRU evicts least-recently-accessed when exceeding max", async () => {
+    // 拉长 TTL 避免 TTL 淘汰干扰 LRU 淘汰断言
+    process.env.MCP_TEMP_TTL_MS = "999999999";
+    resetStateDirCache();
+    // MCP_MAX_TEMP_DIRS=2（beforeEach 设定），创建 3 个制造超限
+    const tm = new TempManager();
+    const d1 = await tm.create("d1");
+    const d2 = await tm.create("d2");
+    const d3 = await tm.create("d3");
+    // 明确制造 lastAccessedAt 顺序：d1 最新、d2 最旧、d3 居中
+    await new Promise((r) => setTimeout(r, 10));
+    tm.touch(d3.id);
+    await new Promise((r) => setTimeout(r, 10));
+    tm.touch(d1.id);
+    // lastAccessedAt: d2(创建时) < d3(touch) < d1(touch 最新) → 最旧 d2 被淘汰
+    const result = await tm.cleanup();
+    expect(result.removed).toBe(1);
+    expect(result.remaining).toBe(2);
+    await expect(fs.access(d2.dir)).rejects.toThrow();
+    await expect(fs.access(d1.dir)).resolves.toBeUndefined();
+    await expect(fs.access(d3.dir)).resolves.toBeUndefined();
+  });
+
   test("cleanup handles remove errors gracefully", async () => {
     const tm = new TempManager();
     const dir = await tm.create("locked");

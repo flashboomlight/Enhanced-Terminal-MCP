@@ -3,6 +3,11 @@
  *
  * 惰性初始化：不在模块加载时 spawn 进程，仅在首次 acquire() 时按需创建。
  * shutdown 时统一销毁。
+ *
+ * 注意：acquire()/release() 当前未被 command.ts 调用 —— 命令执行走 spawnStream
+ * 按需 spawn，预热复用未激活。本模块仅 stats（供 pool_stats 工具）+ startSweep/
+ * destroy（生命周期）被使用。若未来要激活预热复用，需评估预热 shell 的状态污染
+ * （chcp/环境变量残留）对后续命令的影响。
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { logger } from "./logger.js";

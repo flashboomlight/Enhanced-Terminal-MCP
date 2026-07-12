@@ -6,17 +6,18 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { logger } from "./logger.js";
 import { getStateDir } from "./state-dir.js";
+import { envInt } from "./utils.js";
 
 function getTempTtlMs(): number {
-  return Math.max(1, parseInt(process.env.MCP_TEMP_TTL_MS || "3600000", 10) || 3600000);
+  return envInt("MCP_TEMP_TTL_MS", 3600000, 1);
 }
 
 function getMaxTempDirs(): number {
-  return Math.max(1, parseInt(process.env.MCP_MAX_TEMP_DIRS || "100", 10) || 100);
+  return envInt("MCP_MAX_TEMP_DIRS", 100, 1);
 }
 
 function getCleanupIntervalMs(): number {
-  return Math.max(60000, parseInt(process.env.MCP_TEMP_CLEANUP_INTERVAL_MS || "300000", 10) || 300000);
+  return envInt("MCP_TEMP_CLEANUP_INTERVAL_MS", 300000, 60000);
 }
 
 export interface TempDir {

@@ -6,6 +6,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { logger } from "./logger.js";
 import { getStateDir } from "./state-dir.js";
+import { envInt } from "./utils.js";
 
 export interface AuditEntry {
   timestamp: string;
@@ -20,7 +21,7 @@ export interface AuditEntry {
 export type AuditMode = "off" | "errors" | "all";
 
 function getMaxAuditEntries(): number {
-  return Math.max(100, parseInt(process.env.MCP_AUDIT_MAX_ENTRIES || "10000", 10) || 10000);
+  return envInt("MCP_AUDIT_MAX_ENTRIES", 10000, 100);
 }
 
 function getAuditMode(): AuditMode {
