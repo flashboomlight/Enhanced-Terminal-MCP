@@ -64,8 +64,17 @@ export async function spawnStream(
     }, timeout);
 
     child.stdout?.on("data", (chunk: Buffer) => {
+      const prevLen = stdoutLen;
       stdoutLen += chunk.length;
+      if (prevLen >= maxOut) {
+        // 已超限，不再收集（保留已截断标记）
+        if (!truncated) truncated = true;
+        return;
+      }
       if (stdoutLen > maxOut) {
+        // 当前 chunk 超出上限：截取到 maxOut 边界后入栈，保留部分输出供诊断
+        const slice = chunk.subarray(0, maxOut - prevLen);
+        stdoutChunks.push(slice);
         if (!truncated) {
           truncated = true;
           child.kill("SIGTERM");

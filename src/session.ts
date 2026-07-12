@@ -22,9 +22,11 @@ function freshState(): SessionState {
 export class SessionStore {
   private state: SessionState = freshState();
   private dirty = false;
+  /** 加载完成 promise —— index 启动时 await，确保接受请求前 state 已从磁盘恢复 */
+  readonly loaded: Promise<void>;
 
   constructor() {
-    this.loadFromDisk();
+    this.loaded = this.loadFromDisk();
   }
 
   get(): SessionState {
@@ -123,8 +125,8 @@ export class SessionStore {
     }
   }
 
-  private loadFromDisk(): void {
-    this.loadNewFile().catch(() => this.loadLegacyFile());
+  private loadFromDisk(): Promise<void> {
+    return this.loadNewFile().catch(() => this.loadLegacyFile());
   }
 
   private async loadNewFile(): Promise<void> {
@@ -139,19 +141,19 @@ export class SessionStore {
     logger.info("session", "restored", `cwd=${this.state.cwd}, history=${this.state.history.length}`);
   }
 
-  private loadLegacyFile(): void {
+  private async loadLegacyFile(): Promise<void> {
     const legacyFile = getLegacyStateFilePath();
-    fs.access(legacyFile)
-      .then(() => fs.readFile(legacyFile, "utf-8"))
-      .then((raw) => {
-        this.applyState(raw);
-        logger.info("session", "legacy-restored", `cwd=${this.state.cwd}, history=${this.state.history.length}`);
-        // 迁移成功后立即写入新位置
-        this.saveToDisk().catch((e) => logger.warn("session", "migration-save-failed", String(e)));
-      })
-      .catch(() => {
-        logger.info("session", "no-prev-session", "starting fresh");
-      });
+    try {
+      await fs.access(legacyFile);
+    } catch {
+      logger.info("session", "no-prev-session", "starting fresh");
+      return;
+    }
+    const raw = await fs.readFile(legacyFile, "utf-8");
+    this.applyState(raw);
+    logger.info("session", "legacy-restored", `cwd=${this.state.cwd}, history=${this.state.history.length}`);
+    // 迁移成功后立即写入新位置
+    await this.saveToDisk().catch((e) => logger.warn("session", "migration-save-failed", String(e)));
   }
 
   private applyState(raw: string): void {

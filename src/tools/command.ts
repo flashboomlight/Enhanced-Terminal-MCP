@@ -185,9 +185,10 @@ export function registerCommandTools(server: McpServer) {
             success: false,
             error: "Command output exceeded max output limit",
           });
+          const partial = (result.stdout || "").slice(0, 500);
           return fail(
             ErrorCode.EXECUTION_FAILED,
-            `Command output exceeded MCP_COMMAND_MAX_OUTPUT_BYTES (${getCommandMaxOutputBytes()} bytes)`,
+            `Command output exceeded MCP_COMMAND_MAX_OUTPUT_BYTES (${getCommandMaxOutputBytes()} bytes); output truncated.\n[partial stdout]:\n${partial}`,
             {
               retryable: true,
               param: "command",

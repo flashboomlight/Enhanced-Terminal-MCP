@@ -64,6 +64,8 @@ async function main() {
 
   // 初始化临时资源管理器（启动自动清理轮询）
   await tempManager.init();
+  // 等待 session 从磁盘恢复完成，确保接受请求前 cwd/env 已就绪
+  await session.loaded;
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -78,8 +80,8 @@ async function main() {
     audit.flush().catch((e) => logger.warn("server", "audit-flush-failed", String(e)));
     processPool.destroy();
     tempManager.stopAutoCleanup();
-    // 给 pending I/O 时间完成
-    setTimeout(() => process.exit(0), 500).unref();
+    // 给 pending I/O 时间完成（session 去抖 5s、audit 去抖 1s，3s 足够覆盖常态写盘）
+    setTimeout(() => process.exit(0), 3000).unref();
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

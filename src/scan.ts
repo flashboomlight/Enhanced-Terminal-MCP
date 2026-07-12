@@ -17,8 +17,8 @@ const SECRET_PATTERNS: Array<{ name: string; regex: RegExp }> = [
   { name: "Private Key Header", regex: /-----BEGIN (?:RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY-----/ },
   { name: "JWT Token", regex: /eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*/ },
   { name: "Slack Token", regex: /xox[baprs]-[A-Za-z0-9-]+/ },
-  { name: "Generic API Key", regex: /\bapi[_-]?key\s*[:=]\s*["']?[A-Za-z0-9_-]{16,}["']?/i },
-  { name: "Connection String", regex: /(?:mongodb|mysql|postgres|redis):\/\/[^:]+:[^@]+@/i },
+  { name: "Generic API Key", regex: /\bapi[_-]?key\s*[:=]\s*["']?[A-Za-z0-9_-]{32,}["']?/i },
+  { name: "Connection String", regex: /(?:mongodb|mysql|postgres|redis):\/\/[^:]+:[^@]+@(?!localhost|127\.0\.0\.1)/i },
   { name: "Discord Token", regex: /[MN][A-Za-z0-9]{23}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27}/ },
 ];
 
