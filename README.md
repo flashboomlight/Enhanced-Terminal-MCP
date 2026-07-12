@@ -104,7 +104,7 @@ npm install enhanced-terminal-mcp
 | `cache_stats` | LRU cache statistics |
 | `cache_invalidate` | Clear specific or all caches |
 | `session_state` | View/modify session cwd and env (get/set_cwd/set_env/reset); env applies to command tools |
-| `pool_stats` | Shell process pool status |
+| `pool_stats` | Process pool status (currently inactive; always empty) |
 
 ### Resources
 - `health://status` — JSON health check with version, metrics, cache, session, temp, and audit info
@@ -119,7 +119,7 @@ npm install enhanced-terminal-mcp
 ```
 MCP Client (stdio) → McpServer
   ├─ 7 tool modules (command, files, manage, search, system, archive, utility)
-  ├─ 6 utility tools (telemetry, temp, cache, session, pool)
+  ├─ utility tools (telemetry, temp, cache, session, pool_stats, …)
   ├─ wrapHandler middleware (telemetry + LRU cache)
   ├─ Security layer (path validation, dangerous patterns, secrets)
   ├─ SafeGuard (3-level safety mode)

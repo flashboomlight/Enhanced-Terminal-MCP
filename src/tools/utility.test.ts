@@ -42,6 +42,7 @@ describe("utility tools pure logic", () => {
     expect(msg).toContain("2/4");
     expect(msg).toContain("1 busy");
     expect(msg).toContain("1 idle");
+    expect(msg).toContain("inactive");
   });
 
   test("formatCacheStatsMessage", () => {

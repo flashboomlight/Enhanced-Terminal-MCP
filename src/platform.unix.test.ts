@@ -140,6 +140,8 @@ describe("platform Unix branches", () => {
     const spec = getSystemInfoSpec();
     expect(spec.file).toBe("/bin/sh");
     expect(spec.args[1]).toContain("uname");
+    // mocked platform is linux → /proc path (mac uses sysctl)
+    expect(spec.args[1]).toContain("/proc/cpuinfo");
   });
 
   test("getDownloadSpec on Unix uses curl", () => {

@@ -40,9 +40,9 @@ export function validateEnvValue(value: string): string | null {
   return null;
 }
 
-/** 格式化进程池统计文本 */
+/** 格式化进程池统计文本（当前池未激活，始终为空） */
 export function formatPoolStatsMessage(stats: { size: number; max: number; busy: number; idle: number }): string {
-  return `Process Pool: ${stats.size}/${stats.max} processes (${stats.busy} busy, ${stats.idle} idle)`;
+  return `Process Pool (inactive, spawnStream on demand): ${stats.size}/${stats.max} processes (${stats.busy} busy, ${stats.idle} idle)`;
 }
 
 /** 格式化缓存统计文本 */
@@ -359,7 +359,8 @@ export function registerUtilityTools(server: McpServer) {
     "pool_stats",
     {
       title: "Process Pool Stats",
-      description: "Get shell process pool statistics: idle/busy processes, pool capacity.",
+      description:
+        "Shell process pool stats. Currently inactive (execution uses on-demand spawnStream); size/idle/busy are always 0, max is capacity reserved for a future pool.",
       inputSchema: z.object({}),
       outputSchema: z.object({ size: z.number(), idle: z.number(), busy: z.number(), max: z.number() }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },

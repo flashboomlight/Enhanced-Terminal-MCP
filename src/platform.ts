@@ -201,8 +201,20 @@ export function getSystemInfoSpec(): CommandSpec {
     ].join("\n");
     return { file: "powershell.exe", args: ["-NoProfile", "-Command", ps] };
   }
-  const sh =
-    'echo "OS: $(uname -a)"; echo "CPU: $(grep -m1 \'model name\' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs)"; echo "Memory: $(free -h 2>/dev/null | awk \'/^Mem:/{print $2}\' || echo N/A)"; echo "Disk: $(df -h / 2>/dev/null | awk \'NR==2{print $4" free of "$2}\' || echo N/A)";';
+  // macOS 无 /proc、free；用 sysctl/vm_stat/df。Linux 保留 /proc + free + df。
+  const sh = IS_MAC
+    ? [
+        'echo "OS: $(uname -a)"',
+        'echo "CPU: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || sysctl -n hw.model 2>/dev/null || echo N/A)"',
+        'echo "Memory: $(sysctl -n hw.memsize 2>/dev/null | awk \'{printf "%.1fGB", $1/1024/1024/1024}\' || echo N/A)"',
+        'echo "Disk: $(df -h / 2>/dev/null | awk \'NR==2{print $4" free of "$2}\' || echo N/A)"',
+      ].join("; ")
+    : [
+        'echo "OS: $(uname -a)"',
+        "echo \"CPU: $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs || echo N/A)\"",
+        "echo \"Memory: $(free -h 2>/dev/null | awk '/^Mem:/{print $2}' || echo N/A)\"",
+        'echo "Disk: $(df -h / 2>/dev/null | awk \'NR==2{print $4" free of "$2}\' || echo N/A)"',
+      ].join("; ");
   return { file: "/bin/sh", args: ["-c", sh] };
 }
 

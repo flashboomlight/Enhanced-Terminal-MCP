@@ -1,18 +1,19 @@
 ---
 name: state-persistence-and-upgrades
 created: 2026-07-05
-status: active
+updated: 2026-07-12
+status: completed
 ---
 
 # Enhanced Terminal MCP 综合升级 Roadmap
 
 ## 背景
 
-项目已完成基础清理（Biome lint 修复、常量集中、utility 抽出、shell 统一）。下一阶段围绕**状态持久化落地、可观测性增强、资源自动回收、架构对齐 Auto Code MCP** 展开。
+项目已完成基础清理（Biome lint 修复、常量集中、utility 抽出、shell 统一）。本 roadmap 围绕**状态持久化落地、可观测性增强、资源自动回收**展开；Phase 1–6 均已落地并通过验收/代码对齐。
 
 ## 阶段规划
 
-### Phase 1: 状态目录迁移（当前激活）
+### Phase 1: 状态目录迁移 ✅
 
 **目标**：把会话状态文件从系统临时目录迁移到项目工作目录下的 `.enhanced-terminal-mcp/session.json`。
 
@@ -26,7 +27,7 @@ status: active
 
 ---
 
-### Phase 2: 审计日志
+### Phase 2: 审计日志 ✅
 
 **目标**：建立结构化审计日志，记录命令执行、文件写删、会话变更、安全拦截。
 
@@ -40,7 +41,7 @@ status: active
 
 ---
 
-### Phase 3: 临时资源管理
+### Phase 3: 临时资源管理 ✅
 
 **目标**：建立 TTL + LRU 的临时资源回收机制，为未来大文件分页、编辑快照、归档中转做准备。
 
@@ -54,7 +55,7 @@ status: active
 
 ---
 
-### Phase 4: 命令输出分页
+### Phase 4: 命令输出分页 ✅
 
 **目标**：解决大输出被截断的问题，支持多页读取。
 
@@ -67,7 +68,7 @@ status: active
 
 ---
 
-### Phase 5: 可观测性增强
+### Phase 5: 可观测性增强 ✅
 
 **目标**：整合 telemetry、health、temp_stats、audit 信息，提升运维可见性。
 
@@ -80,7 +81,7 @@ status: active
 
 ---
 
-### Phase 6: 文档与收尾
+### Phase 6: 文档与收尾 ✅
 
 **目标**：更新 README、架构文档、compound 沉淀。
 
