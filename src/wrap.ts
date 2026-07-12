@@ -3,7 +3,7 @@
  */
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { CACHEABLE_TOOLS, TOOL_TTL, toolCache } from "./cache.js";
+import { CACHEABLE_TOOLS, LRUCache, TOOL_TTL, toolCache } from "./cache.js";
 import { type ToolResult, toCallToolResult } from "./result.js";
 import { telemetry } from "./telemetry.js";
 
@@ -18,7 +18,7 @@ export function wrapHandler<T extends Record<string, unknown>>(
 
   return async (args: T): Promise<CallToolResult> => {
     const t0 = Date.now();
-    const cacheKey = cacheable && args ? `${toolName}:${JSON.stringify(args)}` : "";
+    const cacheKey = cacheable && args ? LRUCache.key(toolName, args as Record<string, unknown>) : "";
 
     // 缓存检查
     if (cacheKey) {

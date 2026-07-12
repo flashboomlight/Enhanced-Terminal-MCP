@@ -142,7 +142,10 @@ export function registerCommandTools(server: McpServer) {
 
       const rateErr = checkRateLimit(commandRateLimit, "execute_command");
       if (rateErr)
-        return fail(ErrorCode.EXECUTION_FAILED, rateErr, { retryable: true, suggestion: "Wait 200ms and retry" });
+        return fail(ErrorCode.EXECUTION_FAILED, rateErr, {
+          retryable: true,
+          suggestion: "Wait ~100ms and retry (token bucket refills 10/s)",
+        });
 
       const block = await guardDestructiveAction("execute_command", `执行命令: ${command}`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
@@ -344,6 +347,14 @@ export function registerCommandTools(server: McpServer) {
 
       const block = await guardDestructiveAction("batch_execute", `批量执行 ${commands.length} 条命令`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "commands" });
+
+      // batch 作为一次 LLM 调用消费 1 token，与"防 LLM 循环刷爆"的限流目的对齐
+      const rateErr = checkRateLimit(commandRateLimit, "batch_execute");
+      if (rateErr)
+        return fail(ErrorCode.EXECUTION_FAILED, rateErr, {
+          retryable: true,
+          suggestion: "Wait ~100ms and retry (token bucket refills 10/s)",
+        });
 
       try {
         const results: Array<{ command: string; stdout: string; stderr: string; ok: boolean; latency_ms: number }> = [];

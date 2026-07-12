@@ -2,6 +2,22 @@
  * LRU 结果缓存 — 为 idempotent 只读工具提供结果复用
  * 命中时返回缓存结果，过期或容量满时按 LRU 淘汰
  */
+
+/**
+ * JSON.stringify replacer：递归排序对象 key，使缓存键对参数键序不敏感
+ * MCP 客户端不保证参数对象 key 顺序，未归一化会导致同参数不同键序缓存 miss
+ */
+function stableKeySorter(this: unknown, _key: string, value: unknown): unknown {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const sorted: Record<string, unknown> = {};
+    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[k] = (value as Record<string, unknown>)[k];
+    }
+    return sorted;
+  }
+  return value;
+}
+
 export class LRUCache<T> {
   private cache = new Map<string, { value: T; expires: number }>();
   private readonly maxSize: number;
@@ -14,9 +30,9 @@ export class LRUCache<T> {
     this.defaultTTL = defaultTTLms;
   }
 
-  /** 构造缓存键：工具名 + 参数 JSON */
+  /** 构造缓存键：工具名 + 参数 JSON（键序归一化，对参数对象 key 排序后再 stringify） */
   static key(toolName: string, args: Record<string, unknown>): string {
-    return `${toolName}:${JSON.stringify(args)}`;
+    return `${toolName}:${JSON.stringify(args, stableKeySorter)}`;
   }
 
   get(key: string): { value: T; fromCache: true } | null {
@@ -108,7 +124,12 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
  */
 export const toolCache = new LRUCache<CallToolResult>(128, 30000);
 
-/** 可缓存的工具列表 */
+/**
+ * 可缓存的工具列表
+ * 约束：只能含 readOnlyHint=true 的只读工具。禁止加入 write_file / make_directory /
+ * copy_move / delete_path / execute_command 等有副作用的工具 —— 它们即便标了
+ * idempotentHint，append 等模式也会因缓存命中跳过实际执行。
+ */
 export const CACHEABLE_TOOLS = new Set([
   "read_file",
   "file_info",
