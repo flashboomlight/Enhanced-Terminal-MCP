@@ -5,23 +5,18 @@
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
+import { ensureEsExeIntegrity } from "../es-integrity.js";
 import { logger } from "../logger.js";
 import { IS_WIN } from "../platform.js";
 import { getRegex } from "../regex.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { validatePath } from "../security.js";
 import { wrapHandler } from "../wrap.js";
-
-// 按 AGENTS.md 已知坑约定：用 path.join + dirname(fileURLToPath(import.meta.url)) 解析 es.exe，
-// 避免 fileURLToPath(new URL(...)) 在 Windows 含空格路径下行为不稳定。
-const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
-const ES_EXE_PATH = join(MODULE_DIR, "..", "..", "es_tool", "es.exe");
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -74,28 +69,32 @@ export function registerSearchTools(server: McpServer) {
       try {
         if (IS_WIN) {
           try {
-            const esPath = ES_EXE_PATH;
-            const normalizedDir = resolve(dir_path).toLowerCase();
-            await new Promise<void>((done) => {
-              const args = ["-s", "-n", String(maxR * 2), pattern];
-              execFile(
-                esPath,
-                args,
-                { maxBuffer: 10 * 1024 * 1024, timeout: 10000 },
-                (_err: unknown, stdout: string) => {
-                  if (stdout) {
-                    for (const l of stdout.split("\n")) {
-                      const trimmed = l.trim();
-                      if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
-                        matches.push(trimmed);
-                        if (matches.length >= maxR) break;
+            const esPath = await ensureEsExeIntegrity();
+            if (esPath) {
+              const normalizedDir = resolve(dir_path).toLowerCase();
+              await new Promise<void>((done) => {
+                const args = ["-s", "-n", String(maxR * 2), pattern];
+                execFile(
+                  esPath,
+                  args,
+                  { maxBuffer: 10 * 1024 * 1024, timeout: 10000 },
+                  (_err: unknown, stdout: string) => {
+                    if (stdout) {
+                      for (const l of stdout.split("\n")) {
+                        const trimmed = l.trim();
+                        if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
+                          matches.push(trimmed);
+                          if (matches.length >= maxR) break;
+                        }
                       }
                     }
-                  }
-                  done();
-                },
-              );
-            });
+                    done();
+                  },
+                );
+              });
+            } else {
+              logger.debug("search_files", "everything-skipped", "es.exe integrity check failed");
+            }
           } catch (err) {
             logger.debug("search_files", "everything-fallback", String(err));
           }
@@ -171,7 +170,13 @@ export function registerSearchTools(server: McpServer) {
       }
 
       try {
-        const esPathWin = ES_EXE_PATH;
+        const esPathWin = await ensureEsExeIntegrity();
+        if (!esPathWin) {
+          return fail(ErrorCode.EXECUTION_FAILED, "Everything CLI failed integrity check or is missing", {
+            retryable: false,
+            suggestion: "Use search_files, or restore es_tool/es.exe matching the locked SHA-256",
+          });
+        }
         const results: string[] = [];
 
         await new Promise<void>((resolve) => {
