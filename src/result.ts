@@ -145,6 +145,14 @@ export const Errors = {
       detail: { command: cmd, pattern },
     }),
 
+  /** 策略层统一拦截（hardBlock / allowlist / dangerous pattern） */
+  commandBlocked: (cmd: string, reason: string, param = "command") =>
+    fail(ErrorCode.COMMAND_DANGEROUS, `Command blocked — ${reason}`, {
+      retryable: false,
+      param,
+      detail: { command: cmd, reason },
+    }),
+
   validationError: (message: string, param?: string, suggestion?: string) =>
     fail(ErrorCode.VALIDATION_ERROR, message, {
       retryable: true,

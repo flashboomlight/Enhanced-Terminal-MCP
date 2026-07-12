@@ -6,50 +6,29 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { adaptiveTimeout } from "../adaptive.js";
 import { audit } from "../audit.js";
+import { checkCommandPolicy } from "../command-policy.js";
 import { logger } from "../logger.js";
 import { pageCache } from "../paging.js";
 import { getShell, IS_WIN, wrapCommand } from "../platform.js";
 import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
-import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { ErrorCode, Errors, fail, success, type ToolResult } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
-import { hardBlock, hasDangerousPattern } from "../security.js";
 import { session } from "../session.js";
 import { spawnStream } from "../stream.js";
 import { wrapHandler } from "../wrap.js";
 
-/** 前置安全预检：危险模式 + 硬底线。返回错误 ToolResult 或 null（通过） */
+/** 前置安全预检：策略（hardBlock + blocklist/allow）。返回错误 ToolResult 或 null（通过） */
 function precheckCommand(command: string, param: string): ToolResult | null {
-  const dp = hasDangerousPattern(command);
-  if (dp) {
-    audit.record({
-      action: "safety.block",
-      tool: "execute_command",
-      detail: { command, pattern: dp },
-      success: false,
-      error: `Dangerous pattern: ${dp}`,
-    });
-    return fail(ErrorCode.COMMAND_DANGEROUS, `Command blocked — dangerous pattern: ${dp}`, {
-      retryable: false,
-      param,
-      detail: { command, pattern: dp },
-    });
-  }
-  const hb = hardBlock(command);
-  if (hb) {
-    audit.record({
-      action: "safety.block",
-      tool: "execute_command",
-      detail: { command, pattern: hb, hardBlock: true },
-      success: false,
-      error: `Hard-blocked: ${hb}`,
-    });
-    return fail(ErrorCode.COMMAND_DANGEROUS, `Command hard-blocked (catastrophic pattern): ${hb}`, {
-      retryable: false,
-      param,
-      detail: { command, pattern: hb },
-    });
-  }
-  return null;
+  const reason = checkCommandPolicy(command);
+  if (!reason) return null;
+  audit.record({
+    action: "safety.block",
+    tool: "execute_command",
+    detail: { command, reason },
+    success: false,
+    error: reason,
+  });
+  return Errors.commandBlocked(command, reason, param);
 }
 
 /** 统一记录命令执行审计（成功/失败） */
