@@ -11,7 +11,7 @@ import * as z from "zod";
 import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
-import { ErrorCode, fail, success } from "../result.js";
+import { ErrorCode, Errors, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { scanContent } from "../scan.js";
 import { validatePath, validateRealPath } from "../security.js";
@@ -29,7 +29,7 @@ function mapFsError(e: unknown, path: string, param: string) {
   if (code === "ENOENT") {
     return fail(ErrorCode.PATH_NOT_FOUND, `File not found: ${path}`, { retryable: true, param });
   }
-  return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
+  return Errors.executionFailed(msg);
 }
 
 export function registerFileTools(server: McpServer) {
@@ -212,7 +212,7 @@ export function registerFileTools(server: McpServer) {
           success: false,
           error: msg,
         });
-        return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
+        return Errors.executionFailed(msg);
       }
     }),
   );
@@ -389,7 +389,7 @@ export function registerFileTools(server: McpServer) {
         return success(`Created: ${dir_path}`, { path: dir_path, created: !existed });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
+        return Errors.executionFailed(msg);
       }
     }),
   );

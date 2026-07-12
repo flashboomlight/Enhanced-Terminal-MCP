@@ -9,7 +9,7 @@ import * as z from "zod";
 import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
-import { ErrorCode, fail, success } from "../result.js";
+import { ErrorCode, Errors, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { validatePath, validateRealPath } from "../security.js";
 import { wrapHandler } from "../wrap.js";
@@ -19,7 +19,7 @@ function mapFsError(e: unknown, p: string, param: string) {
   const msg = e instanceof Error ? e.message : String(e);
   const code = (e as { code?: string } | null)?.code;
   if (code === "ENOENT") return fail(ErrorCode.PATH_NOT_FOUND, `Not found: ${p}`, { retryable: true, param });
-  return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
+  return Errors.executionFailed(msg);
 }
 
 export function registerManageTools(server: McpServer) {
@@ -84,7 +84,7 @@ export function registerManageTools(server: McpServer) {
           success: false,
           error: msg,
         });
-        return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
+        return Errors.executionFailed(msg);
       }
     }),
   );

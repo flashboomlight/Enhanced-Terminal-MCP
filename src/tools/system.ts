@@ -5,7 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { logger } from "../logger.js";
 import { getKillSpec, getNetworkSpec, getProcessListSpec, getSystemInfoSpec } from "../platform.js";
-import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { ErrorCode, Errors, fail, success, type ToolResult } from "../result.js";
 import { guardDestructiveAction, isCriticalProcess } from "../safeguard.js";
 import { validateHost } from "../security.js";
 import { safeExecFile } from "../utils.js";
@@ -33,7 +33,7 @@ export function registerSystemTools(server: McpServer) {
         return success(result.stdout.trim(), { info: result.stdout.trim() });
       } catch (e: unknown) {
         const m = e instanceof Error ? e.message : String(e);
-        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
+        return Errors.executionFailed(m);
       }
     }),
   );
@@ -61,7 +61,7 @@ export function registerSystemTools(server: McpServer) {
         return success(`Running Processes:\n${result.stdout.trim()}`, { output: result.stdout.trim() });
       } catch (e: unknown) {
         const m = e instanceof Error ? e.message : String(e);
-        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
+        return Errors.executionFailed(m);
       }
     }),
   );
@@ -100,7 +100,7 @@ export function registerSystemTools(server: McpServer) {
         return success(`Killed: ${name || pid}`, { killed: true, pid: pid ?? undefined, name: name ?? undefined });
       } catch (e: unknown) {
         const m = e instanceof Error ? e.message : String(e);
-        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
+        return Errors.executionFailed(m);
       }
     }),
   );
@@ -136,7 +136,7 @@ export function registerSystemTools(server: McpServer) {
         return success(result.stdout.trim(), { output: result.stdout.trim(), action: act });
       } catch (e: unknown) {
         const m = e instanceof Error ? e.message : String(e);
-        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
+        return Errors.executionFailed(m);
       }
     }),
   );
@@ -185,7 +185,7 @@ export function registerSystemTools(server: McpServer) {
         return success(`Environment Variables (sensitive keys hidden):\n${text}`, { vars });
       } catch (e: unknown) {
         const m = e instanceof Error ? e.message : String(e);
-        return fail(ErrorCode.EXECUTION_FAILED, m, { retryable: true });
+        return Errors.executionFailed(m);
       }
     }),
   );

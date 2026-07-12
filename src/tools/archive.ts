@@ -8,7 +8,7 @@ import * as z from "zod";
 import { withRetry } from "../adaptive.js";
 import { logger } from "../logger.js";
 import { getCompressSpec, getDownloadSpec, getExtractSpec } from "../platform.js";
-import { ErrorCode, fail, success } from "../result.js";
+import { ErrorCode, Errors, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { validatePath, validateRealPath, validateUrl } from "../security.js";
 import { safeExecFile } from "../utils.js";
@@ -143,7 +143,7 @@ export function registerArchiveTools(server: McpServer) {
         });
         return success(`Downloaded: ${url} -> ${save_path}`, { url, path: save_path });
       } catch (e: unknown) {
-        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
+        return Errors.executionFailed(errMsg(e));
       }
     }),
   );
