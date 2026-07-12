@@ -19,6 +19,8 @@ interface PoolStats {
   max: number;
   idle: number;
   busy: number;
+  /** 预热池是否接入执行路径；当前恒为 false */
+  active: boolean;
 }
 
 class ProcessPool {
@@ -31,7 +33,7 @@ class ProcessPool {
 
   /** 池统计 —— 当前预热未激活，返回真实空池状态 */
   get stats(): PoolStats {
-    return { size: 0, max: this.maxSize, idle: 0, busy: 0 };
+    return { size: 0, max: this.maxSize, idle: 0, busy: 0, active: false };
   }
 
   /** 生命周期钩子 —— 预热未激活时为空操作（保留以兼容 index.ts 调用） */

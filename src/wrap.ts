@@ -5,7 +5,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { CACHEABLE_TOOLS, LRUCache, TOOL_TTL, toolCache } from "./cache.js";
 import { type ToolResult, toCallToolResult } from "./result.js";
-import { scanContent } from "./scan.js";
+import { scanContent, shouldScanOnCache } from "./scan.js";
 import { telemetry } from "./telemetry.js";
 
 /** 已注册工具总数 —— 每次 wrapHandler 包装一个工具自增，供日志/文档动态统计 */
@@ -65,10 +65,10 @@ export function wrapHandler<T extends Record<string, unknown>>(
 
     const callResult = toCallToolResult(result);
 
-    // 写入缓存：成功且内容无密钥发现才缓存
+    // 写入缓存：成功且（不扫描缓存 或 内容无密钥）才缓存
     if (cacheKey && result.ok) {
       const text = extractCacheableText(callResult);
-      if (scanContent(text).safe) {
+      if (!shouldScanOnCache() || scanContent(text).safe) {
         toolCache.set(cacheKey, callResult, TOOL_TTL[toolName]);
       }
     }

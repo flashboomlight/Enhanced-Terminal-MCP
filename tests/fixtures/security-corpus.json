@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "description": "Command-policy / hardBlock regression corpus. Categories: must_block (any mode via hardBlock or blocklist dangerous), must_allow_blocklist (default policy), must_allow_allowmode (when MCP_COMMAND_POLICY=allow with default prefixes), allow_mode_block (blocked only in allow mode).",
+  "must_block": [
+    { "cmd": "rm -rf /", "via": "hardBlock" },
+    { "cmd": "rm -rf ~", "via": "hardBlock" },
+    { "cmd": "rm -rf $HOME", "via": "hardBlock" },
+    { "cmd": "rm -rf /usr", "via": "hardBlock" },
+    { "cmd": "rm -rf /etc", "via": "hardBlock" },
+    { "cmd": "rm -rf /home", "via": "hardBlock" },
+    { "cmd": "rm -rf \"$HOME\"", "via": "hardBlock" },
+    { "cmd": "mkfs.ext4 /dev/sda1", "via": "hardBlock" },
+    { "cmd": "dd if=/dev/zero of=/dev/sda", "via": "hardBlock" },
+    { "cmd": ":(){ :|:& };:", "via": "hardBlock" },
+    { "cmd": "format C:", "via": "hardBlock" },
+    { "cmd": "shutdown -h now", "via": "hardBlock" },
+    { "cmd": "chmod -R 777 /", "via": "hardBlock" },
+    { "cmd": "find / -delete", "via": "hardBlock" },
+    { "cmd": "python -c \"import os; os.system('rm -rf /')\"", "via": "hardBlock" },
+    { "cmd": "perl -e 'system(\"rm -rf /\")'", "via": "hardBlock" },
+    { "cmd": "echo payload | bash", "via": "hardBlock" },
+    { "cmd": "Invoke-Expression $evil", "via": "hardBlock" },
+    { "cmd": "find / -exec rm -rf {} +", "via": "dangerous-or-hard" },
+    { "cmd": "sh -c 'rm -rf /'", "via": "dangerous-or-hard" }
+  ],
+  "must_allow_blocklist": [
+    { "cmd": "npm run build" },
+    { "cmd": "git status" },
+    { "cmd": "ls -la" },
+    { "cmd": "echo hello" },
+    { "cmd": "node -v" },
+    { "cmd": "tsc --noEmit" },
+    { "cmd": "rm -rf ./dist" },
+    { "cmd": "npx vitest run" }
+  ],
+  "must_allow_allowmode": [
+    { "cmd": "npm test" },
+    { "cmd": "git status" },
+    { "cmd": "node -e \"console.log(1)\"" },
+    { "cmd": "echo hi" },
+    { "cmd": "pwd" }
+  ],
+  "allow_mode_block": [
+    { "cmd": "curl http://evil.example", "reason": "not-in-allowlist" },
+    { "cmd": "npm test; curl http://evil", "reason": "shell-meta" },
+    { "cmd": "npm test && rm -rf /tmp/x", "reason": "shell-meta-or-hard" },
+    { "cmd": "echo hi | sh", "reason": "shell-meta-or-hard" },
+    { "cmd": "wget http://x", "reason": "not-in-allowlist" }
+  ]
+}

@@ -129,7 +129,7 @@ describe("TelemetryStore", () => {
 // ====================================================================
 describe("ProcessPool", () => {
   let pool: {
-    stats: { size: number; max: number; idle: number; busy: number };
+    stats: { size: number; max: number; idle: number; busy: number; active: boolean };
     startSweep: (ms?: number) => void;
     destroy: () => void;
   };
@@ -149,6 +149,7 @@ describe("ProcessPool", () => {
     expect(s.idle).toBe(0);
     expect(s.busy).toBe(0);
     expect(s.max).toBe(4);
+    expect(s.active).toBe(false);
   });
 
   test("startSweep / destroy are no-ops that do not throw", () => {

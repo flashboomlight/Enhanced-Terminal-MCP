@@ -42,6 +42,8 @@ npm install enhanced-terminal-mcp
 | `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm destructive tools), `off` (no checks; hardBlock still on) |
 | `MCP_COMMAND_POLICY` | `blocklist` | `blocklist` (dangerous patterns + hardBlock) or `allow` (executable allowlist + hardBlock; no shell chaining) |
 | `MCP_COMMAND_ALLOW` | built-in list | Comma-separated executables/prefixes when policy is `allow` (e.g. `npm,git,node`) |
+| `MCP_BATCH_RATE_MODE` | `batch` | `batch` (1 token per batch_execute) or `per_command` (1 token per command in batch) |
+| `MCP_SECRETS_SCAN` | `cache` | `off` / `write` / `cache` / `strict` (strict also blocks secret-bearing read_file content) |
 | `MCP_LOG_LEVEL` | `info` | Log level: debug / info / warn / error |
 | `MCP_STATE_DIR` | `<project-root>/.enhanced-terminal-mcp` | State directory for session, audit logs, and temp files |
 | `MCP_AUDIT_MODE` | `errors` | Audit mode: `off` / `errors` / `all` |
@@ -142,6 +144,17 @@ npm run test:latency # E2E latency benchmarks
 npm run lint       # Biome linter
 npm run format     # Biome formatter
 ```
+
+## Supply chain & integrity
+
+| Artifact | Notes |
+|----------|--------|
+| `es_tool/es.exe` | Windows Everything CLI. Executed only after SHA-256 matches `ES_EXE_SHA256` in `src/es-integrity.ts` (`5101b3a6d9542de378e077f4b8c66c4e608d3bff088092427749b65fbb18b342`). Update binary ⇒ update constant + tests. |
+| `scripts/apply-mcp-sdk-patch.mjs` | Zero-dep `postinstall` patch for `@modelcontextprotocol/sdk@1.29.0` (object schema `required: []`). `patch-package` is **devDependency only**. |
+| SDK pin | `@modelcontextprotocol/sdk` locked to `1.29.0` (no caret) + `overrides` so the patch target stays stable. |
+| Zod | Stays on **v3** until roadmap spike `deps-zod-v4-spike` goes go (see `codestable/compound/2026-07-12-decision-zod-v3-remain.md`). |
+
+Security policy is **defense in depth, not a sandbox** when using full shell strings — see `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md` and remaining work in `codestable/roadmap/remaining-hardening/`.
 
 ## License
 

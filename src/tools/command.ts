@@ -6,7 +6,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { adaptiveTimeout } from "../adaptive.js";
 import { audit } from "../audit.js";
-import { checkCommandPolicy } from "../command-policy.js";
+import { checkCommandPolicy, classifyPolicyReason, getCommandPolicyMode } from "../command-policy.js";
 import { logger } from "../logger.js";
 import { pageCache } from "../paging.js";
 import { getShell, IS_WIN, wrapCommand } from "../platform.js";
@@ -21,14 +21,22 @@ import { wrapHandler } from "../wrap.js";
 function precheckCommand(command: string, param: string): ToolResult | null {
   const reason = checkCommandPolicy(command);
   if (!reason) return null;
+  const category = classifyPolicyReason(reason);
+  const policyMode = getCommandPolicyMode();
   audit.record({
     action: "safety.block",
     tool: "execute_command",
-    detail: { command, reason },
+    detail: { command, reason, category, policyMode },
     success: false,
     error: reason,
   });
   return Errors.commandBlocked(command, reason, param);
+}
+
+/** batch 限流：batch=整批 1 token（默认）；per_command=按条数消费 */
+function getBatchRateMode(): "batch" | "per_command" {
+  const raw = (process.env.MCP_BATCH_RATE_MODE || "batch").toLowerCase().trim();
+  return raw === "per_command" || raw === "per-command" || raw === "command" ? "per_command" : "batch";
 }
 
 /** 统一记录命令执行审计（成功/失败） */
@@ -334,13 +342,27 @@ export function registerCommandTools(server: McpServer) {
       const block = await guardDestructiveAction("batch_execute", `批量执行 ${commands.length} 条命令`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "commands" });
 
-      // batch 作为一次 LLM 调用消费 1 token，与"防 LLM 循环刷爆"的限流目的对齐
-      const rateErr = checkRateLimit(commandRateLimit, "batch_execute");
-      if (rateErr)
-        return fail(ErrorCode.EXECUTION_FAILED, rateErr, {
-          retryable: true,
-          suggestion: "Wait ~100ms and retry (token bucket refills 10/s)",
-        });
+      // 默认整批 1 token；MCP_BATCH_RATE_MODE=per_command 时按条消费
+      const batchMode = getBatchRateMode();
+      if (batchMode === "per_command") {
+        for (let i = 0; i < commands.length; i++) {
+          const rateErr = checkRateLimit(commandRateLimit, "batch_execute");
+          if (rateErr)
+            return fail(ErrorCode.EXECUTION_FAILED, rateErr, {
+              retryable: true,
+              suggestion: "Wait ~100ms and retry (token bucket refills 10/s); or set MCP_BATCH_RATE_MODE=batch",
+              detail: { batch_rate_mode: batchMode, consumed: i, total: commands.length },
+            });
+        }
+      } else {
+        const rateErr = checkRateLimit(commandRateLimit, "batch_execute");
+        if (rateErr)
+          return fail(ErrorCode.EXECUTION_FAILED, rateErr, {
+            retryable: true,
+            suggestion: "Wait ~100ms and retry (token bucket refills 10/s)",
+            detail: { batch_rate_mode: batchMode },
+          });
+      }
 
       try {
         const results: Array<{ command: string; stdout: string; stderr: string; ok: boolean; latency_ms: number }> = [];

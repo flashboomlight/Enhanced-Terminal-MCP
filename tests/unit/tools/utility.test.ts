@@ -38,7 +38,7 @@ describe("utility tools pure logic", () => {
   });
 
   test("formatPoolStatsMessage", () => {
-    const msg = formatPoolStatsMessage({ size: 2, max: 4, busy: 1, idle: 1 });
+    const msg = formatPoolStatsMessage({ size: 2, max: 4, busy: 1, idle: 1, active: false });
     expect(msg).toContain("2/4");
     expect(msg).toContain("1 busy");
     expect(msg).toContain("1 idle");

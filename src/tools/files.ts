@@ -13,7 +13,7 @@ import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
 import { ErrorCode, Errors, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
-import { scanContent } from "../scan.js";
+import { scanContent, shouldBlockSecretReads, shouldScanOnWrite } from "../scan.js";
 import { validatePath, validateRealPath } from "../security.js";
 import { formatSize } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
@@ -110,6 +110,23 @@ export function registerFileTools(server: McpServer) {
         const truncated = !reachedEnd;
         const output = collected.join("\n");
 
+        // MCP_SECRETS_SCAN=strict：读路径发现密钥则拒绝返回正文
+        if (shouldBlockSecretReads() && Buffer.byteLength(output, "utf-8") <= SCAN_MAX_BYTES) {
+          const scan = scanContent(output);
+          if (!scan.safe) {
+            return fail(
+              ErrorCode.PATH_SENSITIVE,
+              `Read blocked — content contains secrets: ${scan.findings.join(", ")}`,
+              {
+                retryable: false,
+                param: "file_path",
+                suggestion: "Unset MCP_SECRETS_SCAN=strict to allow reading, or remove credentials from file",
+                detail: { findings: scan.findings },
+              },
+            );
+          }
+        }
+
         return success(
           truncated ? `${output}\n... (truncated)` : output,
           { content: output, total_lines: lineNum, truncated, size_bytes: stat.size },
@@ -150,14 +167,14 @@ export function registerFileTools(server: McpServer) {
       const realErr = await validateRealPath(file_path, "write_file");
       if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "file_path" });
 
-      // 内容安全扫描（超 4MB 跳过，避免大文件卡死与 ReDoS）
-      if (Buffer.byteLength(content, "utf-8") <= SCAN_MAX_BYTES) {
+      // 内容安全扫描（MCP_SECRETS_SCAN=off 跳过；超 4MB 跳过）
+      if (shouldScanOnWrite() && Buffer.byteLength(content, "utf-8") <= SCAN_MAX_BYTES) {
         const scan = scanContent(content);
         if (!scan.safe) {
           return fail(ErrorCode.PATH_SENSITIVE, `Content contains secrets: ${scan.findings.join(", ")}`, {
             retryable: false,
             param: "content",
-            suggestion: "Remove credentials before writing",
+            suggestion: "Remove credentials before writing, or set MCP_SECRETS_SCAN=off",
             detail: { findings: scan.findings },
           });
         }

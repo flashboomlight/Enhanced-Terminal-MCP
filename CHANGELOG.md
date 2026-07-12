@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Command policy: `MCP_COMMAND_POLICY=allow` with `MCP_COMMAND_ALLOW`, shell metacharacter rejection, hardBlock first.
+- Security regression corpus: `tests/fixtures/security-corpus.json` + `tests/unit/security-corpus.test.ts`.
+- Policy audit fields: `detail.category` + `detail.policyMode` on `safety.block`.
+- Secrets scan tiers: `MCP_SECRETS_SCAN=off|write|cache|strict` (default `cache`; `strict` blocks secret reads).
+- Batch rate mode: `MCP_BATCH_RATE_MODE=batch|per_command` (default `batch`).
+- `pool_stats` structured field `active: false` (pool remains inactive).
+- es.exe SHA-256 gate (`src/es-integrity.ts`); zero-dep MCP SDK postinstall patch script.
+- CodeStable roadmap `remaining-hardening` + boundary decisions (shell ≠ sandbox, allow optional, zod v3).
+
+### Changed
+
+- Unit tests live under `tests/unit/`; `patch-package` is devDependency only.
+- Package `files` ships `scripts/apply-mcp-sdk-patch.mjs` instead of relying on production `patch-package`.
+
 ## [3.1.0] - 2026-07-05
 
 ### Added

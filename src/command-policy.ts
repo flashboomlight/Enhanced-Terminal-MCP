@@ -85,6 +85,20 @@ function isAllowlisted(cmd: string, prefixes: string[]): boolean {
   return false;
 }
 
+/** 策略拦截类别 — 供 audit/telemetry 聚合 */
+export type PolicyReasonCategory = "empty" | "hardBlock" | "allow-meta" | "allow-list" | "dangerous" | "unknown";
+
+/** 从 checkCommandPolicy 返回的 reason 字符串归类 */
+export function classifyPolicyReason(reason: string | null): PolicyReasonCategory | null {
+  if (!reason) return null;
+  if (reason === "Empty command") return "empty";
+  if (reason.startsWith("hard-blocked:")) return "hardBlock";
+  if (reason.includes("metacharacters") || reason.includes("nested shells")) return "allow-meta";
+  if (reason.startsWith("allow-policy:")) return "allow-list";
+  if (reason.startsWith("dangerous-pattern:")) return "dangerous";
+  return "unknown";
+}
+
 /**
  * 统一命令策略检查。
  * 返回拦截原因字符串，或 null 表示通过。

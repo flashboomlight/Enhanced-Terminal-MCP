@@ -41,8 +41,15 @@ export function validateEnvValue(value: string): string | null {
 }
 
 /** 格式化进程池统计文本（当前池未激活，始终为空） */
-export function formatPoolStatsMessage(stats: { size: number; max: number; busy: number; idle: number }): string {
-  return `Process Pool (inactive, spawnStream on demand): ${stats.size}/${stats.max} processes (${stats.busy} busy, ${stats.idle} idle)`;
+export function formatPoolStatsMessage(stats: {
+  size: number;
+  max: number;
+  busy: number;
+  idle: number;
+  active?: boolean;
+}): string {
+  const flag = stats.active === false || stats.active === undefined ? "inactive, spawnStream on demand" : "active";
+  return `Process Pool (${flag}): ${stats.size}/${stats.max} processes (${stats.busy} busy, ${stats.idle} idle)`;
 }
 
 /** 格式化缓存统计文本 */
@@ -362,12 +369,24 @@ export function registerUtilityTools(server: McpServer) {
       description:
         "Shell process pool stats. Currently inactive (execution uses on-demand spawnStream); size/idle/busy are always 0, max is capacity reserved for a future pool.",
       inputSchema: z.object({}),
-      outputSchema: z.object({ size: z.number(), idle: z.number(), busy: z.number(), max: z.number() }),
+      outputSchema: z.object({
+        size: z.number(),
+        idle: z.number(),
+        busy: z.number(),
+        max: z.number(),
+        active: z.boolean().describe("Whether pre-warmed pool is wired into command execution"),
+      }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("pool_stats", async (): Promise<ToolResult> => {
       const stats = processPool.stats;
-      return success(formatPoolStatsMessage(stats), stats);
+      return success(formatPoolStatsMessage(stats), {
+        size: stats.size,
+        idle: stats.idle,
+        busy: stats.busy,
+        max: stats.max,
+        active: stats.active,
+      });
     }),
   );
 

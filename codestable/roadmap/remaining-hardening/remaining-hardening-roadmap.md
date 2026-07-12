@@ -4,6 +4,7 @@ slug: remaining-hardening
 status: active
 created: 2026-07-12
 last_reviewed: 2026-07-12
+implementation_note: "2026-07-12 A-track landed except contract-truncate-success and publish-es-optional; B-track design spikes in drafts/"
 tags: [security, command-policy, sandbox, secrets, deps, product-boundary]
 related_requirements: []
 related_architecture: [ARCHITECTURE]
@@ -357,3 +358,4 @@ execute_command_argv: {
 ## 9. 变更日志
 
 - 2026-07-12：初版。汇总 hardening 后剩余 A/B/C 三轨；定义 M1–M5 与 12 条 planned + dropped 种子；最小闭环为 hardBlock 回归语料库。
+- 2026-07-12（落地）：完成 corpus / audit metrics / secrets tiers+read / batch rate mode / pool `active` / publish docs / zod+argv+sandbox spikes。仍 planned：`contract-truncate-success`（契约授权）、`publish-es-optional`。
