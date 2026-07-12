@@ -12,7 +12,7 @@ import { getShell, IS_WIN, wrapCommand } from "../platform.js";
 import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
-import { hasDangerousPattern } from "../security.js";
+import { hardBlock, hasDangerousPattern } from "../security.js";
 import { session } from "../session.js";
 import { spawnStream } from "../stream.js";
 import { wrapHandler } from "../wrap.js";
@@ -120,6 +120,23 @@ export function registerCommandTools(server: McpServer) {
           retryable: false,
           param: "command",
           detail: { command, pattern: dp },
+        });
+      }
+
+      // 灾难性命令硬底线 —— 所有模式（含 off）下不可关闭
+      const hb = hardBlock(command);
+      if (hb) {
+        audit.record({
+          action: "safety.block",
+          tool: "execute_command",
+          detail: { command, pattern: hb, hardBlock: true },
+          success: false,
+          error: `Hard-blocked: ${hb}`,
+        });
+        return fail(ErrorCode.COMMAND_DANGEROUS, `Command hard-blocked (catastrophic pattern): ${hb}`, {
+          retryable: false,
+          param: "command",
+          detail: { command, pattern: hb },
         });
       }
 
@@ -315,6 +332,14 @@ export function registerCommandTools(server: McpServer) {
             param: "commands",
             detail: { command: cmd, pattern: dp },
           });
+        // 灾难性命令硬底线 —— 所有模式（含 off）下不可关闭
+        const hb = hardBlock(cmd);
+        if (hb)
+          return fail(ErrorCode.COMMAND_DANGEROUS, `Hard-blocked in batch (catastrophic pattern): ${hb}`, {
+            retryable: false,
+            param: "commands",
+            detail: { command: cmd, pattern: hb },
+          });
       }
 
       const block = await guardDestructiveAction("batch_execute", `批量执行 ${commands.length} 条命令`);
@@ -418,6 +443,15 @@ export function registerCommandTools(server: McpServer) {
           retryable: false,
           param: "command",
           detail: { command, pattern: dp },
+        });
+
+      // 灾难性命令硬底线 —— 所有模式（含 off）下不可关闭
+      const hb = hardBlock(command);
+      if (hb)
+        return fail(ErrorCode.COMMAND_DANGEROUS, `Command hard-blocked (catastrophic pattern): ${hb}`, {
+          retryable: false,
+          param: "command",
+          detail: { command, pattern: hb },
         });
 
       const block = await guardDestructiveAction("watch_command", `监控命令: ${command}`);

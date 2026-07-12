@@ -206,10 +206,56 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /\bRemove-Item\s+.*-(?:Force|fo)\b.*-(?:Recurse|rec|r)\b.*[a-zA-Z]:[\\/]/i,
   /\bFormat-Volume\b/i,
   /\bClear-Disk\b/i,
+  // 间接执行绕过补充
+  // find -exec / -execdir 调用 rm
+  /\bfind\s+.*-exec(?:dir)?\s+rm\s+/i,
+  // sh -c / bash -c 后跟 rm -rf
+  /\b(?:sh|bash|zsh|dash)\s+-c\s+.*\brm\s+-[a-zA-Z]*[rRfF]/i,
+  // 解释器执行系统命令（python -c "import os; os.system(...)"）
+  /\bpython(?:3)?\s+-c\s+.*(?:os\.system|subprocess\.(?:call|run|Popen))\b/i,
+  // base64 / hex 解码后管道进 shell
+  /\b(?:base64|xxd)\s+.*\|\s*(?:sh|bash|sh\s+-c|bash\s+-c)\b/i,
 ];
 
 export function hasDangerousPattern(cmd: string): string | null {
   for (const p of DANGEROUS_PATTERNS) {
+    if (p.test(cmd)) return p.source;
+  }
+  return null;
+}
+
+/**
+ * 灾难性命令硬底线 —— 不可关闭，所有安全模式（含 off）下均拦截
+ *
+ * 与 hasDangerousPattern 的区别：
+ * - hasDangerousPattern 是 best-effort 黑名单，覆盖面广但可被绕过，仅在 off/normal 模式生效
+ * - hardBlock 只覆盖极少数真正灾难性的模式（删根/格式化/写裸设备/fork bomb），
+ *   作为 off 模式关闭 guardDestructiveAction 后的最低底线
+ *
+ * 不追求完备（仍可被高阶绕过），只确保"明面上的灾难性命令在 off 模式不能无阻碍执行"
+ */
+const HARD_BLOCK_PATTERNS: RegExp[] = [
+  // rm -rf 指向根 / home / 通配全删
+  /\brm\s+-[a-zA-Z]*[rRfF][a-zA-Z]*\s+(?:\/(?:\s|$|\*)|~|\$HOME\b|\.\s*$|\*\s*$)/i,
+  /\brm\s+--(?:no-preserve-root|recursive|force)/i,
+  // rm -rf 经变量展开指向根（X=/; rm -rf $X 形态）
+  /\brm\s+-[a-zA-Z]*[rRfF][a-zA-Z]*\s+\$\w+\s*$/i,
+  // 格式化 / 写裸设备
+  /\bformat\s+[a-zA-Z]:/i,
+  /\bmkfs\./i,
+  /\bdd\s+[^|]*of=\/dev\/(?:sd|hd|nvme|mmcblk|vd|xvd)/i,
+  />\s*\/dev\/(?:sd|hd|nvme|mmcblk|vd|xvd)/i,
+  // fork bomb
+  /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/,
+  // 关机 / 重启
+  /\bshutdown\s+(?:-|\/)/i,
+  /\b(?:halt|poweroff|reboot)\s+-/i,
+  // chmod 777 全盘
+  /\bchmod\s+-R\s+0*777\s+\//i,
+];
+
+export function hardBlock(cmd: string): string | null {
+  for (const p of HARD_BLOCK_PATTERNS) {
     if (p.test(cmd)) return p.source;
   }
   return null;

@@ -209,6 +209,12 @@ export function registerSearchTools(server: McpServer) {
     wrapHandler("grep_content", async ({ dir_path, pattern, file_pattern, max_results }: GrepContentInput) => {
       const pathErr = validatePath(dir_path, "grep_content");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+      // 主路径预检 pattern：语法 + ReDoS 防护（与 fallback 路径统一）
+      try {
+        getRegex(pattern, "gi");
+      } catch (e: any) {
+        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: false, param: "pattern" });
+      }
       const t0 = Date.now();
       const maxR = max_results || 50;
       const fileFilter = file_pattern || "*";
