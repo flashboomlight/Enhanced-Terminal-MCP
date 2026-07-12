@@ -9,6 +9,7 @@
 - **包管理器**：npm
 - **构建输出**：`build/`
 - **主要入口**：`src/index.ts`
+- **沉淀目录**：`codestable/compound/` 存 learning / decision / trick / explore,改动前可检索相关历史沉淀
 
 ## 代码规范
 
@@ -25,7 +26,7 @@
 
 ## 禁止事项
 
-- 禁止修改安全规则、路径黑名单、错误码等核心行为，除非显式授权
+- 禁止修改安全规则、路径黑名单、错误码等核心行为,除非逐 issue 显式授权(授权不延伸到后续 issue);安全核心含 `DANGEROUS_PATTERNS`、`HARD_BLOCK_PATTERNS`、`hardBlock`、safeguard 模式逻辑、security 硬底线
 - 禁止删除仅测试使用的导出
 - 禁止在 feature 实现中未经测试直接改动 `src/index.ts` 大量注册逻辑
 - 禁止引入新的运行时依赖，除非已评估必要性与兼容性
@@ -38,6 +39,7 @@
 - 命令执行在 Windows 下需通过 `cmd.exe /c chcp 65001 > nul && ...` 处理 UTF-8
 - 测试中的临时目录在 `afterEach` / `afterAll` 中必须清理，避免残留
 - `wrapHandler` 对 handler 返回值有结构要求，直接返回裸字符串会破坏接口
+- `hardBlock` 是命令执行的不可关闭底线(全模式含 off 生效),调整安全模式或命令工具入口时不得移除;详见 `codestable/compound/2026-07-11-decision-hardblock-uncloseable-baseline.md`
 
 ## UI 验证要求
 
