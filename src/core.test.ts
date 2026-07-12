@@ -81,6 +81,25 @@ describe("LRUCache", () => {
     const k = LRUCache.key("read_file", { path: "/tmp" });
     expect(k).toBe('read_file:{"path":"/tmp"}');
   });
+
+  test("get refreshes sliding TTL", () => {
+    cache.set("a", "1");
+    vi.advanceTimersByTime(800);
+    expect(cache.get("a")).not.toBeNull(); // hit resets TTL
+    vi.advanceTimersByTime(800);
+    expect(cache.get("a")).not.toBeNull(); // still within new TTL
+    vi.advanceTimersByTime(1001);
+    expect(cache.get("a")).toBeNull();
+  });
+
+  test("evicts by memory budget", () => {
+    const small = new LRUCache<string>(10, 60000, 20); // 20 bytes max
+    small.set("a", "xxxxxxxxxxxxxxxxxxxx"); // ~20 bytes
+    small.set("b", "yyyyyyyyyyyyyyyyyyyy");
+    // second insert should force eviction of first under memory cap
+    expect(small.stats.size).toBeLessThanOrEqual(1);
+    expect(small.stats.approxBytes).toBeLessThanOrEqual(20);
+  });
 });
 
 // ============================================================
@@ -267,9 +286,14 @@ import { isCredentialFilePath, scanContent } from "./scan.js";
 
 describe("scanContent", () => {
   test("detects OpenAI key", () => {
-    const r = scanContent("key=sk-abcdefghijklmnopqrstuvwxyz");
+    const r = scanContent("key=sk-abcdefghijklmnopqrstuvwxyz012345");
     expect(r.safe).toBe(false);
     expect(r.findings).toContain("OpenAI API Key");
+  });
+
+  test("skips short sk- placeholders", () => {
+    const r = scanContent("docs use sk-test-key-example only");
+    expect(r.findings).not.toContain("OpenAI API Key");
   });
 
   test("detects GitHub token", () => {
