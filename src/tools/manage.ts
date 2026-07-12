@@ -11,8 +11,16 @@ import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
-import { validatePath } from "../security.js";
+import { validatePath, validateRealPath } from "../security.js";
 import { wrapHandler } from "../wrap.js";
+
+/** 统一 fs 错误：ENOENT -> PATH_NOT_FOUND */
+function mapFsError(e: unknown, p: string, param: string) {
+  const msg = e instanceof Error ? e.message : String(e);
+  const code = (e as { code?: string } | null)?.code;
+  if (code === "ENOENT") return fail(ErrorCode.PATH_NOT_FOUND, `Not found: ${p}`, { retryable: true, param });
+  return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
+}
 
 export function registerManageTools(server: McpServer) {
   const CopyMoveInput = z.object({
@@ -38,6 +46,9 @@ export function registerManageTools(server: McpServer) {
       ] as const) {
         const err = validatePath(p, `copy_move:${label}`);
         if (err) return fail(ErrorCode.PATH_FORBIDDEN, err, { retryable: false, param: label });
+        // 真实路径校验（防 symlink 指向系统目录）；destination 可能不存在，解析失败放行
+        const realErr = await validateRealPath(p, `copy_move:${label}`);
+        if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: label });
       }
 
       const block = await guardDestructiveAction("copy_move", `${operation}: ${source} -> ${destination}`);
@@ -64,15 +75,16 @@ export function registerManageTools(server: McpServer) {
           destination,
           operation,
         });
-      } catch (e: any) {
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
         audit.record({
           action: "file.move",
           tool: "copy_move",
           detail: { source, destination, operation },
           success: false,
-          error: e.message,
+          error: msg,
         });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+        return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
       }
     }),
   );
@@ -95,6 +107,9 @@ export function registerManageTools(server: McpServer) {
     wrapHandler("delete_path", async ({ target_path, recursive }: DeletePathInput) => {
       const pathErr = validatePath(target_path, "delete_path");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "target_path" });
+      // symlink 二次校验：删除前确认真实路径非系统/敏感目录
+      const realErr = await validateRealPath(target_path, "delete_path");
+      if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "target_path" });
 
       const block = await guardDestructiveAction("delete_path", `删除: ${target_path}`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "target_path" });
@@ -125,17 +140,16 @@ export function registerManageTools(server: McpServer) {
           path: target_path,
           type: stat.isDirectory() ? "dir" : "file",
         });
-      } catch (e: any) {
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
         audit.record({
           action: "file.delete",
           tool: "delete_path",
           detail: { path: target_path },
           success: false,
-          error: e.message,
+          error: msg,
         });
-        if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, `Not found: ${target_path}`, { retryable: true, param: "target_path" });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+        return mapFsError(e, target_path, "target_path");
       }
     }),
   );

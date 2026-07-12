@@ -10,9 +10,13 @@ import { logger } from "../logger.js";
 import { getCompressSpec, getDownloadSpec, getExtractSpec } from "../platform.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
-import { validatePath, validateUrl } from "../security.js";
+import { validatePath, validateRealPath, validateUrl } from "../security.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 export function registerArchiveTools(server: McpServer) {
   const CompressArchiveInput = z.object({
@@ -37,6 +41,8 @@ export function registerArchiveTools(server: McpServer) {
       ] as const) {
         const e = validatePath(p, `compress:${l}`);
         if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
+        const re = await validateRealPath(p, `compress:${l}`);
+        if (re) return fail(ErrorCode.PATH_FORBIDDEN, re, { retryable: false, param: l });
       }
 
       const block = await guardDestructiveAction("compress_archive", `压缩到归档: ${source_path} -> ${output_path}`);
@@ -58,8 +64,8 @@ export function registerArchiveTools(server: McpServer) {
           output: output_path,
           size_bytes,
         });
-      } catch (e: any) {
-        return fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.ARCHIVE_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );
@@ -86,6 +92,8 @@ export function registerArchiveTools(server: McpServer) {
       ] as const) {
         const e = validatePath(p, `extract:${l}`);
         if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
+        const re = await validateRealPath(p, `extract:${l}`);
+        if (re) return fail(ErrorCode.PATH_FORBIDDEN, re, { retryable: false, param: l });
       }
 
       const block = await guardDestructiveAction("extract_archive", `解压归档: ${archive_path} -> ${output_dir}`);
@@ -95,8 +103,8 @@ export function registerArchiveTools(server: McpServer) {
         const spec = getExtractSpec(archive_path, output_dir);
         await safeExecFile(spec.file, spec.args, 60000);
         return success(`Extracted: ${archive_path} -> ${output_dir}`, { archive: archive_path, output: output_dir });
-      } catch (e: any) {
-        return fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.ARCHIVE_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );
@@ -119,6 +127,8 @@ export function registerArchiveTools(server: McpServer) {
     wrapHandler("download_file", async ({ url, save_path }: DownloadFileInput) => {
       const pathErr = validatePath(save_path, "download:save_path");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "save_path" });
+      const realErr = await validateRealPath(save_path, "download:save_path");
+      if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "save_path" });
       const urlErr = validateUrl(url);
       if (urlErr) return fail(ErrorCode.URL_INVALID, urlErr, { retryable: true, param: "url" });
 
@@ -132,8 +142,8 @@ export function registerArchiveTools(server: McpServer) {
           toolName: "download_file",
         });
         return success(`Downloaded: ${url} -> ${save_path}`, { url, path: save_path });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );

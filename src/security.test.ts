@@ -7,6 +7,7 @@ import * as os from "node:os";
 import { describe, expect, test } from "vitest";
 import {
   getForbiddenPaths,
+  hardBlock,
   hasDangerousPattern,
   isForbiddenPath,
   isPathTraversal,
@@ -79,6 +80,12 @@ describe("isPathTraversal", () => {
 
   test("检测到双重 URL 编码 %252e%252e", () => {
     expect(isPathTraversal("%252e%252e/etc/passwd")).toBe(true);
+  });
+
+  test("检测到三层编码与半编码", () => {
+    expect(isPathTraversal("%25252e%25252e/etc/passwd")).toBe(true);
+    expect(isPathTraversal("..%2fetc/passwd")).toBe(true);
+    expect(isPathTraversal("%2e%2e%2fetc%2fpasswd")).toBe(true);
   });
 
   test("空字符串不触发", () => {
@@ -285,6 +292,31 @@ describe("hasDangerousPattern", () => {
   test("安全命令不触发", () => {
     expect(hasDangerousPattern("echo hello")).toBeFalsy();
     expect(hasDangerousPattern("ls -la")).toBeFalsy();
+  });
+});
+
+// ====================================================================
+// hardBlock
+// ====================================================================
+describe("hardBlock", () => {
+  test("拦截 rm -rf 关键系统目录", () => {
+    expect(hardBlock("rm -rf /usr")).toBeTruthy();
+    expect(hardBlock("rm -rf /etc")).toBeTruthy();
+    expect(hardBlock("rm -rf /home")).toBeTruthy();
+    expect(hardBlock('rm -rf "$HOME"')).toBeTruthy();
+    expect(hardBlock("rm -rf ${" + "HOME}")).toBeTruthy();
+  });
+
+  test("拦截 find -delete / shred / mv 到 null", () => {
+    expect(hardBlock("find / -delete")).toBeTruthy();
+    expect(hardBlock("shred /dev/sda")).toBeTruthy();
+    expect(hardBlock("mv / /dev/null")).toBeTruthy();
+  });
+
+  test("安全命令不硬拦", () => {
+    expect(hardBlock("ls -la")).toBeFalsy();
+    expect(hardBlock("npm run build")).toBeFalsy();
+    expect(hardBlock("rm -rf ./dist")).toBeFalsy();
   });
 });
 

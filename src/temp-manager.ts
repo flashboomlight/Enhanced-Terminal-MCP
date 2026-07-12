@@ -8,6 +8,21 @@ import { logger } from "./logger.js";
 import { getStateDir } from "./state-dir.js";
 import { envInt } from "./utils.js";
 
+/** 子路径是否真正位于父目录内（防 .. 穿越 / 绝对路径注入） */
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/** 合法子目录 id：非空、无路径分隔符、无 .. */
+function isSafeSubdirId(id: string): boolean {
+  if (!id || id.length > 200) return false;
+  if (id.includes("/") || id.includes("\\") || id.includes("..")) return false;
+  // 禁止以点开头（隐藏目录）或盘符冒号
+  if (id.startsWith(".") || /^[A-Za-z]:/.test(id)) return false;
+  return /^[A-Za-z0-9._-]+$/.test(id);
+}
+
 function getTempTtlMs(): number {
   return envInt("MCP_TEMP_TTL_MS", 3600000, 1);
 }
@@ -102,8 +117,21 @@ export class TempManager {
   async create(subtype: string, id?: string): Promise<TempDir> {
     await this.init();
     if (!this.root) throw new Error("TempManager not initialized");
-    const dirId = id || `${subtype}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    let dirId: string;
+    if (id) {
+      // 外部传入的 id 必须是安全的子目录名，严防 .. 穿越
+      if (!isSafeSubdirId(id)) {
+        throw new Error(`Rejected unsafe temp dir id: ${id}`);
+      }
+      dirId = id;
+    } else {
+      dirId = `${subtype}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    }
     const dirPath = path.join(this.root, dirId);
+    // 二次防御：拼接后的 dirPath 必须仍在 root 内
+    if (!isInside(this.root, dirPath)) {
+      throw new Error(`Rejected temp dir outside root: ${dirPath}`);
+    }
     await fs.mkdir(dirPath, { recursive: true });
     const now = Date.now();
     const dir: TempDir = { id: dirId, dir: dirPath, createdAt: now, lastAccessedAt: now };
@@ -112,12 +140,29 @@ export class TempManager {
     return dir;
   }
 
+  private touchDirty = false;
+  private touchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** 更新访问时间；落盘去抖（最多 1s 一次），避免每次翻页都写 meta */
   touch(id: string): void {
     const dir = this.dirs.get(id);
-    if (dir) {
-      dir.lastAccessedAt = Date.now();
-      this.saveMeta(dir).catch((e) => logger.debug("temp-manager", "touch-save-failed", String(e)));
-    }
+    if (!dir) return;
+    dir.lastAccessedAt = Date.now();
+    this.touchDirty = true;
+    if (this.touchTimer) return;
+    this.touchTimer = setTimeout(() => {
+      this.touchTimer = null;
+      if (!this.touchDirty) return;
+      this.touchDirty = false;
+      const now = Date.now();
+      // 批量落盘所有最近被 touch 的条目（简单实现：保存全部 dirs）
+      for (const d of this.dirs.values()) {
+        if (now - d.lastAccessedAt < 1000) {
+          this.saveMeta(d).catch((e) => logger.debug("temp-manager", "touch-save-failed", String(e)));
+        }
+      }
+    }, 1000);
+    this.touchTimer.unref?.();
   }
 
   async cleanup(): Promise<{ removed: number; remaining: number }> {
@@ -144,6 +189,11 @@ export class TempManager {
     for (const id of toRemove) {
       const dir = this.dirs.get(id);
       if (!dir) continue;
+      // 防御性检查：绝不在 root 之外递归删除
+      if (!this.root || !isInside(this.root, dir.dir)) {
+        logger.warn("temp-manager", "cleanup-skip-outside", dir.dir);
+        continue;
+      }
       try {
         await fs.rm(dir.dir, { recursive: true, force: true });
         this.dirs.delete(id);
@@ -169,6 +219,10 @@ export class TempManager {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.touchTimer) {
+      clearTimeout(this.touchTimer);
+      this.touchTimer = null;
+    }
   }
 
   async stats(): Promise<TempStats> {
@@ -193,20 +247,26 @@ export class TempManager {
 
   private async dirSize(dir: string): Promise<number> {
     let size = 0;
+    let entries: string[] = [];
     try {
-      const entries = await fs.readdir(dir, { withFileTypes: true, recursive: true });
-      for (const entry of entries) {
-        if (entry.isFile()) {
-          try {
-            const stat = await fs.stat(path.join(entry.path || dir, entry.name));
-            size += stat.size;
-          } catch (err) {
-            logger.debug("temp-manager", "dir-size-stat-failed", String(err));
-          }
-        }
+      // 递归枚举有上限，防解压产生海量小文件时 temp_stats 卡死
+      const walked = await fs.readdir(dir, { withFileTypes: true, recursive: true });
+      entries = walked.map((e) => path.join(e.path || dir, e.name));
+      if (entries.length > 100000) {
+        logger.warn("temp-manager", "dir-size-truncated", `${dir}: ${entries.length} entries, capping stat at 100000`);
+        entries = entries.slice(0, 100000);
       }
     } catch (e) {
       logger.debug("temp-manager", "dir-size-failed", String(e));
+      return 0;
+    }
+    for (const full of entries) {
+      try {
+        const stat = await fs.stat(full);
+        if (stat.isFile()) size += stat.size;
+      } catch (err) {
+        logger.debug("temp-manager", "dir-size-stat-failed", String(err));
+      }
     }
     return size;
   }

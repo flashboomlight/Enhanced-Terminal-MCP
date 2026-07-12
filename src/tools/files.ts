@@ -14,9 +14,23 @@ import { logger } from "../logger.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { scanContent } from "../scan.js";
-import { validatePath } from "../security.js";
+import { validatePath, validateRealPath } from "../security.js";
 import { formatSize } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
+
+/** 扫描内容字节数上限 —— 超过则跳过凭据扫描，避免 ReDoS / 大文件卡死 */
+const SCAN_MAX_BYTES = 4 * 1024 * 1024;
+const WRITE_FILE_MAX_BYTES = 50 * 1024 * 1024;
+
+/** 统一处理 fs 错误：ENOENT -> PATH_NOT_FOUND，其余 -> EXECUTION_FAILED */
+function mapFsError(e: unknown, path: string, param: string) {
+  const msg = e instanceof Error ? e.message : String(e);
+  const code = (e as { code?: string } | null)?.code;
+  if (code === "ENOENT") {
+    return fail(ErrorCode.PATH_NOT_FOUND, `File not found: ${path}`, { retryable: true, param });
+  }
+  return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
+}
 
 export function registerFileTools(server: McpServer) {
   // ====================================================================
@@ -101,13 +115,8 @@ export function registerFileTools(server: McpServer) {
           { content: output, total_lines: lineNum, truncated, size_bytes: stat.size },
           { truncated },
         );
-      } catch (e: any) {
-        if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, `File not found: ${file_path}`, {
-            retryable: true,
-            param: "file_path",
-          });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return mapFsError(e, file_path, "file_path");
       }
     }),
   );
@@ -115,7 +124,7 @@ export function registerFileTools(server: McpServer) {
   // ====================================================================
   const WriteFileInput = z.object({
     file_path: z.string().describe("Absolute path to the file"),
-    content: z.string().describe("Content to write"),
+    content: z.string().max(WRITE_FILE_MAX_BYTES, "Content exceeds max write size").describe("Content to write"),
     append: z.boolean().optional().describe("Append instead of overwrite, default false"),
   });
   type WriteFileInput = z.infer<typeof WriteFileInput>;
@@ -137,16 +146,21 @@ export function registerFileTools(server: McpServer) {
     wrapHandler("write_file", async ({ file_path, content, append }: WriteFileInput) => {
       const pathErr = validatePath(file_path, "write_file");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "file_path" });
+      // symlink 二次校验：若 file_path 经解析指向系统/敏感目录则拒绝
+      const realErr = await validateRealPath(file_path, "write_file");
+      if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "file_path" });
 
-      // 内容安全扫描
-      const scan = scanContent(content);
-      if (!scan.safe) {
-        return fail(ErrorCode.PATH_SENSITIVE, `Content contains secrets: ${scan.findings.join(", ")}`, {
-          retryable: false,
-          param: "content",
-          suggestion: "Remove credentials before writing",
-          detail: { findings: scan.findings },
-        });
+      // 内容安全扫描（超 4MB 跳过，避免大文件卡死与 ReDoS）
+      if (Buffer.byteLength(content, "utf-8") <= SCAN_MAX_BYTES) {
+        const scan = scanContent(content);
+        if (!scan.safe) {
+          return fail(ErrorCode.PATH_SENSITIVE, `Content contains secrets: ${scan.findings.join(", ")}`, {
+            retryable: false,
+            param: "content",
+            suggestion: "Remove credentials before writing",
+            detail: { findings: scan.findings },
+          });
+        }
       }
 
       // 仅覆写已有文件时触发安全确认
@@ -189,15 +203,16 @@ export function registerFileTools(server: McpServer) {
           existed,
           appended: !!append,
         });
-      } catch (e: any) {
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
         audit.record({
           action: "file.write",
           tool: "write_file",
           detail: { path: file_path, existed },
           success: false,
-          error: e.message,
+          error: msg,
         });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+        return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
       }
     }),
   );
@@ -291,13 +306,8 @@ export function registerFileTools(server: McpServer) {
           { entries: structured, total: count, truncated: count >= maxE },
           { truncated: count >= maxE },
         );
-      } catch (e: any) {
-        if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, `Directory not found: ${dir_path}`, {
-            retryable: true,
-            param: "dir_path",
-          });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return mapFsError(e, dir_path, "dir_path");
       }
     }),
   );
@@ -341,10 +351,8 @@ export function registerFileTools(server: McpServer) {
             modified: stat.mtime.toISOString(),
           },
         );
-      } catch (e: any) {
-        if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, `Not found: ${target_path}`, { retryable: true, param: "target_path" });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return mapFsError(e, target_path, "target_path");
       }
     }),
   );
@@ -379,8 +387,9 @@ export function registerFileTools(server: McpServer) {
         await fs.mkdir(dir_path, { recursive: true });
         logger.info("make_directory", "created", dir_path);
         return success(`Created: ${dir_path}`, { path: dir_path, created: !existed });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
       }
     }),
   );

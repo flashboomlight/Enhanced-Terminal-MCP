@@ -5,7 +5,45 @@
 
 import * as fs from "node:fs/promises";
 import { logger } from "./logger.js";
+import { validatePath } from "./security.js";
 import { getLegacyStateFilePath, getStateFilePath } from "./state-dir.js";
+
+/**
+ * 环境变量注入黑名单 —— 持久化恢复时拒绝这些键
+ * 这些变量若被污染会影响所有子进程（spawnStream 合并 session env），
+ * 构成持久化提权路径：LD_PRELOAD/NODE_OPTIONS/PATH 劫持等。
+ */
+const FORBIDDEN_ENV_KEYS = new Set([
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "PATH",
+  "PSModulePath",
+  "SYSTEMROOT",
+  "COMSPEC",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+]);
+
+function isSafeEnvKey(k: unknown): k is string {
+  return typeof k === "string" && k.length > 0 && !k.includes("=") && k.length <= 256;
+}
+
+/**
+ * 校验从磁盘恢复的 env：键需安全且不在黑名单，值须为字符串
+ * 返回过滤后的 env，丢弃一切非法或危险条目
+ */
+function sanitizeRestoredEnv(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isSafeEnvKey(k) || FORBIDDEN_ENV_KEYS.has(k)) continue;
+    if (typeof v !== "string") continue;
+    out[k] = v;
+  }
+  return out;
+}
 
 export interface SessionState {
   cwd: string;
@@ -38,12 +76,24 @@ export class SessionStore {
   }
 
   setCwd(cwd: string): void {
+    const pathErr = validatePath(cwd, "session.setCwd");
+    if (pathErr) {
+      logger.warn("session", "cwd-rejected", `${cwd} (${pathErr})`);
+      throw new Error(pathErr);
+    }
     this.state.cwd = cwd;
     this.markDirty();
     logger.info("session", "cwd-changed", cwd);
   }
 
   setEnv(key: string, value: string): void {
+    if (!isSafeEnvKey(key) || FORBIDDEN_ENV_KEYS.has(key)) {
+      logger.warn("session", "env-key-rejected", key);
+      throw new Error(`Rejected env key: ${key}`);
+    }
+    if (typeof value !== "string") {
+      throw new Error("env value must be a string");
+    }
     this.state.env[key] = value;
     this.markDirty();
   }
@@ -157,14 +207,30 @@ export class SessionStore {
   }
 
   private applyState(raw: string): void {
+    let data: Record<string, unknown>;
     try {
-      const data = JSON.parse(raw);
-      if (data.cwd && typeof data.cwd === "string") this.state.cwd = data.cwd;
-      if (data.env && typeof data.env === "object") this.state.env = data.env;
-      if (data.history && Array.isArray(data.history)) this.state.history = data.history.slice(-50);
-      if (data.createdAt && typeof data.createdAt === "number") this.state.createdAt = data.createdAt;
+      data = JSON.parse(raw) as Record<string, unknown>;
     } catch {
       logger.warn("session", "parse-failed", "starting fresh");
+      return;
+    }
+    // cwd 必须通过路径安全校验（防持久化注入到系统目录）
+    if (typeof data.cwd === "string" && data.cwd.trim().length > 0) {
+      const pathErr = validatePath(data.cwd, "session.restore:cwd");
+      if (pathErr) {
+        logger.warn("session", "cwd-rejected", `Restored cwd rejected by safety: ${data.cwd} (${pathErr})`);
+      } else {
+        this.state.cwd = data.cwd;
+      }
+    }
+    // env 经黑名单 + 类型守卫过滤（防 LD_PRELOAD/NODE_OPTIONS 等注入子进程）
+    this.state.env = sanitizeRestoredEnv(data.env);
+    // history 仅保留字符串条目
+    if (Array.isArray(data.history)) {
+      this.state.history = data.history.filter((h): h is string => typeof h === "string").slice(-50);
+    }
+    if (typeof data.createdAt === "number" && Number.isFinite(data.createdAt)) {
+      this.state.createdAt = data.createdAt;
     }
   }
 }

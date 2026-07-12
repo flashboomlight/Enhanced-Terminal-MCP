@@ -10,12 +10,58 @@ import { logger } from "../logger.js";
 import { pageCache } from "../paging.js";
 import { getShell, IS_WIN, wrapCommand } from "../platform.js";
 import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
-import { ErrorCode, fail, success } from "../result.js";
+import { ErrorCode, fail, success, type ToolResult } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { hardBlock, hasDangerousPattern } from "../security.js";
 import { session } from "../session.js";
 import { spawnStream } from "../stream.js";
 import { wrapHandler } from "../wrap.js";
+
+/** 前置安全预检：危险模式 + 硬底线。返回错误 ToolResult 或 null（通过） */
+function precheckCommand(command: string, param: string): ToolResult | null {
+  const dp = hasDangerousPattern(command);
+  if (dp) {
+    audit.record({
+      action: "safety.block",
+      tool: "execute_command",
+      detail: { command, pattern: dp },
+      success: false,
+      error: `Dangerous pattern: ${dp}`,
+    });
+    return fail(ErrorCode.COMMAND_DANGEROUS, `Command blocked — dangerous pattern: ${dp}`, {
+      retryable: false,
+      param,
+      detail: { command, pattern: dp },
+    });
+  }
+  const hb = hardBlock(command);
+  if (hb) {
+    audit.record({
+      action: "safety.block",
+      tool: "execute_command",
+      detail: { command, pattern: hb, hardBlock: true },
+      success: false,
+      error: `Hard-blocked: ${hb}`,
+    });
+    return fail(ErrorCode.COMMAND_DANGEROUS, `Command hard-blocked (catastrophic pattern): ${hb}`, {
+      retryable: false,
+      param,
+      detail: { command, pattern: hb },
+    });
+  }
+  return null;
+}
+
+/** 统一记录命令执行审计（成功/失败） */
+function recordCommandAudit(
+  tool: string,
+  command: string,
+  detail: Record<string, unknown>,
+  success: boolean,
+  error?: string,
+): void {
+  audit.record({ action: "command.execute", tool, detail: { command, ...detail }, success, error });
+}
 
 function buildShellArgs(rawCommand: string): { shell: string; args: string[] } {
   const shell = getShell();
@@ -32,6 +78,10 @@ function getCommandMaxOutputBytes(): number {
 
 function getSessionEnv(): Record<string, string> {
   return session.get().env;
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 export function registerCommandTools(server: McpServer) {
@@ -55,7 +105,10 @@ export function registerCommandTools(server: McpServer) {
       outputSchema: z.object({
         stdout: z.string(),
         stderr: z.string(),
-        exit_code: z.number(),
+        exit_code: z
+          .number()
+          .nullable()
+          .describe("Process exit code; null when undetermined (e.g. timed out before exit)"),
         timed_out: z.boolean(),
         cache_id: z.string().optional(),
         page: z.number().optional(),
@@ -95,8 +148,8 @@ export function registerCommandTools(server: McpServer) {
             },
             { latency_ms: Date.now() - t0, page: pageResult.page, total_pages: pageResult.total_pages },
           );
-        } catch (e: any) {
-          return fail(ErrorCode.EXECUTION_FAILED, e.message || "Failed to read paged output", { retryable: true });
+        } catch (e: unknown) {
+          return fail(ErrorCode.EXECUTION_FAILED, errMsg(e) || "Failed to read paged output", { retryable: true });
         }
       }
 
@@ -107,38 +160,8 @@ export function registerCommandTools(server: McpServer) {
         });
       }
 
-      const dp = hasDangerousPattern(command);
-      if (dp) {
-        audit.record({
-          action: "safety.block",
-          tool: "execute_command",
-          detail: { command, pattern: dp },
-          success: false,
-          error: `Dangerous pattern: ${dp}`,
-        });
-        return fail(ErrorCode.COMMAND_DANGEROUS, `Command blocked — dangerous pattern: ${dp}`, {
-          retryable: false,
-          param: "command",
-          detail: { command, pattern: dp },
-        });
-      }
-
-      // 灾难性命令硬底线 —— 所有模式（含 off）下不可关闭
-      const hb = hardBlock(command);
-      if (hb) {
-        audit.record({
-          action: "safety.block",
-          tool: "execute_command",
-          detail: { command, pattern: hb, hardBlock: true },
-          success: false,
-          error: `Hard-blocked: ${hb}`,
-        });
-        return fail(ErrorCode.COMMAND_DANGEROUS, `Command hard-blocked (catastrophic pattern): ${hb}`, {
-          retryable: false,
-          param: "command",
-          detail: { command, pattern: hb },
-        });
-      }
+      const dp = precheckCommand(command, "command");
+      if (dp) return dp;
 
       const rateErr = checkRateLimit(commandRateLimit, "execute_command");
       if (rateErr)
@@ -248,12 +271,13 @@ export function registerCommandTools(server: McpServer) {
             },
             success: true,
           });
+          const recordedExit = result.exitCode ?? 0;
           return success(
             pageResult.content,
             {
               stdout: pageResult.content,
               stderr: result.stderr,
-              exit_code: result.exitCode ?? -1,
+              exit_code: recordedExit,
               timed_out: false,
               cache_id: pageResult.cache_id,
               page: pageResult.page,
@@ -276,20 +300,15 @@ export function registerCommandTools(server: McpServer) {
           {
             stdout: result.stdout,
             stderr: result.stderr,
-            exit_code: result.exitCode ?? -1,
+            exit_code: result.exitCode ?? 0,
             timed_out: false,
           },
           { latency_ms: Date.now() - t0 },
         );
-      } catch (e: any) {
-        audit.record({
-          action: "command.execute",
-          tool: "execute_command",
-          detail: { command, cwd: cwd || session.getCwd() },
-          success: false,
-          error: e.message || "Unknown error",
-        });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message || "Unknown error", { retryable: true });
+      } catch (e: unknown) {
+        const msg = errMsg(e) || "Unknown error";
+        recordCommandAudit("execute_command", command, { cwd: cwd || session.getCwd() }, false, msg);
+        return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
       }
     }),
   );
@@ -329,21 +348,8 @@ export function registerCommandTools(server: McpServer) {
       const isParallel = parallel === true;
 
       for (const cmd of commands) {
-        const dp = hasDangerousPattern(cmd);
-        if (dp)
-          return fail(ErrorCode.COMMAND_DANGEROUS, `Dangerous pattern in batch: ${dp}`, {
-            retryable: false,
-            param: "commands",
-            detail: { command: cmd, pattern: dp },
-          });
-        // 灾难性命令硬底线 —— 所有模式（含 off）下不可关闭
-        const hb = hardBlock(cmd);
-        if (hb)
-          return fail(ErrorCode.COMMAND_DANGEROUS, `Hard-blocked in batch (catastrophic pattern): ${hb}`, {
-            retryable: false,
-            param: "commands",
-            detail: { command: cmd, pattern: hb },
-          });
+        const blocked = precheckCommand(cmd, "commands");
+        if (blocked) return blocked;
       }
 
       const block = await guardDestructiveAction("batch_execute", `批量执行 ${commands.length} 条命令`);
@@ -381,8 +387,8 @@ export function registerCommandTools(server: McpServer) {
               ok: !r.truncated && r.exitCode === 0,
               latency_ms: Date.now() - ct0,
             };
-          } catch (e: any) {
-            return { command: cmd, stdout: "", stderr: e.message || "failed", ok: false, latency_ms: Date.now() - ct0 };
+          } catch (e: unknown) {
+            return { command: cmd, stdout: "", stderr: errMsg(e) || "failed", ok: false, latency_ms: Date.now() - ct0 };
           }
         };
 
@@ -420,8 +426,8 @@ export function registerCommandTools(server: McpServer) {
           error: allOk ? undefined : "Some commands failed",
         });
         return success(summary, { results, summary }, { latency_ms: Date.now() - t0 });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message || "Batch failed", { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e) || "Batch failed", { retryable: true });
       }
     }),
   );
@@ -449,22 +455,8 @@ export function registerCommandTools(server: McpServer) {
     },
     wrapHandler("watch_command", async ({ command, duration, cwd }: WatchCommandInput) => {
       const t0 = Date.now();
-      const dp = hasDangerousPattern(command);
-      if (dp)
-        return fail(ErrorCode.COMMAND_DANGEROUS, `Dangerous pattern: ${dp}`, {
-          retryable: false,
-          param: "command",
-          detail: { command, pattern: dp },
-        });
-
-      // 灾难性命令硬底线 —— 所有模式（含 off）下不可关闭
-      const hb = hardBlock(command);
-      if (hb)
-        return fail(ErrorCode.COMMAND_DANGEROUS, `Command hard-blocked (catastrophic pattern): ${hb}`, {
-          retryable: false,
-          param: "command",
-          detail: { command, pattern: hb },
-        });
+      const blocked = precheckCommand(command, "command");
+      if (blocked) return blocked;
 
       const block = await guardDestructiveAction("watch_command", `监控命令: ${command}`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
@@ -538,15 +530,10 @@ export function registerCommandTools(server: McpServer) {
           { output, captured_ms: Date.now() - t0, exit_code: result.exitCode },
           { latency_ms: Date.now() - t0 },
         );
-      } catch (e: any) {
-        audit.record({
-          action: "command.execute",
-          tool: "watch_command",
-          detail: { command },
-          success: false,
-          error: e.message || "Watch failed",
-        });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message || "Watch failed", { retryable: true });
+      } catch (e: unknown) {
+        const msg = errMsg(e) || "Watch failed";
+        recordCommandAudit("watch_command", command, {}, false, msg);
+        return fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
       }
     }),
   );

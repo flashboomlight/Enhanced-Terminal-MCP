@@ -139,9 +139,10 @@ export async function guardDestructiveAction(toolName: string, description: stri
 
     logger.info("safeguard", "declined", `${toolName}: user declined or cancelled`);
     return `[SAFETY] Operation cancelled by user: ${toolName}`;
-  } catch (e: any) {
+  } catch (e: unknown) {
     // 客户端不支持 Elicitation — 降级拒绝
-    logger.warn("safeguard", "elicitation-unavailable", `${toolName}: ${e.message}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    logger.warn("safeguard", "elicitation-unavailable", `${toolName}: ${msg}`);
     return (
       `[SAFETY] This operation requires user confirmation, but the MCP client\n` +
       `does not support interactive confirmation (Elicitation).\n` +
