@@ -187,6 +187,15 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /\bRemove-Item\s+.*-(?:Force|fo)\b.*-(?:Recurse|rec|r)\b.*[a-zA-Z]:\\/i,
   /\bFormat-Volume\b/i,
   /\bClear-Disk\b/i,
+  // PowerShell 注入/破坏面（pwsh 成为默认 shell 后新增，任何安全模式下硬拦）
+  /-(?:enc|enco|encod|encode|encodedcommand)\b/i, // -EncodedCommand 及唯一前缀缩写（-encoding 不受影响）
+  /\b(?:invoke-expression|iex)\b/i,
+  /\bstart-process\b/i,
+  /\b(?:stop-computer|restart-computer)\b/i, // PS 版关机/重启
+  /\bset-executionpolicy\b/i,
+  // 系统盘根目录递归删除（路径在前 / flag 在前两种顺序）
+  /\bremove-item\s+['"]?[a-z]:\\+\*?['"]?\s+-[a-z]*r/i,
+  /\bremove-item\s+-[a-z]*r[a-z]*\s+[^|]*[a-z]:\\+\*?(?:\s|$)/i,
 ];
 
 export function hasDangerousPattern(cmd: string): string | null {

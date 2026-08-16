@@ -17,6 +17,10 @@ import {
   IS_WIN,
   wrapCommand,
 } from "./platform.js";
+import type { ShellSpec } from "./shell.js";
+
+// 注入的假 shell spec：单测不依赖本机 PATH（design 2.2 变化-3）
+const testShell: ShellSpec = { file: "pwsh-test.exe", flavor: "pwsh", source: "path", version: "7.6.5" };
 
 // ====================================================================
 // 平台常量
@@ -79,20 +83,20 @@ describe("wrapCommand", () => {
 // ====================================================================
 describe("getProcessListSpec", () => {
   test("无 filter 返回有效 CommandSpec", () => {
-    const spec = getProcessListSpec(undefined, 20);
+    const spec = getProcessListSpec(undefined, 20, testShell);
     expect(spec.file).toBeTruthy();
     expect(spec.args.length).toBeGreaterThan(0);
   });
 
   test("有 filter 返回包含过滤的 CommandSpec", () => {
-    const spec = getProcessListSpec("node", 10);
+    const spec = getProcessListSpec("node", 10, testShell);
     expect(spec.file).toBeTruthy();
     expect(spec.args.length).toBeGreaterThan(0);
   });
 
   test("top 参数影响输出", () => {
-    const spec5 = getProcessListSpec(undefined, 5);
-    const spec50 = getProcessListSpec(undefined, 50);
+    const spec5 = getProcessListSpec(undefined, 5, testShell);
+    const spec50 = getProcessListSpec(undefined, 50, testShell);
     // top 数字出现在参数中
     const args5 = spec5.args.join(" ");
     const args50 = spec50.args.join(" ");
@@ -182,7 +186,7 @@ describe("getNetworkSpec", () => {
 // ====================================================================
 describe("getCompressSpec", () => {
   test("返回有效 CommandSpec", () => {
-    const spec = getCompressSpec("/tmp/source", "/tmp/output.zip");
+    const spec = getCompressSpec("/tmp/source", "/tmp/output.zip", testShell);
     expect(spec.file).toBeTruthy();
     const argsStr = spec.args.join(" ");
     expect(argsStr).toContain("/tmp/source");
@@ -195,7 +199,7 @@ describe("getCompressSpec", () => {
 // ====================================================================
 describe("getExtractSpec", () => {
   test("返回有效 CommandSpec", () => {
-    const spec = getExtractSpec("/tmp/archive.zip", "/tmp/extracted");
+    const spec = getExtractSpec("/tmp/archive.zip", "/tmp/extracted", testShell);
     expect(spec.file).toBeTruthy();
     const argsStr = spec.args.join(" ");
     expect(argsStr).toContain("/tmp/archive.zip");
@@ -208,7 +212,7 @@ describe("getExtractSpec", () => {
 // ====================================================================
 describe("getDownloadSpec", () => {
   test("返回有效 CommandSpec", () => {
-    const spec = getDownloadSpec("https://example.com/file.txt", "/tmp/file.txt");
+    const spec = getDownloadSpec("https://example.com/file.txt", "/tmp/file.txt", testShell);
     expect(spec.file).toBeTruthy();
     const argsStr = spec.args.join(" ");
     expect(argsStr).toContain("https://example.com/file.txt");

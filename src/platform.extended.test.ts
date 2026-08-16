@@ -12,8 +12,12 @@ import {
   getNetworkSpec,
   getProcessListSpec,
 } from "./platform.js";
+import type { ShellSpec } from "./shell.js";
 
 const IS_WIN = os.platform() === "win32";
+
+// 注入的假 shell spec：单测不依赖本机 PATH（design 2.2 变化-3）
+const testShell: ShellSpec = { file: "pwsh-test.exe", flavor: "pwsh", source: "path", version: "7.6.5" };
 
 // ====================================================================
 // getKillSpec 详细验证
@@ -101,7 +105,7 @@ describe("getNetworkSpec 详细验证", () => {
 // ====================================================================
 describe("压缩/解压/下载 CommandSpec", () => {
   test("compress 包含源和目标", () => {
-    const spec = getCompressSpec("/src", "/dst.zip");
+    const spec = getCompressSpec("/src", "/dst.zip", testShell);
     const argsStr = spec.args.join(" ");
     expect(argsStr).toContain("/src");
     expect(argsStr).toContain("/dst.zip");
@@ -109,7 +113,7 @@ describe("压缩/解压/下载 CommandSpec", () => {
   });
 
   test("extract 包含归档和输出目录", () => {
-    const spec = getExtractSpec("/arc.zip", "/out");
+    const spec = getExtractSpec("/arc.zip", "/out", testShell);
     const argsStr = spec.args.join(" ");
     expect(argsStr).toContain("/arc.zip");
     expect(argsStr).toContain("/out");
@@ -117,7 +121,7 @@ describe("压缩/解压/下载 CommandSpec", () => {
   });
 
   test("download 包含 URL 和保存路径", () => {
-    const spec = getDownloadSpec("https://example.com/a.txt", "/tmp/a.txt");
+    const spec = getDownloadSpec("https://example.com/a.txt", "/tmp/a.txt", testShell);
     const argsStr = spec.args.join(" ");
     expect(argsStr).toContain("https://example.com/a.txt");
     expect(argsStr).toContain("/tmp/a.txt");
@@ -130,13 +134,13 @@ describe("压缩/解压/下载 CommandSpec", () => {
 // ====================================================================
 describe("getProcessListSpec 详细验证", () => {
   test("top=5 和 top=50 产生不同参数", () => {
-    const s5 = getProcessListSpec(undefined, 5);
-    const s50 = getProcessListSpec(undefined, 50);
+    const s5 = getProcessListSpec(undefined, 5, testShell);
+    const s50 = getProcessListSpec(undefined, 50, testShell);
     expect(s5.args).not.toEqual(s50.args);
   });
 
   test("filter 参数出现在输出中", () => {
-    const spec = getProcessListSpec("myapp", 10);
+    const spec = getProcessListSpec("myapp", 10, testShell);
     const argsStr = spec.args.join(" ");
     if (IS_WIN) {
       expect(argsStr).toContain("myapp");

@@ -12,10 +12,11 @@ import { promisify } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { logger } from "../logger.js";
-import { IS_WIN } from "../platform.js";
+import { escapePsString, IS_WIN } from "../platform.js";
 import { getRegex } from "../regex.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { validatePath } from "../security.js";
+import { buildShellInvocation, getShellSpec } from "../shell.js";
 import { wrapHandler } from "../wrap.js";
 
 export function registerSearchTools(server: McpServer) {
@@ -211,22 +212,22 @@ export function registerSearchTools(server: McpServer) {
       const results: string[] = [];
 
       try {
-        if (IS_WIN) {
+        // PS 入口仅在解析到 PowerShell flavor 时启用；cmd 模式或解析失败走原生降级
+        const shellSpec = await getShellSpec().catch(() => null);
+        if (IS_WIN && shellSpec && (shellSpec.flavor === "pwsh" || shellSpec.flavor === "powershell")) {
           const execAsync = promisify(execFile);
+          // 参数内联进单引号字面量（'' 转义），避免拼接注入
+          const q = (s: string) => `'${escapePsString(s)}'`;
           const psScript = [
-            "param([string]$Dir, [string]$Filter, [string]$Regex, [int]$MaxR);",
             "$ErrorActionPreference = 'SilentlyContinue';",
-            "Get-ChildItem -LiteralPath $Dir -Filter $Filter -Recurse -File |",
-            "  Select-String -Pattern $Regex -List |",
-            "  Select-Object -First $MaxR |",
+            `Get-ChildItem -LiteralPath ${q(dir_path)} -Filter ${q(fileFilter)} -Recurse -File |`,
+            `  Select-String -Pattern ${q(pattern)} -List |`,
+            `  Select-Object -First ${maxR} |`,
             '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
           ].join(" ");
           try {
-            const { stdout } = await execAsync(
-              "powershell",
-              ["-NoProfile", "-Command", psScript, dir_path, fileFilter, pattern, String(maxR)],
-              { timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
-            );
+            const inv = buildShellInvocation(psScript, shellSpec);
+            const { stdout } = await execAsync(inv.file, inv.args, { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
             results.push(
               ...stdout
                 .split("\n")

@@ -10,6 +10,7 @@ import { logger } from "../logger.js";
 import { getCompressSpec, getDownloadSpec, getExtractSpec } from "../platform.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { validatePath, validateUrl } from "../security.js";
+import { getShellSpec, shellResolutionFail } from "../shell.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 
@@ -39,7 +40,7 @@ export function registerArchiveTools(server: McpServer) {
       }
 
       try {
-        const spec = getCompressSpec(source_path, output_path);
+        const spec = getCompressSpec(source_path, output_path, await getShellSpec());
         await safeExecFile(spec.file, spec.args, 60000);
         let size_bytes: number | undefined;
         try {
@@ -53,7 +54,7 @@ export function registerArchiveTools(server: McpServer) {
           size_bytes,
         });
       } catch (e: any) {
-        return fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
+        return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
       }
     }),
   );
@@ -83,11 +84,11 @@ export function registerArchiveTools(server: McpServer) {
       }
 
       try {
-        const spec = getExtractSpec(archive_path, output_dir);
+        const spec = getExtractSpec(archive_path, output_dir, await getShellSpec());
         await safeExecFile(spec.file, spec.args, 60000);
         return success(`Extracted: ${archive_path} -> ${output_dir}`, { archive: archive_path, output: output_dir });
       } catch (e: any) {
-        return fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
+        return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
       }
     }),
   );
@@ -114,14 +115,14 @@ export function registerArchiveTools(server: McpServer) {
       if (urlErr) return fail(ErrorCode.URL_INVALID, urlErr, { retryable: true, param: "url" });
 
       try {
-        const spec = getDownloadSpec(url, save_path);
+        const spec = getDownloadSpec(url, save_path, await getShellSpec());
         await withRetry(() => safeExecFile(spec.file, spec.args, 120000), {
           baseDelay: 1000,
           toolName: "download_file",
         });
         return success(`Downloaded: ${url} -> ${save_path}`, { url, path: save_path });
       } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+        return shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
     }),
   );

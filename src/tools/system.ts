@@ -8,6 +8,7 @@ import { getKillSpec, getNetworkSpec, getProcessListSpec, getSystemInfoSpec } fr
 import { ErrorCode, fail, success, type ToolResult } from "../result.js";
 import { guardDestructiveAction, isCriticalProcess } from "../safeguard.js";
 import { validateHost } from "../security.js";
+import { getShellSpec, shellResolutionFail } from "../shell.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 
@@ -27,12 +28,12 @@ export function registerSystemTools(server: McpServer) {
     },
     wrapHandler("get_system_info", async () => {
       try {
-        const spec = getSystemInfoSpec();
+        const spec = getSystemInfoSpec(await getShellSpec());
         const result = await safeExecFile(spec.file, spec.args, 30000);
         logger.info("get_system_info", "collected", "system info gathered");
         return success(result.stdout.trim(), { info: result.stdout.trim() });
       } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+        return shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
     }),
   );
@@ -55,11 +56,11 @@ export function registerSystemTools(server: McpServer) {
     },
     wrapHandler("process_list", async ({ filter, top }: ProcessListInput) => {
       try {
-        const spec = getProcessListSpec(filter, top || 20);
+        const spec = getProcessListSpec(filter, top || 20, await getShellSpec());
         const result = await safeExecFile(spec.file, spec.args, 10000);
         return success(`Running Processes:\n${result.stdout.trim()}`, { output: result.stdout.trim() });
       } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+        return shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
       }
     }),
   );

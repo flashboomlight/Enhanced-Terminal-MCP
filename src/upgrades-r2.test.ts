@@ -12,6 +12,10 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import type { ShellSpec } from "./shell.js";
+
+// cmd 兼容档 → powerShellTarget 回退 powershell.exe -NoProfile（v3.1 原行为，真实执行可用）
+const compatShell: ShellSpec = { file: "cmd.exe", flavor: "cmd", source: "compat" };
 
 // ====================================================================
 // 【性能-A】PowerShell 内联路径 — 压缩/解压实际可用
@@ -34,7 +38,7 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
 
     const src = path.join(tmpDir, "source.txt");
     const dst = path.join(tmpDir, "output.zip");
-    const spec = getCompressSpec(src, dst);
+    const spec = getCompressSpec(src, dst, compatShell);
 
     // 验证命令结构
     expect(spec.file).toBe("powershell.exe");
@@ -57,11 +61,11 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
     const outDir = path.join(tmpDir, "extracted");
 
     // 先压缩
-    const compSpec = getCompressSpec(src, zipFile);
+    const compSpec = getCompressSpec(src, zipFile, compatShell);
     await safeExecFile(compSpec.file, compSpec.args, 30000);
 
     // 再解压
-    const extSpec = getExtractSpec(zipFile, outDir);
+    const extSpec = getExtractSpec(zipFile, outDir, compatShell);
     expect(extSpec.args[2]).toContain("Expand-Archive");
     await safeExecFile(extSpec.file, extSpec.args, 30000);
 
@@ -72,7 +76,7 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
 
   test("getDownloadSpec 生成正确的内联命令结构", async () => {
     const { getDownloadSpec } = await import("./platform.js");
-    const spec = getDownloadSpec("https://example.com/file.txt", "C:\\tmp\\out.txt");
+    const spec = getDownloadSpec("https://example.com/file.txt", "C:\\tmp\\out.txt", compatShell);
 
     expect(spec.file).toBe("powershell.exe");
     expect(spec.args[2]).toContain("Invoke-WebRequest");
@@ -84,7 +88,7 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
 
   test("路径含单引号时正确转义", async () => {
     const { getCompressSpec } = await import("./platform.js");
-    const spec = getCompressSpec("C:\\it's a test\\file.txt", "C:\\out\\it's.zip");
+    const spec = getCompressSpec("C:\\it's a test\\file.txt", "C:\\out\\it's.zip", compatShell);
     // PowerShell 单引号转义：' -> ''
     expect(spec.args[2]).toContain("it''s a test");
     expect(spec.args[2]).toContain("it''s.zip");

@@ -279,6 +279,41 @@ describe("hasDangerousPattern", () => {
     expect(hasDangerousPattern("echo hello")).toBeFalsy();
     expect(hasDangerousPattern("ls -la")).toBeFalsy();
   });
+
+  test("检测 PowerShell -EncodedCommand 及缩写", () => {
+    expect(hasDangerousPattern("pwsh -EncodedCommand AAAAbbbb")).toBeTruthy();
+    expect(hasDangerousPattern("pwsh -enc AAAAbbbb")).toBeTruthy();
+    expect(hasDangerousPattern("powershell -encodedcommand AAAA")).toBeTruthy();
+  });
+
+  test("-Encoding 参数不误伤", () => {
+    expect(hasDangerousPattern("Get-Content a.txt | Out-File -Encoding utf8 b.txt")).toBeFalsy();
+  });
+
+  test("检测 Invoke-Expression / iex", () => {
+    expect(hasDangerousPattern("Invoke-Expression (Get-Content script.ps1)")).toBeTruthy();
+    expect(hasDangerousPattern("iex $cmd")).toBeTruthy();
+  });
+
+  test("检测 Start-Process", () => {
+    expect(hasDangerousPattern("Start-Process notepad")).toBeTruthy();
+  });
+
+  test("检测 PS 关机与执行策略", () => {
+    expect(hasDangerousPattern("Stop-Computer")).toBeTruthy();
+    expect(hasDangerousPattern("Restart-Computer -Force")).toBeTruthy();
+    expect(hasDangerousPattern("Set-ExecutionPolicy Bypass")).toBeTruthy();
+  });
+
+  test("检测系统盘根目录递归删除（两种参数顺序）", () => {
+    expect(hasDangerousPattern("Remove-Item C:\\ -Recurse -Force")).toBeTruthy();
+    expect(hasDangerousPattern("Remove-Item C:\\* -Recurse -Force")).toBeTruthy();
+    expect(hasDangerousPattern("Remove-Item -Recurse -Force C:\\")).toBeTruthy();
+  });
+
+  test("普通目录的 Remove-Item 不误伤", () => {
+    expect(hasDangerousPattern("Remove-Item .\\node_modules -Recurse -Force")).toBeFalsy();
+  });
 });
 
 // ====================================================================

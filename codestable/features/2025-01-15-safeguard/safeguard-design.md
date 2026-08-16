@@ -1,4 +1,20 @@
+---
+doc_type: feature-design
+feature: safeguard
+status: approved
+summary: 为敏感终端操作提供三级模式、交互确认与硬性保护的集中式安全锁设计
+tags:
+  - security
+  - elicitation
+  - mcp
+created: "2025-01-15"
+last_reviewed: "2026-08-16"
+legacy_source: docs/superpowers/specs/2025-01-15-safeguard-design.md
+---
+
 # SafeGuard 安全锁系统设计规格
+
+> 迁移说明：本文于 2026-08-16 从 Superpowers spec 目录迁入 CodeStable；原设计正文保持不变。
 
 ## 概述
 

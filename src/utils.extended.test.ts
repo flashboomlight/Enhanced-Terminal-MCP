@@ -1,135 +1,64 @@
 /**
- * utils.ts 扩展单元测试 — 包含 child_process mock
+ * utils.ts 扩展单元测试 — safeExec 走统一 shell spec（真实 spawnStream，固定注入 spec）
  */
+import * as os from "node:os";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+const IS_WIN = os.platform() === "win32";
+// 固定注入 spec：不依赖本机 PATH / pwsh 安装状态
+const FIXED_SPEC = IS_WIN
+  ? { file: "cmd.exe", flavor: "cmd" as const, source: "compat" as const }
+  : { file: "/bin/sh", flavor: "unix" as const, source: "compat" as const };
+
+async function loadSafeExec() {
+  vi.resetModules();
+  vi.doMock("./shell.js", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("./shell.js")>();
+    return { ...actual, getShellSpec: async () => FIXED_SPEC };
+  });
+  const mod = await import("./utils.js");
+  return mod.safeExec;
+}
+
 // ====================================================================
-// safeExec 和 safeExecFile 测试（mock child_process）
+// safeExec — 统一 shell spec（真实执行）
 // ====================================================================
-describe("safeExec (mocked)", () => {
-  let safeExec: Function;
-
-  beforeEach(async () => {
-    vi.resetModules();
-    // 模拟成功的 exec
-    vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        const stdout = Buffer.from("hello world");
-        const stderr = Buffer.from("");
-        // 异步回调
-        setImmediate(() => cb(null, stdout, stderr));
-        return { on: vi.fn() };
-      },
-      execFile: (_file: string, _args: string[], _opts: any, cb: Function) => {
-        setImmediate(() => cb(null, "output", ""));
-        return { on: vi.fn() };
-      },
-    }));
-
-    // 重新 mock platform 中的 shell 以避免 path 依赖
-    vi.doMock("./platform.js", () => ({
-      getShell: () => "cmd.exe",
-      wrapCommand: (cmd: string) => cmd,
-      IS_WIN: true,
-    }));
-
-    const mod = await import("./utils.js");
-    safeExec = (mod as any).safeExec;
+describe("safeExec (统一 shell spec)", () => {
+  beforeEach(() => {
+    vi.unmock("./shell.js");
   });
 
-  test("safeExec 正常执行返回 stdout", async () => {
-    const result = await safeExec("echo hello", 5000);
-    expect(result.stdout).toBe("hello world");
-  });
-
-  test("safeExec 返回空 stderr", async () => {
-    const result = await safeExec("echo hello", 5000);
+  test("正常执行返回 stdout 与空 stderr", async () => {
+    const safeExec = await loadSafeExec();
+    const result = await safeExec("echo hello", 10000);
+    expect(result.stdout.trim()).toBe("hello");
     expect(result.stderr).toBe("");
   });
-});
 
-describe("safeExec (error cases)", () => {
-  let safeExec: Function;
-
-  beforeEach(async () => {
-    vi.resetModules();
-    vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        const error = { code: 1, message: "command failed" } as any;
-        setImmediate(() => cb(error, Buffer.from(""), Buffer.from("")));
-        return { on: vi.fn() };
-      },
-      execFile: vi.fn(),
-    }));
-    vi.doMock("./platform.js", () => ({
-      getShell: () => "cmd.exe",
-      wrapCommand: (cmd: string) => cmd,
-      IS_WIN: true,
-    }));
-    const mod = await import("./utils.js");
-    safeExec = (mod as any).safeExec;
+  test("exit≠0 且无输出时 reject", async () => {
+    const safeExec = await loadSafeExec();
+    await expect(safeExec("exit 1", 10000)).rejects.toThrow(/Exit code 1/);
   });
 
-  test("safeExec 命令失败且无输出时 reject", async () => {
-    await expect(safeExec("bad-command", 5000)).rejects.toThrow();
-  });
-});
+  test("超时 reject Timeout", async () => {
+    const safeExec = await loadSafeExec();
+    const slow = IS_WIN ? "ping -n 10 127.0.0.1" : "sleep 10";
+    await expect(safeExec(slow, 500)).rejects.toThrow(/Timeout/);
+  }, 15000);
 
-describe("safeExec (timeout)", () => {
-  let safeExec: Function;
-
-  beforeEach(async () => {
-    vi.resetModules();
-    vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        const error = { killed: true, code: null } as any;
-        setImmediate(() => cb(error, undefined, undefined));
-        return { on: vi.fn() };
-      },
-      execFile: vi.fn(),
-    }));
-    vi.doMock("./platform.js", () => ({
-      getShell: () => "cmd.exe",
-      wrapCommand: (cmd: string) => cmd,
-      IS_WIN: true,
-    }));
-    const mod = await import("./utils.js");
-    safeExec = (mod as any).safeExec;
-  });
-
-  test("safeExec 超时时 reject with Timeout", async () => {
-    await expect(safeExec("slow-command", 1000)).rejects.toThrow("Timeout");
-  });
-});
-
-describe("safeExec (exit code but has output)", () => {
-  beforeEach(async () => {
-    vi.resetModules();
-    vi.doMock("child_process", () => ({
-      exec: (_cmd: string, _opts: any, cb: Function) => {
-        const error = { code: 1 } as any;
-        const stdout = Buffer.from("partial output");
-        const stderr = Buffer.from("error output");
-        setImmediate(() => cb(error, stdout, stderr));
-        return { on: vi.fn() };
-      },
-      execFile: vi.fn(),
-    }));
-    vi.doMock("./platform.js", () => ({
-      getShell: () => "cmd.exe",
-      wrapCommand: (cmd: string) => cmd,
-      IS_WIN: true,
-    }));
-  });
-
-  test("safeExec 有 stdout 时即使 exit code≠0 也 resolve", async () => {
-    const { safeExec } = await import("./utils.js");
-    const result = await safeExec("partial-fail", 5000);
-    expect(result.stdout).toBe("partial output");
+  test("有输出时即使 exit≠0 也 resolve 并附 EXIT CODE 标记", async () => {
+    const safeExec = await loadSafeExec();
+    const partial = IS_WIN ? "echo partial & echo err 1>&2 & exit 3" : "echo partial; echo err 1>&2; exit 3";
+    const result = await safeExec(partial, 10000);
+    expect(result.stdout.trim()).toBe("partial");
+    expect(result.stderr).toContain("err");
     expect(result.stderr).toContain("EXIT CODE");
   });
 });
 
+// ====================================================================
+// safeExecFile（mocked — 行为未变，保持原测试）
+// ====================================================================
 describe("safeExecFile (mocked)", () => {
   let safeExecFile: Function;
 

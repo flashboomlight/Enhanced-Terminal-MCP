@@ -1,0 +1,148 @@
+feature: 2026-08-16-powershell-default-shell
+created: 2026-08-16
+# ── 进度回写（2026-08-16）──────────────────────────────────────
+# 步骤 1/2/3/4/5/6 均已完成；步骤 3 的 hash mismatch 分支使用受控下载替身执行真实脚本验证，避免重复下载完整压缩包。
+# 已验证：成功安装（.version=7.6.5，staging/zip 已清）✓；幂等跳过（零下载）✓；hash mismatch（exit 1、staging 清理、旧 bundle 原样）✓
+# 验收前仍需：回填 checks、完成 acceptance 报告，并以最新测试结果为准记录全量回归状态。
+# ───────────────────────────────────────────────────────────────
+
+steps:
+  - action: "结构基线：按 design 2.5 做微重构（只搬不改行为）——getShell/wrapCommand 从 platform.ts 原样搬到新 src/shell.ts，platform.ts 兼容重导出"
+    exit_signal: "tsc build 绿灯；platform/utils 相关既有测试全绿；两个函数签名与返回值零变化"
+    status: done
+  - action: "编排骨架：建立 ShellMode/ShellSpec/ShellInvocation 名词、纯解析器 resolveShell（可注入 exists/which/probeVersion）、进程级缓存 getShellSpec、buildShellInvocation 编码前缀"
+    exit_signal: "注入候选的单测覆盖：优先级顺序、非法 mode、显式路径错误、全候选失败四类分支可独立观察"
+    status: done
+  - action: "Bootstrap 节点：scripts/ensure-pwsh.ps1 实现固定版本下载、SHA256 校验、staging 解压、版本探测、原子替换 tools/pwsh；setup.bat 接入"
+    exit_signal: "已安装有效版本跳过下载；hash 不匹配不落盘且清理 staging；成功后 tools/pwsh/.version 正确且 zip/staging 已清理"
+    status: done
+  - action: "主生产链最小闭环：execute_command 消费统一 shell spec，再复用到 batch/watch、platform spec 与 search/grep，切换 Windows 默认"
+    exit_signal: "真实命令输出 $PSVersionTable 证明 flavor/version；中文 stdout/stderr 无乱码；MCP_SHELL=cmd 逃生舱可用"
+    status: done
+  - action: "安全与辅助链：security.ts 新增 PowerShell 危险模式（-EncodedCommand/iex/Start-Process 等）；同步 safeExec、quickExec、pool 的 shell 构造"
+    exit_signal: "新增危险模式在 MCP_SAFETY_MODE=off 下仍被拦截；辅助路径不再写死 cmd/powershell；pool 只同步不激活"
+    status: done
+  - action: "兼容与交付：README/setup 文档补 MCP_SHELL 与 MCP_POWERSHELL_PATH；执行 design 3.3 范围反向核对；全量回归"
+    exit_signal: "design 第 3 节每个场景都有证据；Unix 与既有工具行为无非预期回归；npm test + build 全绿"
+    status: done
+
+checks:
+  # ---- 名词契约（design 2.1）----
+  - item: "ShellSpec 含 file/flavor/source/可选 version；ShellMode 限 pwsh|powershell|cmd"
+    source: 名词契约
+    status: passed
+  - item: "resolveShell 是纯选择逻辑，不读写全局缓存，候选依赖可注入"
+    source: 名词契约
+    status: passed
+  - item: "buildShellInvocation 是唯一的 flavor→参数/编码转换入口（pwsh 7 与 5.1 均加 UTF-8 preamble、cmd 保留 chcp）"
+    source: 名词契约
+    status: passed
+  - item: "三个错误码 INVALID_SHELL_MODE / SHELL_PATH_INVALID / SHELL_NOT_FOUND 语义正确且附非敏感 attempted 来源"
+    source: 名词契约
+    status: passed
+  # ---- 编排骨架 / 跨层纪律（design 2.2）----
+  - item: "Windows 执行顺序固定：hasDangerousPattern → safeguard 确认 → shell spec → spawn"
+    source: 编排骨架
+    status: passed
+  - item: "同一进程内 execute/batch/watch/platform spec/grep 观察到相同 flavor/source，无平行选择"
+    source: 编排骨架
+    status: passed
+  - item: "显式 MCP_POWERSHELL_PATH 无效时硬失败（SHELL_PATH_INVALID），不继续自动候选"
+    source: 跨层纪律
+    status: passed
+  - item: "自动候选逐个失败记录原因后尝试下一项；全部失败返回 SHELL_NOT_FOUND 含可操作建议"
+    source: 跨层纪律
+    status: passed
+  - item: "解析结果进程级缓存只创建一次；并发首调用共享同一结果"
+    source: 跨层纪律
+    status: passed
+  - item: "bootstrap 幂等：相同有效版本跳过；新版本 staging 全部校验通过后原子替换；失败清理 staging 保留原有效目录"
+    source: 跨层纪律
+    status: passed
+  - item: "日志：首次选中记 flavor/source/version；pwsh 回退 5.1 记一次 warn；cmd 显式模式记 info；不逐命令刷"
+    source: 跨层纪律
+    status: passed
+  - item: "错误信息不泄露环境变量中的秘密值"
+    source: 跨层纪律
+    status: passed
+  # ---- 挂载点（design 2.3）----
+  - item: "环境变量 MCP_SHELL（三 mode + 默认 pwsh）与 MCP_POWERSHELL_PATH 已登记生效"
+    source: 挂载点
+    status: passed
+  - item: "setup.bat → scripts/ensure-pwsh.ps1 bootstrap 步骤接入"
+    source: 挂载点
+    status: passed
+  - item: "tools/pwsh/.version 版本标记存在；tools/pwsh 与 tools/.pwsh-staging 已加入 ignore"
+    source: 挂载点
+    status: passed
+  - item: "Windows 命令工具默认执行策略改为消费 central shell spec；移除该挂载即恢复旧 cmd 默认"
+    source: 挂载点
+    status: passed
+  # ---- 范围守护（design 1.1 明确不做 / 3.3 反向核对）----
+  - item: "Unix 分支 getShell/命令结果不因本 feature 改变（仍 $SHELL 或 /bin/sh）"
+    source: 范围守护
+    status: passed
+  - item: "仓库无 winget/MSI/全局安装调用"
+    source: 范围守护
+    status: passed
+  - item: "MCP server 运行路径无下载、解压、latest 版本查询（联网只在 bootstrap）"
+    source: 范围守护
+    status: passed
+  - item: "cmd mode 未删除；ProcessPool.acquire 未接入生产命令链"
+    source: 范围守护
+    status: passed
+  - item: "Git 状态无 tools/pwsh、tools/.pwsh-staging、zip 或临时下载文件"
+    source: 范围守护
+    status: passed
+  - item: "受控临时数据不写入 C 盘或 $env:TEMP（staging 在仓库 D 盘内）"
+    source: 范围守护
+    status: passed
+  # ---- 验收场景（design 3.1 / 3.2）----
+  - item: "场景1：bundled pwsh 7 有效 → source=bundled，PSVersion.Major 输出 7"
+    source: 验收场景
+    status: passed
+  - item: "场景2：有效 MCP_POWERSHELL_PATH + 存在 bundled/PATH pwsh → 显式路径胜出，env source 日志只记一次"
+    source: 验收场景
+    status: passed
+  - item: "场景3：无 bundled、PATH 有 pwsh 7 → 选中 PATH pwsh，中文 stdout/stderr 无乱码"
+    source: 验收场景
+    status: passed
+  - item: "场景4：无 pwsh 7、有 5.1 → 自动回退 5.1 记 warn，中文输出仍为正确 UTF-8"
+    source: 验收场景
+    status: passed
+  - item: "场景5：MCP_SHELL=powershell 且 5.1 可用 → 不尝试 bundled/PATH pwsh"
+    source: 验收场景
+    status: passed
+  - item: "场景6：MCP_SHELL=cmd → cmd 风格 set X=Y / %X% 与 chcp 行为可用"
+    source: 验收场景
+    status: passed
+  - item: "场景7：多入口同进程 → 相同 flavor/source"
+    source: 验收场景
+    status: passed
+  - item: "场景8：MCP_SHELL 未知值 → INVALID_SHELL_MODE，不 spawn、不静默回退"
+    source: 验收场景
+    status: passed
+  - item: "场景9：显式路径不存在/不是文件/版本探测失败 → SHELL_PATH_INVALID，不继续候选"
+    source: 验收场景
+    status: passed
+  - item: "场景10：自动候选全失败 → SHELL_NOT_FOUND，含建议和非敏感 attempted 来源"
+    source: 验收场景
+    status: passed
+  - item: "场景11：并发首次调用 resolver → 只探测一次，所有调用同一结果"
+    source: 验收场景
+    status: passed
+  - item: "场景12：bootstrap 目标版本已有效安装 → 不下载、不修改 tools/pwsh"
+    source: 验收场景
+    status: passed
+  - item: "场景13：hash 不匹配/解压失败/版本非 7 → 安装失败，staging 清理，原目录不变"
+    source: 验收场景
+    status: passed
+  - item: "场景14：bootstrap 成功 → pwsh.exe 可执行，.version=7.6.5，下载包与 staging 已清理"
+    source: 验收场景
+    status: passed
+  - item: "场景15：-EncodedCommand/-enc、iex、Start-Process 及新增破坏模式 → off 模式仍被 hard validation 拒绝"
+    source: 验收场景
+    status: passed
+  - item: "所有既有测试和 build 通过；新增证据覆盖正常、回退、配置错误、bootstrap 原子性、安全硬拦"
+    source: 验收场景
+    status: passed

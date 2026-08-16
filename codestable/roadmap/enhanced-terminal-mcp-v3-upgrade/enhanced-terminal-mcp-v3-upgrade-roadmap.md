@@ -1,6 +1,23 @@
+---
+doc_type: roadmap
+slug: enhanced-terminal-mcp-v3-upgrade
+status: completed
+created: "2025-01-15"
+last_reviewed: "2026-08-16"
+summary: Enhanced Terminal MCP 从 v2.0 升级到 v3.0 的历史实施方案
+tags:
+  - mcp
+  - typescript
+  - security
+  - cross-platform
+legacy_source: docs/superpowers/plans/2025-01-15-enhanced-terminal-mcp-upgrade.md
+---
+
 # Enhanced Terminal MCP v3.0 全面升级实施方案
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> 迁移说明：本文于 2026-08-16 从 Superpowers 计划目录迁入 CodeStable。当前项目版本已为 3.1.0，本文按已完成的历史 roadmap 保留原始任务内容，不反向虚构执行过程记录。
+
+> **历史工作流说明（已失效）：** 原文要求使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans` 逐项执行。迁入 CodeStable 后这不再是执行指令；如需重启该主题，应先用 `cs-roadmap` 核对现状，再通过 `cs-feat` 推进仍需实施的条目。下文 checkbox 仅作为历史计划内容保留。
 
 **Goal:** 将 Enhanced Terminal MCP 从 v2.0 全面升级到 v3.0，涵盖安全加固、MCP 协议新特性适配、跨平台兼容、结构化输出、性能优化等 12 个方向。
 

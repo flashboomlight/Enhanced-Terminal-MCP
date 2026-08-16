@@ -3,7 +3,7 @@
  * 替代 exec 全量缓冲，大输出场景首字节延迟从 5s→50ms
  */
 import { spawn } from "node:child_process";
-import { IS_WIN } from "./platform.js";
+import { buildShellInvocation, getShellSpec } from "./shell.js";
 
 export interface StreamResult {
   stdout: string;
@@ -101,17 +101,14 @@ export async function spawnStream(
 }
 
 /**
- * 快速执行简单命令（echo、dir、ls 等轻量级）
+ * 快速执行简单命令（echo、dir、ls 等轻量级）— 统一走 shell spec
  */
 export async function quickExec(
   command: string,
   timeout = 5000,
   cwd?: string,
 ): Promise<{ stdout: string; exitCode: number | null; timedOut: boolean }> {
-  if (IS_WIN) {
-    const r = await spawnStream("cmd.exe", ["/c", command], { timeout, cwd, maxOutput: 1024 * 1024 });
-    return { stdout: r.stdout, exitCode: r.exitCode, timedOut: r.timedOut };
-  }
-  const r = await spawnStream("/bin/sh", ["-c", command], { timeout, cwd, maxOutput: 1024 * 1024 });
+  const inv = buildShellInvocation(command, await getShellSpec());
+  const r = await spawnStream(inv.file, inv.args, { timeout, cwd, maxOutput: 1024 * 1024 });
   return { stdout: r.stdout, exitCode: r.exitCode, timedOut: r.timedOut };
 }

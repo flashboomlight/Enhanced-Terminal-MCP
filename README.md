@@ -20,6 +20,10 @@ Supports **26 tools** across 7 categories: command execution, file I/O, system m
 # Install
 npm install enhanced-terminal-mcp
 
+# Windows one-click setup (also installs bundled pwsh 7 as the default shell;
+# pass --no-pwsh to skip — the server then falls back to Windows PowerShell 5.1)
+setup.bat
+
 # Configure in Claude Desktop / Cherry Studio / etc.
 # Add to your MCP config:
 {
@@ -38,6 +42,19 @@ npm install enhanced-terminal-mcp
 |----------|---------|-------------|
 | `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm), `off` (no checks) |
 | `MCP_LOG_LEVEL` | `info` | Log level: debug / info / warn / error |
+| `MCP_SHELL` | `pwsh` | Windows shell mode: `pwsh` (PowerShell 7, recommended), `powershell` (Windows PowerShell 5.1), `cmd` (legacy cmd.exe escape hatch). Unix is unaffected. |
+| `MCP_POWERSHELL_PATH` | — | Explicit path to a pwsh 7 / PowerShell executable. Takes highest priority; invalid path is a hard error (no silent fallback). |
+
+### Windows Default Shell (pwsh 7)
+
+On Windows, command tools resolve a shell once per process, in this order:
+
+1. `MCP_POWERSHELL_PATH` (explicit, fail-closed)
+2. Bundled portable pwsh 7 at `tools/pwsh/pwsh.exe` (installed by `setup.bat`, fixed version + SHA256 verified)
+3. pwsh 7 found on `PATH`
+4. Windows PowerShell 5.1 fallback (logs a warning)
+
+All flavors emit UTF-8 output (pwsh 7 and Windows PowerShell 5.1 use the invocation-layer encoding preamble; cmd keeps `chcp 65001`). Use `MCP_SHELL=cmd` to restore the legacy cmd.exe behavior. Changing shells or installing pwsh requires a server restart (resolution is cached for the process lifetime).
 
 ## Tool Reference
 

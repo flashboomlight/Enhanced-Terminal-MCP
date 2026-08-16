@@ -7,6 +7,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { logger } from "./logger.js";
 import { getShell, IS_WIN } from "./platform.js";
+import { getShellSpec, type ShellSpec } from "./shell.js";
 
 interface PoolEntry {
   proc: ChildProcess;
@@ -24,16 +25,36 @@ class ProcessPool {
   private shell: string;
   private shellArgs: string[];
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  /** 统一 shell spec 解析（惰性：首次 acquire 触发；解析失败下次 acquire 重试） */
+  private specSynced: Promise<void> | null = null;
 
   constructor(maxSize = 4, idleTimeoutMs = 60000) {
     this.maxSize = maxSize;
     this.idleTimeout = idleTimeoutMs;
+    // 兼容档初值；解析完成后 shell/args 换成统一 spec（进程池当前无生产调用方，保持不激活）
     this.shell = getShell();
     this.shellArgs = IS_WIN ? ["/q"] : [];
   }
 
+  /** 惰性同步统一 shell spec 的构造（不改变 acquire 同步签名） */
+  private syncShellSpec(): Promise<void> {
+    if (!this.specSynced) {
+      this.specSynced = getShellSpec()
+        .then((spec: ShellSpec) => {
+          this.shell = spec.file;
+          this.shellArgs = spec.flavor === "cmd" ? ["/q"] : spec.flavor === "unix" ? [] : ["-NoLogo", "-NoProfile"];
+        })
+        .catch(() => {
+          // 解析失败保持兼容档；置空让下次 acquire 重试
+          this.specSynced = null;
+        });
+    }
+    return this.specSynced;
+  }
+
   /** 获取一个空闲进程，没有则创建 */
   acquire(): PoolEntry {
+    void this.syncShellSpec();
     const idle = this.pool.find((e) => !e.busy);
     if (idle) {
       idle.busy = true;

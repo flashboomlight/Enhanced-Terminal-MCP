@@ -39,3 +39,8 @@ npm-debug.log*
 
 # Backup files
 *.bak-*
+
+# Bundled pwsh (installed by scripts/ensure-pwsh.ps1, never committed)
+tools/pwsh/
+tools/.pwsh-staging/
+tools/.pwsh-old

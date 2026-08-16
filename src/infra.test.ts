@@ -12,8 +12,12 @@ vi.mock("child_process", async (importOriginal) => {
   return {
     ...actual,
     spawn: vi.fn((...args: any[]) => {
-      // For stream tests with cmd.exe, use real spawn
-      if (args[0] === "cmd.exe" || args[0] === "/bin/sh") {
+      // For stream/shell-spec tests with real executables (cmd/sh/PowerShell), use real spawn
+      if (
+        args[0] === "cmd.exe" ||
+        args[0] === "/bin/sh" ||
+        /(?:^|[\\/])(?:powershell|pwsh)\.exe$/i.test(String(args[0]))
+      ) {
         return actual.spawn(...(args as Parameters<typeof actual.spawn>));
       }
       // For pool tests, return mock

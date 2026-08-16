@@ -1,42 +1,34 @@
 // src/utils.ts — 核心工具函数：命令执行、格式化
-import { exec, execFile } from "node:child_process";
-import { getShell, wrapCommand } from "./platform.js";
+import { execFile } from "node:child_process";
+import { buildShellInvocation, getShellSpec } from "./shell.js";
+import { spawnStream } from "./stream.js";
 
 /**
- * 安全执行 shell 命令（通过 shell 解释器）
- * 用于需要 shell 特性（管道/重定向）的场景，大输出场景优先使用 spawnStream。
+ * 安全执行 shell 命令（通过统一解析的 shell spec + spawnStream）
+ * 用于需要 shell 特性（管道/重定向）的场景。
+ * 语义：超时 reject Timeout；exit≠0 且无输出 reject；有输出则 resolve 并附 EXIT CODE 标记。
  */
-export function safeExec(cmd: string, timeout = 30000, cwd?: string): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const fullCmd = wrapCommand(cmd);
-    const _proc = exec(
-      fullCmd,
-      {
-        cwd: cwd || undefined,
-        env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-        windowsHide: true,
-        timeout: timeout,
-        maxBuffer: 10 * 1024 * 1024,
-        shell: getShell(),
-        encoding: "buffer",
-      } as any,
-      (error: any, stdoutBuf: any, stderrBuf: any) => {
-        const stdout = smartDecode(stdoutBuf);
-        const stderr = smartDecode(stderrBuf);
-        if (error) {
-          if (error.killed) {
-            reject(new Error(`Timeout (${timeout}ms)\n[CMD]: ${cmd}`));
-          } else if (!stdout && !stderr) {
-            reject(new Error(`Exit code ${error.code}\n[CMD]: ${cmd}\n[DETAIL]: ${error.message}`));
-          } else {
-            resolve({ stdout, stderr: stderr ? `${stderr}\n[EXIT CODE] ${error.code}` : "" });
-          }
-        } else {
-          resolve({ stdout, stderr });
-        }
-      },
-    );
+export async function safeExec(
+  cmd: string,
+  timeout = 30000,
+  cwd?: string,
+): Promise<{ stdout: string; stderr: string }> {
+  const inv = buildShellInvocation(cmd, await getShellSpec());
+  const r = await spawnStream(inv.file, inv.args, {
+    timeout,
+    cwd,
+    env: { PYTHONIOENCODING: "utf-8" },
   });
+  if (r.timedOut) {
+    throw new Error(`Timeout (${timeout}ms)\n[CMD]: ${cmd}`);
+  }
+  if (r.exitCode !== 0) {
+    if (!r.stdout && !r.stderr) {
+      throw new Error(`Exit code ${r.exitCode}\n[CMD]: ${cmd}`);
+    }
+    return { stdout: r.stdout, stderr: r.stderr ? `${r.stderr}\n[EXIT CODE] ${r.exitCode}` : "" };
+  }
+  return { stdout: r.stdout, stderr: r.stderr };
 }
 
 /**
@@ -70,20 +62,6 @@ export function safeExecFile(
       },
     );
   });
-}
-
-/**
- * 智能编码解码：优先 UTF-8，乱码回退 GBK
- */
-function smartDecode(buf: Buffer | null): string {
-  if (!buf || buf.length === 0) return "";
-  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buf);
-  if (!utf8.includes("\ufffd")) return utf8;
-  try {
-    return new TextDecoder("gbk", { fatal: false }).decode(buf);
-  } catch {
-    return utf8;
-  }
 }
 
 /**

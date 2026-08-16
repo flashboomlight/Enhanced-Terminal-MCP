@@ -6,12 +6,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { adaptiveTimeout } from "../adaptive.js";
 import { logger } from "../logger.js";
-import { IS_WIN } from "../platform.js";
 import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
 import { ErrorCode, fail, success } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { hasDangerousPattern } from "../security.js";
 import { session } from "../session.js";
+import { buildShellInvocation, getShellSpec, shellResolutionFail } from "../shell.js";
 import { spawnStream } from "../stream.js";
 import { wrapHandler } from "../wrap.js";
 
@@ -60,11 +60,11 @@ export function registerCommandTools(server: McpServer) {
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
 
       try {
-        const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
-        const shellArgs = IS_WIN ? ["/c", `chcp 65001 >nul && ${command}`] : ["-c", command];
+        const shellSpec = await getShellSpec();
+        const inv = buildShellInvocation(command, shellSpec);
         const effectiveCwd = cwd || session.getCwd();
         const effectiveTimeout = timeout || adaptiveTimeout("execute_command");
-        const result = await spawnStream(shell, shellArgs, { timeout: effectiveTimeout, cwd: effectiveCwd });
+        const result = await spawnStream(inv.file, inv.args, { timeout: effectiveTimeout, cwd: effectiveCwd });
         session.pushHistory(command);
 
         if (result.timedOut)
@@ -97,7 +97,9 @@ export function registerCommandTools(server: McpServer) {
           { latency_ms: Date.now() - t0, truncated },
         );
       } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message || "Unknown error", { retryable: true });
+        return (
+          shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message || "Unknown error", { retryable: true })
+        );
       }
     }),
   );
@@ -150,6 +152,7 @@ export function registerCommandTools(server: McpServer) {
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "commands" });
 
       try {
+        const shellSpec = await getShellSpec();
         const results: Array<{ command: string; stdout: string; stderr: string; ok: boolean; latency_ms: number }> = [];
         let allOk = true;
 
@@ -157,9 +160,8 @@ export function registerCommandTools(server: McpServer) {
           const ct0 = Date.now();
           try {
             logger.info("batch_execute", `step ${idx + 1}/${commands.length}`, cmd);
-            const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
-            const shellArgs = IS_WIN ? ["/c", cmd] : ["-c", cmd];
-            const r = await spawnStream(shell, shellArgs, { timeout: 30000, cwd: cwd || session.getCwd() });
+            const inv = buildShellInvocation(cmd, shellSpec);
+            const r = await spawnStream(inv.file, inv.args, { timeout: 30000, cwd: cwd || session.getCwd() });
             return {
               command: cmd,
               stdout: r.stdout || "",
@@ -200,7 +202,9 @@ export function registerCommandTools(server: McpServer) {
           : `${results.filter((r) => r.ok).length}/${results.length} commands OK`;
         return success(summary, { results, summary }, { latency_ms: Date.now() - t0 });
       } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message || "Batch failed", { retryable: true });
+        return (
+          shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message || "Batch failed", { retryable: true })
+        );
       }
     }),
   );
@@ -236,9 +240,12 @@ export function registerCommandTools(server: McpServer) {
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
 
       try {
-        const shell = IS_WIN ? "cmd.exe" : "/bin/sh";
-        const shellArgs = IS_WIN ? ["/c", `chcp 65001 >nul && ${command}`] : ["-c", command];
-        const result = await spawnStream(shell, shellArgs, { timeout: duration || 5000, cwd: cwd || session.getCwd() });
+        const shellSpec = await getShellSpec();
+        const inv = buildShellInvocation(command, shellSpec);
+        const result = await spawnStream(inv.file, inv.args, {
+          timeout: duration || 5000,
+          cwd: cwd || session.getCwd(),
+        });
         const output = result.stdout || "(no output)";
         if (result.timedOut)
           return success(
@@ -252,7 +259,9 @@ export function registerCommandTools(server: McpServer) {
           { latency_ms: Date.now() - t0 },
         );
       } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message || "Watch failed", { retryable: true });
+        return (
+          shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message || "Watch failed", { retryable: true })
+        );
       }
     }),
   );
