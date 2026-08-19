@@ -291,7 +291,7 @@ export function registerFileTools(server: McpServer) {
   });
   type FileInfoInput = z.infer<typeof FileInfoInput>;
 
-  server.registerTool(
+  const fileInfoTool = server.registerTool(
     "file_info",
     {
       title: "File Info",
@@ -331,6 +331,10 @@ export function registerFileTools(server: McpServer) {
       }
     }),
   );
+
+  if (process.env.ENHANCED_TERMINAL_DISABLE_FILE_INFO === "1") {
+    fileInfoTool.disable();
+  }
 
   // ====================================================================
   const MakeDirectoryInput = z.object({
