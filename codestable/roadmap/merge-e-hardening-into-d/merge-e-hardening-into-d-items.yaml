@@ -5,10 +5,10 @@ items:
   - slug: merge-e-hardening-base
     description: 以固定 commit 完成可回滚的完整历史 merge，并形成 D shell、E hardening、E 依赖和 .etmcp 状态基线
     depends_on: []
-    status: planned
-    feature: null
+    status: in-progress
+    feature: 2026-08-19-merge-e-hardening-base
     minimal_loop: true
-    notes: 固定输入为 D 7eea862、E e28f2e9、共同祖先 d430224；未经明确同意不提交 merge commit
+    notes: 固定输入为 D 7eea862、E e28f2e9、共同祖先 d430224；未经明确同意不提交 merge commit；backup ref 已按执行期调整为实际 merge 前 HEAD 990f988（见 feature design 调整记录）
 
   - slug: command-output-spill-paging
     description: 为 execute_command、batch_execute、watch_command 建立共享 A+ 捕获、溢写、字符分页、secret、容量和结构化错误协议
