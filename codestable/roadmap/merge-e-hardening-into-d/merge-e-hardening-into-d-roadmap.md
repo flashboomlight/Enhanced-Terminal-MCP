@@ -917,8 +917,8 @@ ENHANCED_TERMINAL_ES_PATH
 - **描述**：以固定 commit 完成可回滚的完整历史 merge，并形成 D shell、E hardening、E 依赖和 `.etmcp` 状态基线。
 - **所属模块**：M1。
 - **依赖**：无。
-- **状态**：planned。
-- **对应 feature**：未启动。
+- **状态**：done（2026-08-19 验收通过）。
+- **对应 feature**：2026-08-19-merge-e-hardening-base。
 - **最小闭环**：是。
 - **完成后可观察结果**：
   - D main 同时包含两条历史。
@@ -1189,3 +1189,4 @@ M4 按以下规则同步：
 ## 10. 变更日志
 
 - 2026-08-19：初版。固定 D/E/共同祖先三个 commit；定义完整历史 merge、A+ 输出、`.etmcp`、可选 Everything、文档同步、回滚与完整验收契约。
+- 2026-08-19：M1 `merge-e-hardening-base` 验收通过（merge commit `3f6d477`，双亲 `dee6771`+`e28f2e9`）。执行期修正：backup 锚点定为 `dee6771`（merge 前真实 HEAD，非 `7eea862`/`990f988`）；E 未携带 4.5 迁移实现，由 M1 在 D 侧按 4.5 协议新实现；`result.ts` 错误结构按 SDK 1.29 单一 object 约束落地为 `withErrorSchema`（M2 4.6 再收敛完整 envelope）；D 内联 `src/shell.test.ts` 归位 `tests/unit/`。详见 feature acceptance 报告。

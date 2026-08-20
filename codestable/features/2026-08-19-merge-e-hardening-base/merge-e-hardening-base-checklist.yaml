@@ -6,114 +6,114 @@ roadmap_item: merge-e-hardening-base
 steps:
   - action: "阶段 A preflight：核对固定 SHA(D=dee6771 代码等价 7eea862 / E=e28f2e9 / 祖先=d430224)、Node>=20、TEMP/TMP/npm cache 非 C 盘、E 工作树干净、backup/integration ref 未被错误复用、无 remote/push/PR 动作"
     exit_signal: "全部核对项通过并留痕(命令 + 输出摘要)"
-    status: completed
+    status: done
   - action: "ref 事务:git branch backup/pre-merge-20260819 dee6771;git fetch E 仓库 main:refs/heads/integration/e-main;重新计算 merge-base;快照 D 未跟踪集合"
     exit_signal: "backup=dee6771、integration=e28f2e9、merge-base=d430224;.serena/ 确认在快照且后续不进 staged diff"
-    status: completed
+    status: done
   - action: "执行 git merge --no-ff --no-commit integration/e-main,完整列出冲突清单"
     exit_signal: "冲突清单完整(git diff --name-only --diff-filter=U),每个文件都能映射到 roadmap 4.2 矩阵某一行"
-    status: completed
+    status: done
   - action: "按 roadmap 4.2 裁决矩阵逐文件解决冲突(shell/invocation 取 D;安全/policy/audit/限流/session 取 E;security.ts 取并集;pool 取 E inactive stub;result.ts 修复 isError 丢 structuredContent;不引入矩阵外改动)"
     exit_signal: "冲突全部解决;每个文件有裁决记录;无矩阵未覆盖的创造性改动"
-    status: completed
+    status: done
   - action: "依赖与结构收敛:package.json/package-lock.json 采用 E 基线(Node>=20、SDK 1.29.0+overrides、零依赖 postinstall、patch-package 仅 dev);D 的 src 内联 *.test.ts 迁往 tests/unit/ 布局;.gitignore 增加 .etmcp/ 与 .enhanced-terminal-mcp/"
     exit_signal: "npm install 成功;无孤儿测试文件;.gitignore 生效"
-    status: completed
+    status: done
   - action: "阶段 B 门禁:npm run build / npx tsc --noEmit / npm run lint / npm test / npm run test:latency / git diff --check"
     exit_signal: "全部通过,输出留痕"
-    status: completed
+    status: done
   - action: "专项验证:pwsh 解析链(显式→bundled→PATH→5.1)与显式路径 fail-closed、MCP_SHELL=powershell|cmd、UTF-8 preamble、hardBlock 三模式、allow policy 与 batch 全量 precheck、file_info 开关 27/26、pool_stats.active=false、state root 不随 set_cwd 漂移、session/audit 迁移测试通过"
     exit_signal: "每个专项有可观察证据(测试输出或真实调用结果)"
-    status: completed
+    status: done
   - action: "用户确认后提交 merge commit,message 记录裁决摘要;核对 git status 仅剩 .serena/ 未跟踪"
     exit_signal: "merge commit 落盘且含两个父;git log --graph 可见双祖先;工作区干净"
-    status: completed
+    status: done
 
 checks:
   # ---- 名词契约(roadmap 4.2 冲突裁决矩阵)----
   - item: "src/tools/command.ts = D 的 getShellSpec/buildShellInvocation + E 的 precheck/audit/rateLimit/session"
     source: 名词契约
-    status: completed
+    status: passed
   - item: "src/security.ts = D 的 PowerShell 注入防护与 E 的间接执行/解释器/管道绕过规则并集"
     source: 名词契约
-    status: completed
+    status: passed
   - item: "src/command-policy.ts 保留 E 的 blocklist/allow、统一入口、audit 分类;hardBlock 永远先执行"
     source: 名词契约
-    status: completed
+    status: passed
   - item: "src/result.ts 保留 E 统一错误体系;isError:true 时 structuredContent 不再丢 detail"
     source: 名词契约
-    status: completed
+    status: passed
   - item: "src/pool.ts / pool_stats 采用 E inactive stub,结构化结果固定 active:false"
     source: 名词契约
-    status: completed
+    status: passed
   - item: "file_info 保留 D 的 ENHANCED_TERMINAL_DISABLE_FILE_INFO 开关"
     source: 名词契约
-    status: completed
+    status: passed
   - item: "package/lock 采用 E 依赖基线;tests 采用 E 的 tests/unit/ 结构并补 D shell/file_info 契约"
     source: 名词契约
-    status: completed
+    status: passed
   # ---- 编排骨架 / 跨层纪律(roadmap 4.3/4.4)----
   - item: "shell 硬性契约:MCP_SHELL 默认 pwsh;解析顺序 显式路径→tools/pwsh→PATH→5.1→SHELL_NOT_FOUND;显式路径无效 fail-closed;进程级缓存"
     source: 编排骨架
-    status: completed
+    status: passed
   - item: "命令执行顺序:input validation → checkCommandPolicy → hardBlock/blocklist/allow → rate limit → SafeGuard → shell resolution → spawn → output capture → audit/structured result"
     source: 编排骨架
-    status: completed
+    status: passed
   - item: "hardBlock 在 strict/normal/off 均不可关闭"
     source: 跨层纪律
-    status: completed
+    status: passed
   - item: "MCP_COMMAND_POLICY=blocklist 默认;allow 拒绝 shell 拼接/管道/嵌套 shell;batch 执行前全量预检"
     source: 跨层纪律
-    status: completed
+    status: passed
   - item: "MCP_BATCH_RATE_MODE=batch|per_command 保留"
     source: 跨层纪律
-    status: completed
+    status: passed
   - item: "tool surface 27 个工具;ENHANCED_TERMINAL_DISABLE_FILE_INFO=1 后 26 个"
     source: 跨层纪律
-    status: completed
+    status: passed
   # ---- 状态与挂载点(roadmap 4.5)----
   - item: "projectRoot=realpath(process.cwd()) 进程级不变;默认状态目录 <projectRoot>/.etmcp;MCP_STATE_DIR 相对路径只相对 projectRoot 解析一次"
     source: 挂载点
-    status: completed
+    status: passed
   - item: ".gitignore 同时忽略 .etmcp/ 与 .enhanced-terminal-mcp/"
     source: 挂载点
-    status: completed
+    status: passed
   - item: "session/audit 自动迁移协议(锁、同卷 staging、原子替换、回读验证、STATE_MIGRATION_FAILED)随 E 代码合入且测试通过"
     source: 挂载点
-    status: completed
+    status: passed
   # ---- 依赖基线(roadmap 4.4)----
   - item: "engines.node>=20.0.0;@modelcontextprotocol/sdk 精确 1.29.0 且 overrides 固定;zod 保持 v3;postinstall=scripts/apply-mcp-sdk-patch.mjs(零 production dependency);patch-package 仅 devDependency"
     source: 挂载点
-    status: completed
+    status: passed
   # ---- 范围守护(design 1.1 明确不做 / roadmap 2.2)----
   - item: "无 rebase/squash/cherry-pick;无 remote/push/PR;E 仓库未被删除/移动/重命名"
     source: 范围守护
-    status: completed
+    status: passed
   - item: ".serena/ 未进入任何 commit;未执行 git clean"
     source: 范围守护
-    status: completed
+    status: passed
   - item: "未实现 M2 输出分页 / M3 es 发布边界内容;README/AGENTS/ARCHITECTURE 未提前改写"
     source: 范围守护
-    status: completed
+    status: passed
   - item: "ProcessPool 未激活;Unix/macOS /bin/sh 路径未变;zod 未升 v4"
     source: 范围守护
-    status: completed
+    status: passed
   # ---- 验收场景(design 3.1/3.2)----
   - item: "阶段 A:三 SHA 核对、Node 版本、非 C 盘 TEMP/TMP/npm cache、E 工作树干净 全部留痕通过"
     source: 验收场景
-    status: completed
+    status: passed
   - item: "ref 事务:backup/integration/merge-base 三个校验通过;未跟踪快照核对通过"
     source: 验收场景
-    status: completed
+    status: passed
   - item: "阶段 B 门禁全绿:build/tsc/lint/test/latency/diff-check"
     source: 验收场景
-    status: completed
+    status: passed
   - item: "pwsh 链与 fail-closed、powershell|cmd 兼容档、UTF-8 preamble 行为可观察"
     source: 验收场景
-    status: completed
+    status: passed
   - item: "hardBlock 三模式、allow policy 元字符拒绝、batch 预检、27/26 工具数、pool_stats.active=false、state root 不漂移 全部有证据"
     source: 验收场景
-    status: completed
+    status: passed
   - item: "merge commit 经用户确认后提交;git log --graph 双祖先可见;git status 仅剩 .serena/"
     source: 验收场景
-    status: completed
+    status: passed

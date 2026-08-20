@@ -2,7 +2,7 @@
  * shell.ts 单元测试 — 解析器全量注入候选，跨平台确定性运行
  */
 import { afterEach, describe, expect, test } from "vitest";
-import { IS_WIN } from "./platform.js";
+import { IS_WIN } from "../../src/platform.js";
 import {
   buildShellInvocation,
   getShellSpec,
@@ -11,7 +11,7 @@ import {
   resetShellSpecCache,
   resolveShell,
   ShellResolutionError,
-} from "./shell.js";
+} from "../../src/shell.js";
 
 // 常用注入：默认假设 nothing exists（各用例按需覆盖）
 function opts(over: Partial<ResolveShellOptions> = {}): ResolveShellOptions {
