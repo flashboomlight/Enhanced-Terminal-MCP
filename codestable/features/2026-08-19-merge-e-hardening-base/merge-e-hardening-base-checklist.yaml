@@ -27,7 +27,7 @@ steps:
     status: completed
   - action: "用户确认后提交 merge commit,message 记录裁决摘要;核对 git status 仅剩 .serena/ 未跟踪"
     exit_signal: "merge commit 落盘且含两个父;git log --graph 可见双祖先;工作区干净"
-    status: pending
+    status: completed
 
 checks:
   # ---- 名词契约(roadmap 4.2 冲突裁决矩阵)----
@@ -116,4 +116,4 @@ checks:
     status: completed
   - item: "merge commit 经用户确认后提交;git log --graph 双祖先可见;git status 仅剩 .serena/"
     source: 验收场景
-    status: pending
+    status: completed
