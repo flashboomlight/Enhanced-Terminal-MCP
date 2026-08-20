@@ -1,5 +1,5 @@
 /**
- * 端到端延迟测试 — Enhanced Terminal MCP v3.0.0
+ * 端到端延迟测试 — Enhanced Terminal MCP v3.1.0
  *
  * 通过 MCP SDK Client 以子进程方式连接 Server，
  * 真实调用每个工具并测量完整往返延迟（含协议序列化/反序列化、进程 IPC）。
@@ -126,7 +126,12 @@ describe("Protocol Layer Latency", () => {
     console.log(`    ⏱ tools/list: ${ms}ms — found ${result.tools.length} tools`);
 
     expect(ms).toBeLessThanOrEqual(THRESHOLD.LIST_TOOLS);
-    expect(result.tools.length).toBe(26);
+    expect(result.tools.length).toBe(27);
+    for (const toolName of ["watch_command", "copy_move", "compress_archive", "extract_archive", "download_file"]) {
+      const tool = result.tools.find((t) => t.name === toolName);
+      expect(tool?.annotations?.readOnlyHint).toBe(false);
+      expect(tool?.annotations?.destructiveHint).toBe(true);
+    }
   });
 
   test("prompts/list should respond within threshold", async () => {
@@ -264,6 +269,38 @@ describe("Command Execution Latency", () => {
     expect(result.isError).toBeFalsy();
     const text = (result.content as any)[0]?.text;
     expect(text).toContain("hello-latency-test");
+  });
+
+  test("execute_command paged output can be read by cache_id without rerun", async () => {
+    const scriptPath = path.join(TMP_DIR, "paged-output.js");
+    fs.writeFileSync(
+      scriptPath,
+      "process.stdout.write('A'.repeat(2500)); process.stdout.write('B'.repeat(1000));",
+      "utf-8",
+    );
+    const result = await client.callTool({
+      name: "execute_command",
+      arguments: {
+        command: `node ${scriptPath}`,
+        pageSize: 2000,
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const first = result.structuredContent as any;
+    expect(first.cache_id).toBeTruthy();
+    expect(first.page).toBe(1);
+    expect(first.total_pages).toBe(2);
+    expect(first.stdout).toContain("A");
+
+    const page2 = await client.callTool({
+      name: "execute_command",
+      arguments: { cache_id: first.cache_id, page: 2, pageSize: 2000 },
+    });
+    expect(page2.isError).toBeFalsy();
+    const second = page2.structuredContent as any;
+    expect(second.cache_id).toBe(first.cache_id);
+    expect(second.page).toBe(2);
+    expect(second.stdout).toContain("B");
   });
 
   test("batch_execute (2 echoes) should respond within threshold", async () => {

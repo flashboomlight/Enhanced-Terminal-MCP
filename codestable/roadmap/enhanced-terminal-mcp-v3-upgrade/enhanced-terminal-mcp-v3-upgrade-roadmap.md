@@ -19,6 +19,10 @@ legacy_source: docs/superpowers/plans/2025-01-15-enhanced-terminal-mcp-upgrade.m
 
 > **历史工作流说明（已失效）：** 原文要求使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans` 逐项执行。迁入 CodeStable 后这不再是执行指令；如需重启该主题，应先用 `cs-roadmap` 核对现状，再通过 `cs-feat` 推进仍需实施的条目。下文 checkbox 仅作为历史计划内容保留。
 
+> 历史归档说明：本文记录 2025-01-15 的 v3.0 升级实施计划，内部代码片段和版本约束可能反映当时方案。当前发布面、Node 版本、安全保护范围与工具行为以 `README.md`、`CHANGELOG.md` 与 `codestable/` 下的现状文档为准。
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
 **Goal:** 将 Enhanced Terminal MCP 从 v2.0 全面升级到 v3.0，涵盖安全加固、MCP 协议新特性适配、跨平台兼容、结构化输出、性能优化等 12 个方向。
 
 **Architecture:** 保持现有模块化架构（index.ts + tools/*.ts + utils.ts），在此基础上新增安全层（security.ts）、平台抽象层（platform.ts）、日志系统（logger.ts）。工具注册层面增加 annotations/outputSchema 支持。

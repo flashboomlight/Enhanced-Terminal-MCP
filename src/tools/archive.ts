@@ -8,11 +8,16 @@ import * as z from "zod";
 import { withRetry } from "../adaptive.js";
 import { logger } from "../logger.js";
 import { getCompressSpec, getDownloadSpec, getExtractSpec } from "../platform.js";
-import { ErrorCode, fail, success } from "../result.js";
-import { validatePath, validateUrl } from "../security.js";
+import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
+import { guardDestructiveAction } from "../safeguard.js";
+import { validatePath, validateRealPath, validateUrl } from "../security.js";
 import { getShellSpec, shellResolutionFail } from "../shell.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 export function registerArchiveTools(server: McpServer) {
   const CompressArchiveInput = z.object({
@@ -27,8 +32,10 @@ export function registerArchiveTools(server: McpServer) {
       title: "Compress Archive",
       description: "Compress files/directories into a zip archive.",
       inputSchema: CompressArchiveInput,
-      outputSchema: z.object({ source: z.string(), output: z.string(), size_bytes: z.number().optional() }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      outputSchema: withErrorSchema(
+        z.object({ source: z.string(), output: z.string(), size_bytes: z.number().optional() }),
+      ),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("compress_archive", async ({ source_path, output_path }: CompressArchiveInput) => {
       for (const [p, l] of [
@@ -37,7 +44,12 @@ export function registerArchiveTools(server: McpServer) {
       ] as const) {
         const e = validatePath(p, `compress:${l}`);
         if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
+        const re = await validateRealPath(p, `compress:${l}`);
+        if (re) return fail(ErrorCode.PATH_FORBIDDEN, re, { retryable: false, param: l });
       }
+
+      const block = await guardDestructiveAction("compress_archive", `压缩到归档: ${source_path} -> ${output_path}`);
+      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "output_path" });
 
       try {
         const spec = getCompressSpec(source_path, output_path, await getShellSpec());
@@ -46,15 +58,17 @@ export function registerArchiveTools(server: McpServer) {
         try {
           const s = await fs.stat(output_path);
           size_bytes = s.size;
-        } catch {}
+        } catch (err) {
+          logger.debug("compress_archive", "stat-failed", String(err));
+        }
         logger.info("compress_archive", "compressed", `${source_path} -> ${output_path}`);
         return success(`Compressed: ${source_path} -> ${output_path}${size_bytes ? ` (${size_bytes} bytes)` : ""}`, {
           source: source_path,
           output: output_path,
           size_bytes,
         });
-      } catch (e: any) {
-        return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );
@@ -71,8 +85,8 @@ export function registerArchiveTools(server: McpServer) {
       title: "Extract Archive",
       description: "Extract a zip archive to a directory.",
       inputSchema: ExtractArchiveInput,
-      outputSchema: z.object({ archive: z.string(), output: z.string() }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      outputSchema: withErrorSchema(z.object({ archive: z.string(), output: z.string() })),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("extract_archive", async ({ archive_path, output_dir }: ExtractArchiveInput) => {
       for (const [p, l] of [
@@ -81,14 +95,19 @@ export function registerArchiveTools(server: McpServer) {
       ] as const) {
         const e = validatePath(p, `extract:${l}`);
         if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
+        const re = await validateRealPath(p, `extract:${l}`);
+        if (re) return fail(ErrorCode.PATH_FORBIDDEN, re, { retryable: false, param: l });
       }
+
+      const block = await guardDestructiveAction("extract_archive", `解压归档: ${archive_path} -> ${output_dir}`);
+      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "output_dir" });
 
       try {
         const spec = getExtractSpec(archive_path, output_dir, await getShellSpec());
         await safeExecFile(spec.file, spec.args, 60000);
         return success(`Extracted: ${archive_path} -> ${output_dir}`, { archive: archive_path, output: output_dir });
-      } catch (e: any) {
-        return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );
@@ -105,14 +124,19 @@ export function registerArchiveTools(server: McpServer) {
       title: "Download File",
       description: "Download a file from a URL to local path (HTTP/HTTPS only).",
       inputSchema: DownloadFileInput,
-      outputSchema: z.object({ url: z.string(), path: z.string() }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      outputSchema: withErrorSchema(z.object({ url: z.string(), path: z.string() })),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("download_file", async ({ url, save_path }: DownloadFileInput) => {
       const pathErr = validatePath(save_path, "download:save_path");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "save_path" });
+      const realErr = await validateRealPath(save_path, "download:save_path");
+      if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "save_path" });
       const urlErr = validateUrl(url);
       if (urlErr) return fail(ErrorCode.URL_INVALID, urlErr, { retryable: true, param: "url" });
+
+      const block = await guardDestructiveAction("download_file", `下载文件: ${url} -> ${save_path}`);
+      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "save_path" });
 
       try {
         const spec = getDownloadSpec(url, save_path, await getShellSpec());
@@ -121,8 +145,8 @@ export function registerArchiveTools(server: McpServer) {
           toolName: "download_file",
         });
         return success(`Downloaded: ${url} -> ${save_path}`, { url, path: save_path });
-      } catch (e: any) {
-        return shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return shellResolutionFail(e) ?? Errors.executionFailed(errMsg(e));
       }
     }),
   );

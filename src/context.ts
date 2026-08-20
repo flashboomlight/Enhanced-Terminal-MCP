@@ -2,8 +2,8 @@
  * 上下文注入 — session state 自动注入到工具 description
  * LLM 无需额外查询即可感知当前 cwd 和环境上下文
  *
- * NOTE: 当前未被生产代码使用，仅被 core.test.ts 测试覆盖。
- * 保留以备后续集成到动态 description 更新中。
+ * NOTE: 当前被 usage-guide prompt 使用，用于注入会话上下文。
+ * 也可用于后续动态 description 更新。
  */
 import { session } from "./session.js";
 

@@ -30,13 +30,13 @@ describe("conditional tool registration", () => {
     const names = await listToolNames(false);
 
     expect(names).toContain("file_info");
-    expect(names).toHaveLength(26);
+    expect(names).toHaveLength(27);
   });
 
   test("file_info is hidden when explicitly disabled", async () => {
     const names = await listToolNames(true);
 
     expect(names).not.toContain("file_info");
-    expect(names).toHaveLength(25);
+    expect(names).toHaveLength(26);
   });
 });

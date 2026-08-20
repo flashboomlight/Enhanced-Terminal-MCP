@@ -8,6 +8,7 @@
  */
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import * as z from "zod";
 
 // ====================================================================
 // 错误码枚举
@@ -145,6 +146,14 @@ export const Errors = {
       detail: { command: cmd, pattern },
     }),
 
+  /** 策略层统一拦截（hardBlock / allowlist / dangerous pattern） */
+  commandBlocked: (cmd: string, reason: string, param = "command") =>
+    fail(ErrorCode.COMMAND_DANGEROUS, `Command blocked — ${reason}`, {
+      retryable: false,
+      param,
+      detail: { command: cmd, reason },
+    }),
+
   validationError: (message: string, param?: string, suggestion?: string) =>
     fail(ErrorCode.VALIDATION_ERROR, message, {
       retryable: true,
@@ -204,6 +213,32 @@ export const Errors = {
 // MCP CallToolResult 兼容转换
 // ====================================================================
 
+/** 结构化错误体 zod schema（供 outputSchema 错误分支复用） */
+export const structuredErrorSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  retryable: z.boolean(),
+  suggestion: z.string().optional(),
+  param: z.string().optional(),
+  detail: z.unknown().optional(),
+});
+
+/**
+ * 工具 outputSchema 合并错误 envelope 字段。
+ *
+ * SDK 1.29 的 outputSchema 必须能 normalize 成单一 object schema（union 会被丢弃并
+ * 导致调用期校验崩溃），且客户端对 isError 结果附带的 structuredContent 也做严格
+ * 校验；因此把成功字段降为 optional 并并入 ok/error 字段，让成功与错误两种形态
+ * 都通过同一份 object schema——错误路径不再丢失机器可读 structuredContent。
+ * M2（4.6 envelope）会进一步把命令类工具收敛为完整单对象 envelope。
+ */
+export function withErrorSchema<T extends z.ZodRawShape>(successSchema: z.ZodObject<T>) {
+  return successSchema.partial().extend({
+    ok: z.boolean().optional(),
+    error: structuredErrorSchema.optional(),
+  });
+}
+
 export function toCallToolResult(result: ToolResult): CallToolResult {
   if (result.ok) {
     const content = [
@@ -225,5 +260,6 @@ export function toCallToolResult(result: ToolResult): CallToolResult {
   return {
     content: [{ type: "text" as const, text: result.content }],
     isError: true,
+    structuredContent: { ok: false as const, error: result.error },
   } as CallToolResult;
 }

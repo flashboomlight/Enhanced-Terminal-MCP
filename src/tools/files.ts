@@ -8,14 +8,29 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
+import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
-import { ErrorCode, fail, success } from "../result.js";
+import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
-import { scanContent } from "../scan.js";
-import { validatePath } from "../security.js";
+import { scanContent, shouldBlockSecretReads, shouldScanOnWrite } from "../scan.js";
+import { validatePath, validateRealPath } from "../security.js";
 import { formatSize } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
+
+/** 扫描内容字节数上限 —— 超过则跳过凭据扫描，避免 ReDoS / 大文件卡死 */
+const SCAN_MAX_BYTES = 4 * 1024 * 1024;
+const WRITE_FILE_MAX_BYTES = 50 * 1024 * 1024;
+
+/** 统一处理 fs 错误：ENOENT -> PATH_NOT_FOUND，其余 -> EXECUTION_FAILED */
+function mapFsError(e: unknown, path: string, param: string) {
+  const msg = e instanceof Error ? e.message : String(e);
+  const code = (e as { code?: string } | null)?.code;
+  if (code === "ENOENT") {
+    return fail(ErrorCode.PATH_NOT_FOUND, `File not found: ${path}`, { retryable: true, param });
+  }
+  return Errors.executionFailed(msg);
+}
 
 export function registerFileTools(server: McpServer) {
   // ====================================================================
@@ -33,12 +48,14 @@ export function registerFileTools(server: McpServer) {
       title: "Read File",
       description: "Read the contents of a file. Supports paging via offset/limit.",
       inputSchema: ReadFileInput,
-      outputSchema: z.object({
-        content: z.string(),
-        total_lines: z.number(),
-        truncated: z.boolean(),
-        size_bytes: z.number(),
-      }),
+      outputSchema: withErrorSchema(
+        z.object({
+          content: z.string(),
+          total_lines: z.number(),
+          truncated: z.boolean(),
+          size_bytes: z.number(),
+        }),
+      ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("read_file", async ({ file_path, encoding, offset, lines }: ReadFileInput) => {
@@ -95,18 +112,30 @@ export function registerFileTools(server: McpServer) {
         const truncated = !reachedEnd;
         const output = collected.join("\n");
 
+        // MCP_SECRETS_SCAN=strict：读路径发现密钥则拒绝返回正文
+        if (shouldBlockSecretReads() && Buffer.byteLength(output, "utf-8") <= SCAN_MAX_BYTES) {
+          const scan = scanContent(output);
+          if (!scan.safe) {
+            return fail(
+              ErrorCode.PATH_SENSITIVE,
+              `Read blocked — content contains secrets: ${scan.findings.join(", ")}`,
+              {
+                retryable: false,
+                param: "file_path",
+                suggestion: "Unset MCP_SECRETS_SCAN=strict to allow reading, or remove credentials from file",
+                detail: { findings: scan.findings },
+              },
+            );
+          }
+        }
+
         return success(
           truncated ? `${output}\n... (truncated)` : output,
           { content: output, total_lines: lineNum, truncated, size_bytes: stat.size },
           { truncated },
         );
-      } catch (e: any) {
-        if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, `File not found: ${file_path}`, {
-            retryable: true,
-            param: "file_path",
-          });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return mapFsError(e, file_path, "file_path");
       }
     }),
   );
@@ -114,7 +143,7 @@ export function registerFileTools(server: McpServer) {
   // ====================================================================
   const WriteFileInput = z.object({
     file_path: z.string().describe("Absolute path to the file"),
-    content: z.string().describe("Content to write"),
+    content: z.string().max(WRITE_FILE_MAX_BYTES, "Content exceeds max write size").describe("Content to write"),
     append: z.boolean().optional().describe("Append instead of overwrite, default false"),
   });
   type WriteFileInput = z.infer<typeof WriteFileInput>;
@@ -125,27 +154,34 @@ export function registerFileTools(server: McpServer) {
       title: "Write File",
       description: "Write content to a file (creates parent dirs if needed).",
       inputSchema: WriteFileInput,
-      outputSchema: z.object({
-        path: z.string(),
-        size_bytes: z.number(),
-        existed: z.boolean(),
-        appended: z.boolean(),
-      }),
+      outputSchema: withErrorSchema(
+        z.object({
+          path: z.string(),
+          size_bytes: z.number(),
+          existed: z.boolean(),
+          appended: z.boolean(),
+        }),
+      ),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("write_file", async ({ file_path, content, append }: WriteFileInput) => {
       const pathErr = validatePath(file_path, "write_file");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "file_path" });
+      // symlink 二次校验：若 file_path 经解析指向系统/敏感目录则拒绝
+      const realErr = await validateRealPath(file_path, "write_file");
+      if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "file_path" });
 
-      // 内容安全扫描
-      const scan = scanContent(content);
-      if (!scan.safe) {
-        return fail(ErrorCode.PATH_SENSITIVE, `Content contains secrets: ${scan.findings.join(", ")}`, {
-          retryable: false,
-          param: "content",
-          suggestion: "Remove credentials before writing",
-          detail: { findings: scan.findings },
-        });
+      // 内容安全扫描（MCP_SECRETS_SCAN=off 跳过；超 4MB 跳过）
+      if (shouldScanOnWrite() && Buffer.byteLength(content, "utf-8") <= SCAN_MAX_BYTES) {
+        const scan = scanContent(content);
+        if (!scan.safe) {
+          return fail(ErrorCode.PATH_SENSITIVE, `Content contains secrets: ${scan.findings.join(", ")}`, {
+            retryable: false,
+            param: "content",
+            suggestion: "Remove credentials before writing, or set MCP_SECRETS_SCAN=off",
+            detail: { findings: scan.findings },
+          });
+        }
       }
 
       // 仅覆写已有文件时触发安全确认
@@ -153,7 +189,9 @@ export function registerFileTools(server: McpServer) {
       try {
         await fs.stat(file_path);
         existed = true;
-      } catch {}
+      } catch (err) {
+        logger.debug("write_file", "stat-failed", String(err));
+      }
 
       if (existed && !append) {
         const block = await guardDestructiveAction("write_file", `覆写文件: ${file_path}`);
@@ -174,14 +212,28 @@ export function registerFileTools(server: McpServer) {
         toolCache.invalidateByValue(file_path);
         toolCache.invalidateByValue(path.dirname(file_path));
         logger.info("write_file", "written", file_path);
+        audit.record({
+          action: "file.write",
+          tool: "write_file",
+          detail: { path: file_path, size_bytes: stat.size, existed, append: !!append },
+          success: true,
+        });
         return success(`Written: ${file_path} (${formatSize(stat.size)})`, {
           path: file_path,
           size_bytes: stat.size,
           existed,
           appended: !!append,
         });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        audit.record({
+          action: "file.write",
+          tool: "write_file",
+          detail: { path: file_path, existed },
+          success: false,
+          error: msg,
+        });
+        return Errors.executionFailed(msg);
       }
     }),
   );
@@ -200,13 +252,15 @@ export function registerFileTools(server: McpServer) {
       title: "List Directory",
       description: "List files and directories in a path with details.",
       inputSchema: ListDirectoryInput,
-      outputSchema: z.object({
-        entries: z.array(
-          z.object({ name: z.string(), type: z.enum(["file", "dir"]), size_bytes: z.number().optional() }),
-        ),
-        total: z.number(),
-        truncated: z.boolean(),
-      }),
+      outputSchema: withErrorSchema(
+        z.object({
+          entries: z.array(
+            z.object({ name: z.string(), type: z.enum(["file", "dir"]), size_bytes: z.number().optional() }),
+          ),
+          total: z.number(),
+          truncated: z.boolean(),
+        }),
+      ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("list_directory", async ({ dir_path, recursive, max_depth }: ListDirectoryInput) => {
@@ -227,7 +281,8 @@ export function registerFileTools(server: McpServer) {
           let realP: string;
           try {
             realP = await fs.realpath(p);
-          } catch {
+          } catch (err) {
+            logger.debug("list_directory", "realpath-failed", String(err));
             realP = p;
           }
           if (visited.has(realP)) return;
@@ -274,13 +329,8 @@ export function registerFileTools(server: McpServer) {
           { entries: structured, total: count, truncated: count >= maxE },
           { truncated: count >= maxE },
         );
-      } catch (e: any) {
-        if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, `Directory not found: ${dir_path}`, {
-            retryable: true,
-            param: "dir_path",
-          });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return mapFsError(e, dir_path, "dir_path");
       }
     }),
   );
@@ -297,14 +347,16 @@ export function registerFileTools(server: McpServer) {
       title: "File Info",
       description: "Get detailed information about a file or directory.",
       inputSchema: FileInfoInput,
-      outputSchema: z.object({
-        path: z.string(),
-        size_bytes: z.number(),
-        is_dir: z.boolean(),
-        is_file: z.boolean(),
-        created: z.string(),
-        modified: z.string(),
-      }),
+      outputSchema: withErrorSchema(
+        z.object({
+          path: z.string(),
+          size_bytes: z.number(),
+          is_dir: z.boolean(),
+          is_file: z.boolean(),
+          created: z.string(),
+          modified: z.string(),
+        }),
+      ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("file_info", async ({ target_path }: FileInfoInput) => {
@@ -324,10 +376,8 @@ export function registerFileTools(server: McpServer) {
             modified: stat.mtime.toISOString(),
           },
         );
-      } catch (e: any) {
-        if (e.code === "ENOENT")
-          return fail(ErrorCode.PATH_NOT_FOUND, `Not found: ${target_path}`, { retryable: true, param: "target_path" });
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return mapFsError(e, target_path, "target_path");
       }
     }),
   );
@@ -348,7 +398,7 @@ export function registerFileTools(server: McpServer) {
       title: "Make Directory",
       description: "Create a directory (including parent directories).",
       inputSchema: MakeDirectoryInput,
-      outputSchema: z.object({ path: z.string(), created: z.boolean() }),
+      outputSchema: withErrorSchema(z.object({ path: z.string(), created: z.boolean() })),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("make_directory", async ({ dir_path }: MakeDirectoryInput) => {
@@ -360,12 +410,15 @@ export function registerFileTools(server: McpServer) {
         try {
           const s = await fs.stat(dir_path);
           existed = s.isDirectory();
-        } catch {}
+        } catch (err) {
+          logger.debug("make_directory", "stat-failed", String(err));
+        }
         await fs.mkdir(dir_path, { recursive: true });
         logger.info("make_directory", "created", dir_path);
         return success(`Created: ${dir_path}`, { path: dir_path, created: !existed });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return Errors.executionFailed(msg);
       }
     }),
   );

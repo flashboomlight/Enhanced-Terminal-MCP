@@ -7,14 +7,22 @@
   "bin": {
     "enhanced-terminal-mcp": "build/index.js"
   },
+  "files": [
+    "build/",
+    "es_tool/es.exe",
+    "scripts/apply-mcp-sdk-patch.mjs",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
     "dev": "tsx src/index.ts",
-    "postinstall": "patch-package",
+    "postinstall": "node scripts/apply-mcp-sdk-patch.mjs",
+    "patch:mcp-sdk": "node scripts/apply-mcp-sdk-patch.mjs",
     "test": "vitest run",
     "test:latency": "vitest run tests/e2e-latency.test.ts",
     "lint": "biome check src/ tests/",
@@ -31,7 +39,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "zod": "^3.25.67"
   },
   "devDependencies": {
@@ -41,5 +49,8 @@
     "patch-package": "^8.0.1",
     "typescript": "^5.8.3",
     "vitest": "^4.1.2"
+  },
+  "overrides": {
+    "@modelcontextprotocol/sdk": "1.29.0"
   }
 }

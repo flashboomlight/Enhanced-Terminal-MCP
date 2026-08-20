@@ -7,17 +7,33 @@ import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
+import { ensureEsExeIntegrity } from "../es-integrity.js";
 import { logger } from "../logger.js";
 import { escapePsString, IS_WIN } from "../platform.js";
 import { getRegex } from "../regex.js";
-import { ErrorCode, fail, success } from "../result.js";
+import { ErrorCode, fail, success, withErrorSchema } from "../result.js";
 import { validatePath } from "../security.js";
 import { buildShellInvocation, getShellSpec } from "../shell.js";
 import { wrapHandler } from "../wrap.js";
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** 将 glob 模式（* 和 ?）转换为不区分大小写的正则 */
+export function globToRegex(pattern: string): RegExp {
+  const regexStr =
+    "^" +
+    pattern
+      .replace(/[\\^$+{}.()|[\]-]/g, "\\$&")
+      .replace(/\*/g, ".*")
+      .replace(/\?/g, ".") +
+    "$";
+  return new RegExp(regexStr, "i");
+}
 
 export function registerSearchTools(server: McpServer) {
   // ====================================================================
@@ -36,12 +52,14 @@ export function registerSearchTools(server: McpServer) {
       description:
         "Search for files by name pattern. Auto-starts Everything engine for instant results on Windows, falls back to native search.",
       inputSchema: SearchFilesInput,
-      outputSchema: z.object({
-        matches: z.array(z.string()),
-        total: z.number(),
-        search_ms: z.number(),
-        truncated: z.boolean(),
-      }),
+      outputSchema: withErrorSchema(
+        z.object({
+          matches: z.array(z.string()),
+          total: z.number(),
+          search_ms: z.number(),
+          truncated: z.boolean(),
+        }),
+      ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("search_files", async ({ dir_path, pattern, max_depth, max_results }: SearchFilesInput) => {
@@ -54,39 +72,40 @@ export function registerSearchTools(server: McpServer) {
       try {
         if (IS_WIN) {
           try {
-            const esPath = fileURLToPath(new URL("../../es_tool/es.exe", import.meta.url));
-            const normalizedDir = resolve(dir_path).toLowerCase();
-            await new Promise<void>((done) => {
-              const args = ["-s", "-n", String(maxR * 2), pattern];
-              execFile(esPath, args, { maxBuffer: 10 * 1024 * 1024, timeout: 10000 }, (_err: any, stdout: string) => {
-                if (stdout) {
-                  for (const l of stdout.split("\n")) {
-                    const trimmed = l.trim();
-                    if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
-                      matches.push(trimmed);
-                      if (matches.length >= maxR) break;
+            const esPath = await ensureEsExeIntegrity();
+            if (esPath) {
+              const normalizedDir = resolve(dir_path).toLowerCase();
+              await new Promise<void>((done) => {
+                const args = ["-s", "-n", String(maxR * 2), pattern];
+                execFile(
+                  esPath,
+                  args,
+                  { maxBuffer: 10 * 1024 * 1024, timeout: 10000 },
+                  (_err: unknown, stdout: string) => {
+                    if (stdout) {
+                      for (const l of stdout.split("\n")) {
+                        const trimmed = l.trim();
+                        if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
+                          matches.push(trimmed);
+                          if (matches.length >= maxR) break;
+                        }
+                      }
                     }
-                  }
-                }
-                done();
+                    done();
+                  },
+                );
               });
-            });
-          } catch {
-            /* fallback to native */
+            } else {
+              logger.debug("search_files", "everything-skipped", "es.exe integrity check failed");
+            }
+          } catch (err) {
+            logger.debug("search_files", "everything-fallback", String(err));
           }
         }
 
         if (matches.length === 0) {
           const maxD = max_depth || 5;
-          // glob→regex: 转义所有正则元字符，然后将 * 和 ? 转为通配
-          const regexStr =
-            "^" +
-            pattern
-              .replace(/[\\^$+{}.()|[\]-]/g, "\\$&")
-              .replace(/\*/g, ".*")
-              .replace(/\?/g, ".") +
-            "$";
-          const reg = new RegExp(regexStr, "i");
+          const reg = globToRegex(pattern);
 
           async function walk(p: string, d: number) {
             if (d > maxD || matches.length >= maxR) return;
@@ -100,7 +119,7 @@ export function registerSearchTools(server: McpServer) {
                 } else if (reg.test(e.name)) matches.push(fp);
               }
             } catch (e) {
-              logger.warn("search_files:walk:error", p, String(e));
+              logger.warn("search_files", "walk-error", `${p}: ${String(e)}`);
             }
           }
           await walk(dir_path, 0);
@@ -113,8 +132,8 @@ export function registerSearchTools(server: McpServer) {
           { matches, total: matches.length, search_ms: ms, truncated: matches.length >= maxR },
           { truncated: matches.length >= maxR, latency_ms: ms },
         );
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );
@@ -135,7 +154,9 @@ export function registerSearchTools(server: McpServer) {
       title: "Everything Search",
       description: "Ultra-fast full-disk file search powered by Everything engine (Windows only).",
       inputSchema: EverythingSearchInput,
-      outputSchema: z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number() }),
+      outputSchema: withErrorSchema(
+        z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number() }),
+      ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("everything_search", async ({ query, dir_filter, max_results }: EverythingSearchInput) => {
@@ -154,14 +175,20 @@ export function registerSearchTools(server: McpServer) {
       }
 
       try {
-        const esPathWin = fileURLToPath(new URL("../../es_tool/es.exe", import.meta.url));
+        const esPathWin = await ensureEsExeIntegrity();
+        if (!esPathWin) {
+          return fail(ErrorCode.EXECUTION_FAILED, "Everything CLI failed integrity check or is missing", {
+            retryable: false,
+            suggestion: "Use search_files, or restore es_tool/es.exe matching the locked SHA-256",
+          });
+        }
         const results: string[] = [];
 
         await new Promise<void>((resolve) => {
           const args = ["-s", "-n", String(maxR)];
           if (dir_filter) args.push("-path", dir_filter);
           args.push(query);
-          execFile(esPathWin, args, { maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (_e: any, stdout: string) => {
+          execFile(esPathWin, args, { maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (_e: unknown, stdout: string) => {
             if (stdout)
               results.push(
                 ...stdout
@@ -179,8 +206,8 @@ export function registerSearchTools(server: McpServer) {
           total: results.length,
           search_ms: ms,
         });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );
@@ -200,12 +227,20 @@ export function registerSearchTools(server: McpServer) {
       title: "Grep Content",
       description: "Search file contents using regex pattern. Uses PowerShell Select-String on Windows, grep on Unix.",
       inputSchema: GrepContentInput,
-      outputSchema: z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number() }),
+      outputSchema: withErrorSchema(
+        z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number() }),
+      ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("grep_content", async ({ dir_path, pattern, file_pattern, max_results }: GrepContentInput) => {
       const pathErr = validatePath(dir_path, "grep_content");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+      // 主路径预检 pattern：语法 + ReDoS 防护（与 fallback 路径统一）
+      try {
+        getRegex(pattern, "gi");
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
+      }
       const t0 = Date.now();
       const maxR = max_results || 50;
       const fileFilter = file_pattern || "*";
@@ -221,7 +256,7 @@ export function registerSearchTools(server: McpServer) {
           const psScript = [
             "$ErrorActionPreference = 'SilentlyContinue';",
             `Get-ChildItem -LiteralPath ${q(dir_path)} -Filter ${q(fileFilter)} -Recurse -File |`,
-            `  Select-String -Pattern ${q(pattern)} -List |`,
+            `  Select-String -Pattern ${q(pattern)} |`,
             `  Select-Object -First ${maxR} |`,
             '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
           ].join(" ");
@@ -234,24 +269,53 @@ export function registerSearchTools(server: McpServer) {
                 .map((l) => l.trim())
                 .filter((l) => l),
             );
-          } catch (e) {
-            logger.warn("grep_content:ps:error", String(e));
+          } catch (e: unknown) {
+            logger.warn("grep_content", "ps-error", String(e));
+            return fail(ErrorCode.EXECUTION_FAILED, `PowerShell grep failed: ${errMsg(e)}`, {
+              retryable: true,
+              detail: { dir_path, file_pattern: fileFilter, pattern },
+            });
           }
         }
 
         if (!IS_WIN && results.length === 0) {
           try {
             const execAsync = promisify(execFile);
-            const grepArgs = ["-rn", `--include=${fileFilter}`, "-m", String(maxR), pattern, dir_path];
+            const grepArgs = ["-rnI", `--include=${fileFilter}`, pattern, dir_path];
             const { stdout } = await execAsync("grep", grepArgs, { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
             results.push(
               ...stdout
                 .split("\n")
                 .map((l) => l.trim())
-                .filter((l) => l),
+                .filter((l) => l)
+                .slice(0, maxR),
             );
-          } catch (e) {
-            logger.warn("grep_content:grep:error", String(e));
+          } catch (e: unknown) {
+            const rawOut = (e as { stdout?: unknown }).stdout;
+            const stdout =
+              typeof rawOut === "string"
+                ? rawOut
+                : rawOut != null && typeof (rawOut as { toString?: () => string }).toString === "function"
+                  ? String((rawOut as { toString: () => string }).toString())
+                  : "";
+            const code = (e as { code?: unknown }).code;
+            if (code === 1 && !stdout) {
+              logger.debug("grep_content", "grep-no-matches", `${dir_path} ${pattern}`);
+            } else if (stdout) {
+              results.push(
+                ...stdout
+                  .split("\n")
+                  .map((l) => l.trim())
+                  .filter((l) => l)
+                  .slice(0, maxR),
+              );
+            } else {
+              logger.warn("grep_content", "grep-error", String(e));
+              return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${errMsg(e)}`, {
+                retryable: true,
+                detail: { dir_path, file_pattern: fileFilter, pattern },
+              });
+            }
           }
         }
 
@@ -259,17 +323,10 @@ export function registerSearchTools(server: McpServer) {
           let regex: RegExp;
           try {
             regex = getRegex(pattern, "gi");
-          } catch (e: any) {
-            return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: false, param: "pattern" });
+          } catch (e: unknown) {
+            return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
           }
-          const fileRegexStr =
-            "^" +
-            fileFilter
-              .replace(/[\\^$+{}.()|[\]-]/g, "\\$&")
-              .replace(/\*/g, ".*")
-              .replace(/\?/g, ".") +
-            "$";
-          const fileRegex = new RegExp(fileRegexStr, "i");
+          const fileRegex = globToRegex(fileFilter);
 
           async function grepFile(fp: string) {
             const rl = createInterface({ input: createReadStream(fp, { encoding: "utf-8" }), crlfDelay: Infinity });
@@ -296,14 +353,14 @@ export function registerSearchTools(server: McpServer) {
                   try {
                     await grepFile(fp);
                   } catch (e) {
-                    logger.warn("grep_content:grepFile:error", fp, String(e));
+                    logger.warn("grep_content", "grep-file-error", `${fp}: ${String(e)}`);
                   }
                 } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
                   await walk(fp, depth + 1);
                 }
               }
             } catch (e) {
-              logger.warn("grep_content:walk:error", p, String(e));
+              logger.warn("grep_content", "walk-error", `${p}: ${String(e)}`);
             }
           }
           await walk(dir_path, 0);
@@ -316,8 +373,8 @@ export function registerSearchTools(server: McpServer) {
           total: results.length,
           search_ms: ms,
         });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
       }
     }),
   );

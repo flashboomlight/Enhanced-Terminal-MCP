@@ -44,3 +44,10 @@ npm-debug.log*
 tools/pwsh/
 tools/.pwsh-staging/
 tools/.pwsh-old
+
+# Local CodeGraph index
+.codegraph/
+
+# Runtime state (merged default .etmcp; legacy pre-migration)
+.etmcp/
+.enhanced-terminal-mcp/

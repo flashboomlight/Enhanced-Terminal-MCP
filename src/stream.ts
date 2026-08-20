@@ -3,6 +3,7 @@
  * 替代 exec 全量缓冲，大输出场景首字节延迟从 5s→50ms
  */
 import { spawn } from "node:child_process";
+import { logger } from "./logger.js";
 import { buildShellInvocation, getShellSpec } from "./shell.js";
 
 export interface StreamResult {
@@ -10,6 +11,7 @@ export interface StreamResult {
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
+  truncated: boolean;
   /** 完整的 stdout（流式收集完毕后的结果） */
   all: string;
 }
@@ -55,13 +57,24 @@ export async function spawnStream(
       setTimeout(() => {
         try {
           child.kill("SIGKILL");
-        } catch {}
+        } catch (err) {
+          logger.debug("stream", "sigkill-failed", String(err));
+        }
       }, 2000).unref();
     }, timeout);
 
     child.stdout?.on("data", (chunk: Buffer) => {
+      const prevLen = stdoutLen;
       stdoutLen += chunk.length;
+      if (prevLen >= maxOut) {
+        // 已超限，不再收集（保留已截断标记）
+        if (!truncated) truncated = true;
+        return;
+      }
       if (stdoutLen > maxOut) {
+        // 当前 chunk 超出上限：截取到 maxOut 边界后入栈，保留部分输出供诊断
+        const slice = chunk.subarray(0, maxOut - prevLen);
+        stdoutChunks.push(slice);
         if (!truncated) {
           truncated = true;
           child.kill("SIGTERM");
@@ -87,6 +100,7 @@ export async function spawnStream(
         stderr,
         exitCode: code,
         timedOut: killed,
+        truncated,
         all: stdout + (stderr ? `\n[stderr]\n${stderr}` : ""),
       });
     });

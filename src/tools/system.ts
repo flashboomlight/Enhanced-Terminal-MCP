@@ -5,7 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { logger } from "../logger.js";
 import { getKillSpec, getNetworkSpec, getProcessListSpec, getSystemInfoSpec } from "../platform.js";
-import { ErrorCode, fail, success, type ToolResult } from "../result.js";
+import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
 import { guardDestructiveAction, isCriticalProcess } from "../safeguard.js";
 import { validateHost } from "../security.js";
 import { getShellSpec, shellResolutionFail } from "../shell.js";
@@ -23,7 +23,7 @@ export function registerSystemTools(server: McpServer) {
       title: "Get System Info",
       description: "Get detailed system information (OS, CPU, memory, disk, GPU, etc.).",
       inputSchema: z.object({}),
-      outputSchema: z.object({ info: z.string() }),
+      outputSchema: withErrorSchema(z.object({ info: z.string() })),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("get_system_info", async () => {
@@ -32,8 +32,9 @@ export function registerSystemTools(server: McpServer) {
         const result = await safeExecFile(spec.file, spec.args, 30000);
         logger.info("get_system_info", "collected", "system info gathered");
         return success(result.stdout.trim(), { info: result.stdout.trim() });
-      } catch (e: any) {
-        return shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return shellResolutionFail(e) ?? Errors.executionFailed(m);
       }
     }),
   );
@@ -51,7 +52,7 @@ export function registerSystemTools(server: McpServer) {
       title: "List Processes",
       description: "List running processes, optionally filter by name.",
       inputSchema: ProcessListInput,
-      outputSchema: z.object({ output: z.string() }),
+      outputSchema: withErrorSchema(z.object({ output: z.string() })),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("process_list", async ({ filter, top }: ProcessListInput) => {
@@ -59,8 +60,9 @@ export function registerSystemTools(server: McpServer) {
         const spec = getProcessListSpec(filter, top || 20, await getShellSpec());
         const result = await safeExecFile(spec.file, spec.args, 10000);
         return success(`Running Processes:\n${result.stdout.trim()}`, { output: result.stdout.trim() });
-      } catch (e: any) {
-        return shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return shellResolutionFail(e) ?? Errors.executionFailed(m);
       }
     }),
   );
@@ -79,7 +81,9 @@ export function registerSystemTools(server: McpServer) {
       title: "Kill Process",
       description: "Kill a process by PID or name. Refuses to kill critical system processes.",
       inputSchema: KillProcessInput,
-      outputSchema: z.object({ killed: z.boolean(), pid: z.number().optional(), name: z.string().optional() }),
+      outputSchema: withErrorSchema(
+        z.object({ killed: z.boolean(), pid: z.number().optional(), name: z.string().optional() }),
+      ),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("kill_process", async ({ pid, name, force }: KillProcessInput) => {
@@ -95,10 +99,11 @@ export function registerSystemTools(server: McpServer) {
 
       try {
         const spec = getKillSpec(pid, name, force);
-        const _result = await safeExecFile(spec.file, spec.args, 10000);
+        await safeExecFile(spec.file, spec.args, 10000);
         return success(`Killed: ${name || pid}`, { killed: true, pid: pid ?? undefined, name: name ?? undefined });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return Errors.executionFailed(m);
       }
     }),
   );
@@ -119,7 +124,7 @@ export function registerSystemTools(server: McpServer) {
       title: "Network Info",
       description: "Get network configuration and connectivity info.",
       inputSchema: NetworkInfoInput,
-      outputSchema: z.object({ output: z.string(), action: z.string() }),
+      outputSchema: withErrorSchema(z.object({ output: z.string(), action: z.string() })),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("network_info", async ({ action, target }: NetworkInfoInput) => {
@@ -132,8 +137,9 @@ export function registerSystemTools(server: McpServer) {
         const spec = getNetworkSpec(act, target);
         const result = await safeExecFile(spec.file, spec.args, 15000);
         return success(result.stdout.trim(), { output: result.stdout.trim(), action: act });
-      } catch (e: any) {
-        return fail(ErrorCode.EXECUTION_FAILED, e.message, { retryable: true });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return Errors.executionFailed(m);
       }
     }),
   );
@@ -151,7 +157,7 @@ export function registerSystemTools(server: McpServer) {
       title: "Environment Variables",
       description: "Get or list environment variables (sensitive keys hidden).",
       inputSchema: EnvironmentVarsInput,
-      outputSchema: z.object({ vars: z.record(z.string()).optional(), value: z.string().optional() }),
+      outputSchema: withErrorSchema(z.object({ vars: z.record(z.string()).optional(), value: z.string().optional() })),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("environment_vars", async ({ action, name }: EnvironmentVarsInput): Promise<ToolResult> => {
@@ -180,8 +186,9 @@ export function registerSystemTools(server: McpServer) {
           ? `${allLines.slice(0, maxVars).join("\n")}\n... (${allLines.length - maxVars} more)`
           : allLines.join("\n");
         return success(`Environment Variables (sensitive keys hidden):\n${text}`, { vars });
-      } catch (e: any) {
-        return fail(ErrorCode.INTERNAL_ERROR, e.message, { retryable: false });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e);
+        return Errors.executionFailed(m);
       }
     }),
   );

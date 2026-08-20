@@ -12,6 +12,10 @@ export type SafetyMode = "strict" | "normal" | "off";
 const GUARDED_TOOLS = new Set([
   "delete_path",
   "write_file",
+  "copy_move",
+  "compress_archive",
+  "extract_archive",
+  "download_file",
   "kill_process",
   "execute_command",
   "batch_execute",
@@ -19,8 +23,7 @@ const GUARDED_TOOLS = new Set([
 ]);
 
 // ===== normal 模式下需要 Elicitation 确认的工具（GUARDED_TOOLS 的子集） =====
-// execute_command/batch_execute/watch_command 依赖 hasDangerousPattern 检查，不需要 elicitation
-const ELICITATION_TOOLS = new Set(["delete_path", "write_file", "kill_process"]);
+const ELICITATION_TOOLS = new Set(GUARDED_TOOLS);
 
 // ===== 关键进程黑名单（所有模式下禁止杀死） =====
 const CRITICAL_PROCESSES_WIN = new Set([
@@ -136,9 +139,10 @@ export async function guardDestructiveAction(toolName: string, description: stri
 
     logger.info("safeguard", "declined", `${toolName}: user declined or cancelled`);
     return `[SAFETY] Operation cancelled by user: ${toolName}`;
-  } catch (e: any) {
+  } catch (e: unknown) {
     // 客户端不支持 Elicitation — 降级拒绝
-    logger.warn("safeguard", "elicitation-unavailable", `${toolName}: ${e.message}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    logger.warn("safeguard", "elicitation-unavailable", `${toolName}: ${msg}`);
     return (
       `[SAFETY] This operation requires user confirmation, but the MCP client\n` +
       `does not support interactive confirmation (Elicitation).\n` +

@@ -4,6 +4,18 @@ import { buildShellInvocation, getShellSpec } from "./shell.js";
 import { spawnStream } from "./stream.js";
 
 /**
+ * 读取数字型环境变量，统一解析 + 下限 + 默认值
+ * 消除各模块重复的 parseInt(process.env.X || "default") 模式
+ */
+export function envInt(name: string, defaultVal: number, min = 1): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultVal;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < min) return defaultVal;
+  return parsed;
+}
+
+/**
  * 安全执行 shell 命令（通过统一解析的 shell spec + spawnStream）
  * 用于需要 shell 特性（管道/重定向）的场景。
  * 语义：超时 reject Timeout；exit≠0 且无输出 reject；有输出则 resolve 并附 EXIT CODE 标记。
@@ -51,14 +63,19 @@ export function safeExecFile(
         windowsHide: true,
       },
       (error, stdout, stderr) => {
-        if (error && !stdout && !stderr) {
-          reject(error);
-        } else {
-          resolve({
-            stdout: (stdout || "").toString(),
-            stderr: (stderr || "").toString(),
-          });
+        const stdoutText = (stdout || "").toString();
+        const stderrText = (stderr || "").toString();
+        if (error) {
+          const parts = [error.message];
+          if (stdoutText) parts.push(`[stdout]\n${stdoutText}`);
+          if (stderrText) parts.push(`[stderr]\n${stderrText}`);
+          reject(new Error(parts.join("\n")));
+          return;
         }
+        resolve({
+          stdout: stdoutText,
+          stderr: stderrText,
+        });
       },
     );
   });

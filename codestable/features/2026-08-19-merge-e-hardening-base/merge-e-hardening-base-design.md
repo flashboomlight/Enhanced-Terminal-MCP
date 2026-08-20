@@ -15,10 +15,19 @@ last_reviewed: "2026-08-19"
 
 > 状态：`approved`。依据：roadmap `merge-e-hardening-into-d` 全部契约（第 4 节硬约束）已经用户逐点 review 并拍板（2026-08-19），本 design 只做 feature 级编排，不重复契约内容、不改变任何可观察行为。冲突裁决、shell 契约、安全/依赖/tool surface 基线、`.etmcp` 迁移协议一律以 roadmap 4.1–4.5 为准。
 >
-> **执行期调整记录（2026-08-19）**：文档替换 commit `990f988`（旧 merge-plan 删除 + 新 roadmap 入库）先于 merge 落盘，D 实际 HEAD 变为 `990f988`。因此：
-> - `backup/pre-merge-20260819` 指向 `990f988`（merge 前真实可回滚点），而非 roadmap 写死的 `7eea862`——否则 `reset --hard` 会同时回滚 roadmap 文档，违反 roadmap 4.1 回滚第 4 条"不得留下两份有效 roadmap"。
-> - D 合并输入的**代码内容**仍等同于 `7eea862`（两者 diff 仅在 `codestable/roadmap/`），fetch 后重新计算 merge-base 仍必须等于 `d430224`。
+> **执行期调整记录（2026-08-19）**：文档替换 commit `990f988`（旧 merge-plan 删除 + 新 roadmap 入库）先于 merge 落盘，随后 feature 启动文档（本 design + checklist）落为 `dee6771`，D 实际 HEAD 变为 `dee6771`。因此：
+> - `backup/pre-merge-20260819` 指向 `dee6771`（merge 前真实可回滚点），而非 roadmap 写死的 `7eea862`——否则 `reset --hard` 会同时回滚 roadmap 文档，违反 roadmap 4.1 回滚第 4 条"不得留下两份有效 roadmap"。
+> - D 合并输入的**代码内容**仍等同于 `7eea862`（两者 diff 仅在 `codestable/`），fetch 后重新计算 merge-base 仍必须等于 `d430224`（已核对通过）。
 > - 该调整不改变 roadmap 任何行为契约，仅修正回滚锚点。
+>
+> **执行期调整记录（2026-08-19，merge 裁决与门禁阶段）**：
+> 1. **E 未携带 4.5 迁移实现（矩阵前提纠正）**：roadmap 4.2 矩阵假设 `state-dir.ts`/`session.ts` 的 projectRoot 固定、`.etmcp` 默认目录与迁移事务"随 E 合入"；实际 E 侧两文件与共同祖先一致（仍为 `.enhanced-terminal-mcp` + cwd 派生 PROJECT_ROOT + legacy 自动导入）。M1 按 4.5 在 D 侧新实现：`src/state-dir.ts` 重写（`PROJECT_ROOT=realpath(process.cwd())` 进程级固定、默认 `<projectRoot>/.etmcp`、相对 `MCP_STATE_DIR` 只相对固定 projectRoot 解析一次、设置 `MCP_STATE_DIR` 后不迁移、`ensureStateMigration()` memoized + `runStateMigration(projectRoot, stateDir)` 可注入迁移引擎：排他锁 `.migration.lock`（50×100ms 重试超时）、不跟随 symlink/junction、源 size/mtime/ino 指纹监控、同卷 staging + `fs.rename` 原子替换 + sha256 回读验证、audit 双侧合并旧前新后流式精确去重、删除门禁只删已验证源文件/空 logs/空旧根/永不碰 temp 与未知文件、失败抛 `STATE_MIGRATION_FAILED`）；`src/session.ts` 挂迁移且 `%TEMP%` legacy 全局文件只提示不导入/不删除；`src/audit.ts` `getLogFile` 挂迁移。新增 `tests/unit/state-migration.test.ts` 15 例覆盖迁移矩阵。
+> 2. **result.ts 修复的 SDK 1.29 约束与落地形态**：矩阵要求修复 `isError:true` 丢失 `structuredContent`。实施发现 SDK 1.29 两条硬约束：(a) `outputSchema` 必须能 normalize 成单一 object schema——`z.union` 会被 `normalizeObjectSchema` 丢弃并导致调用期 `_zod` TypeError；(b) SDK client 对 `isError` 结果附带的 `structuredContent` 同样按声明的 outputSchema 做严格校验（`client.callTool` 只跳过"无 structuredContent"的错误）。因此落地为 `withErrorSchema()`：27 个工具的 `outputSchema` 统一包裹为 `successSchema.partial().extend({ ok: z.boolean().optional(), error: structuredErrorSchema.optional() })`，`toCallToolResult` 错误路径返回 `{ ok:false, error }`（含 `detail`，不再丢弃）。成功载荷不变。M2（4.6 envelope）再把命令类工具收敛为完整单对象 envelope。
+> 3. **grep_content 行级契约**：E 系测试要求同一文件多行命中；移除 D 侧 `Select-String -List`（文件级去重），保留 D 的 shell spec 解析与 `escapePsString` 转义路径。
+> 4. **工具数 27/26**：合并后默认 27 个工具（utility 6 个），`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 后 26 个；`tests/tool-visibility.test.ts` 期望由 26/25 更新为 27/26（roadmap 第 1031 行契约）。
+> 5. **E 侧文档尾随空白清理**：7 个 E 源 markdown（compound 3 个 decision + remaining-hardening roadmap/drafts）的行尾硬 break 空格被剥离以使 `git diff --check` 通过；仅空白，内容与结构不变。
+> 6. **cmd 模式行内中文为既有限制（非 merge 回归）**：`MCP_SHELL=cmd` 下命令行在 `chcp 65001` 生效前按原代码页解析，行内中文输出乱码；pwsh/powershell 模式中文正确（直调证据见 T07）。共同祖先即如此，不在 M1 处理。
+> 7. **session.loaded 拒绝路径**：`SessionStore` 构造器对 `loaded` 附加空 catch，抑制 index.ts `await` 前间隙的未处理拒绝；迁移失败经 `main().catch` 打印 `STATE_MIGRATION_FAILED` 并 `exit(1)`，满足 4.5"停止启动"。
 
 ## 0. 术语约定
 
@@ -26,7 +35,7 @@ last_reviewed: "2026-08-19"
 
 | 术语 | 定义 |
 |------|------|
-| backup ref | `backup/pre-merge-20260819` → `990f988`，merge 前可回滚锚点，验收完成前不删除 |
+| backup ref | `backup/pre-merge-20260819` → `dee6771`，merge 前可回滚锚点，验收完成前不删除 |
 | integration ref | `integration/e-main`，fetch E 仓库 main 的本地引用，fetch 后必须等于 `e28f2e9` |
 | 未跟踪集合快照 | merge 前记录的 D 工作区 untracked 文件列表，merge 后核对 `.serena/` 未进 staged diff |
 | merge 事务 | `git merge --no-ff --no-commit` 起到用户确认 commit 为止的整段工作状态 |
@@ -74,7 +83,7 @@ D 主线一次性吸收 E 的 24 个 hardening commit，同时完整保留 D 的
 |------|----------|-----------------|
 | merge 方式 | `git merge --no-ff --no-commit integration/e-main`，人工裁决后统一 commit | rebase/squash 丢历史；自动 ours/theirs 违反 roadmap 4.2 |
 | 冲突裁决 | 严格按 roadmap 4.2 矩阵逐文件执行；矩阵未覆盖的冲突立即停下来报告 | 不允许自动选择 |
-| backup 锚点 | `990f988`（实际 merge 前 HEAD） | 指向 `7eea862` 会在回滚时丢失 roadmap 文档 commit |
+| backup 锚点 | `dee6771`（实际 merge 前 HEAD） | 指向 `7eea862` 会在回滚时丢失 roadmap 文档 commit |
 | 测试结构 | 采用 E 的 `tests/unit/`，D 的 src 内联 `*.test.ts` 随之迁移删除 | 保留两套测试布局会造成双份维护 |
 | pool | 采用 E 的 inactive stub，`pool_stats` 固定 `active:false` | 保留 D 的预热池等于激活未验证能力 |
 
@@ -151,8 +160,8 @@ flowchart TD
 
 ### 3.1 正常场景
 
-1. preflight：三个固定 SHA 核对通过（D 侧以 `990f988` 为 HEAD、代码内容与 `7eea862` 等价）；Node `>=20`；TEMP/TMP/npm cache 指向非 C 盘。
-2. ref 事务：backup 指向 `990f988`；integration 指向 `e28f2e9`；merge-base 重新计算 = `d430224`；`.serena/` 在快照中且最终未进 staged diff。
+1. preflight：三个固定 SHA 核对通过（D 侧以 `dee6771` 为 HEAD、代码内容与 `7eea862` 等价）；Node `>=20`；TEMP/TMP/npm cache 指向非 C 盘。
+2. ref 事务：backup 指向 `dee6771`；integration 指向 `e28f2e9`；merge-base 重新计算 = `d430224`；`.serena/` 在快照中且最终未进 staged diff。
 3. merge 后 `npm run build` / `npx tsc --noEmit` / `npm run lint` / `npm test` / `npm run test:latency` / `git diff --check` 全绿。
 4. `pool_stats` 结构化结果含 `active:false`；默认注册 27 个工具，设 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 后 26 个。
 5. 默认 `MCP_SHELL=pwsh` 下真实命令经 bundled/PATH pwsh 或 5.1 执行，中文输出无乱码（消费 D 的 shell 契约）。
