@@ -29,7 +29,7 @@ Enhanced Terminal MCP v3.1.0：通过 MCP 协议向 AI 客户端提供 27 个（
 
 ```bash
 npm run build          # tsc 编译到 build/
-npm test               # vitest 全量（当前基线 35 文件 / 599 用例）
+npm test               # vitest 全量（当前工作树快照 38 文件 / 511 个 test/it 用例调用；M2 S6 尚未执行）
 npm run test:latency   # e2e 延迟基准
 npm run lint           # biome check src/ tests/
 npm run format         # biome 格式化
@@ -39,9 +39,10 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 ## 关键技术事实
 
 - Node.js ≥ 20，ESM；Windows 命令执行统一走 `src/shell.ts` 解析的 shell spec（默认 pwsh 7：显式路径 → bundled `tools/pwsh` → PATH → 5.1 回退；`MCP_SHELL=cmd|powershell` 可切换，详见 design `codestable/features/2026-08-16-powershell-default-shell/`），Unix 仍 `/bin/sh -c`。解析结果进程级缓存，改环境变量/装 pwsh 后需重启。
+- 三个命令工具当前已接入 `src/command-output.ts` 的共享原始字节捕获、actual 计数和流式 secret matcher 内存路径；staging writer、page cache v2、公开 A+ envelope 和阶段 C 门禁仍未完成，不得把局部代码标为 A+ 已完成。
 - 安全双层：`src/security.ts` 硬性底线（含 PowerShell `-EncodedCommand`/`iex`/`Start-Process` 等模式）+ `src/safeguard.ts` 三级模式；`MCP_SAFETY_MODE=strict|normal|off`（默认 normal）。
 - 测试策略：`src/tools/**` 由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖，单测覆盖率排除该目录。
-- `src/context.ts` 与 `src/pool.ts` 的进程池当前未被生产代码使用，改动前先确认是否需要顺带处理。
+- `src/context.ts` 与 `src/pool.ts` 当前未被生产执行链使用；`pool.ts` 仅保留 inactive stub，改动前先确认是否需要顺带处理。
 - pwsh bootstrap 只在 `setup.bat → scripts/ensure-pwsh.ps1` 联网下载（固定版本 + SHA256 + staging 原子安装）；MCP server 运行期绝不联网。`.ps1` 脚本保持纯 ASCII——中文 Windows 的 PS 5.1 会把无 BOM UTF-8 注释按 GBK 误解析。
 
 ## 项目信息
@@ -78,13 +79,16 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 
 - `fileURLToPath` 在 Windows 路径含空格时行为不稳定，路径解析优先使用 `dirname(fileURLToPath(import.meta.url))` + `path.join`
 - `build/` 目录下的 `version.js` 与 `src/version.ts` 共享相同的 package.json 相对路径逻辑
-- 命令执行在 Windows 下需通过 `cmd.exe /c chcp 65001 > nul && ...` 处理 UTF-8
+- Windows 输出编码由 `src/shell.ts` 的 invocation 负责：pwsh/5.1 使用 UTF-8 preamble，cmd flavor 使用 `chcp 65001`；不要假设所有 shell 都要套 `cmd.exe /c`。
+- 修改 `src/**` 后，依赖 `build/index.js` 的 e2e/latency 子进程测试必须先执行 `npm run build`，否则可能运行旧构建产物
+- Windows 构建和测试应显式使用 `TEMP=E:/Codex_Temp TMP=E:/Codex_Temp TMPDIR=E:/Codex_Temp npm_config_cache=E:/Codex_Temp/npm-cache`，避免临时文件和 npm cache 落到 C 盘
 - 测试中的临时目录在 `afterEach` / `afterAll` 中必须清理，避免残留
 - `wrapHandler` 对 handler 返回值有结构要求，直接返回裸字符串会破坏接口
 - `hardBlock` 是命令执行的不可关闭底线(全模式含 off 生效),调整安全模式或命令工具入口时不得移除;详见 `codestable/compound/2026-07-11-decision-hardblock-uncloseable-baseline.md`
 - 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；e2e 在 `tests/`
 - `postinstall` 使用 `scripts/apply-mcp-sdk-patch.mjs`（零依赖），`patch-package` 仅 devDependency
 - 命令策略：`MCP_COMMAND_POLICY=blocklist|allow`，allow 时用 `MCP_COMMAND_ALLOW` 词级白名单且禁止 shell 元字符
+- 状态目录默认是 `<projectRoot>/.etmcp`；`MCP_STATE_DIR` 覆盖时不自动迁移 legacy 状态，`.etmcp/temp` 只在真正需要临时资源时懒创建。
 - 剩余 hardening / 产品边界规划：`codestable/roadmap/remaining-hardening/`（按 items 开工，禁止开放式“再补几条正则”）
 - 不承诺 shell 整串执行下的形式化安全：见 `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md`
 

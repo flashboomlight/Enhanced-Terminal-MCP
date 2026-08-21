@@ -1,0 +1,125 @@
+feature: 2026-08-20-command-output-spill-paging
+created: 2026-08-20
+roadmap: merge-e-hardening-into-d
+roadmap_item: command-output-spill-paging
+
+steps:
+  - action: "S1 捕获原语与 workflow 骨架:新建 src/capture.ts(child lifecycle/原始字节/backpressure/drain/actual 计数)与 src/command-output.ts 编排层骨架(sink/finalizer 可替换);四个输出环境变量 spawn 前进程级校验,无效即 VALIDATION_ERROR;纯内存 happy path 跑通"
+    exit_signal: "三工具经共享入口得到与现状等价的小输出/exit/timeout;stream.ts 既有消费者(safeExec/quickExec/版本探测)不变;现有测试全绿"
+    status: done
+    progress: "已完成：capture 原语、actual 计数、backpressure/drain、timeout/消费失败处理、四个输出环境变量解析，以及三个 handler 对共享入口的基础接入。"
+  - action: "S2 scan-before-persist 计算节点:共享 pattern registry(scanContent 与流式 matcher 同源)、原始字节候选状态机、每流固定 8192-byte quarantine(未决超限 fail-closed)、off/write/cache/strict 四 tier、secret 全量抑制响应、每流 65536-byte fallback preview"
+    exit_signal: "任意 chunk 切分差分验证、8191/8192/8193 边界、>4 MiB drain 场景通过;fault injection 证明命中原文从未进入 staging/meta/audit"
+    status: done
+    progress: "已完成共享 registry、原始字节 matcher、8192-byte quarantine、EOF/大流/双流抑制、fallback preview 与 tier gate；相关单测和全量 38 文件/522 用例验证通过。"
+  - action: "S3 TempManager transaction:懒创建(启动/stats/cleanup 不建 temp)、增量 reservation + 同进程 mutex/跨进程短锁、staging heartbeat lease、崩溃恢复、固定清理顺序(过期→LRU 数量→LRU 容量)、stats 增 active_dirs/reserved_bytes"
+    exit_signal: "缺失 temp 零副作用、容量/锁降级矩阵、TTL 滑动刷新/不刷新、LRU 双维淘汰、并发读写清理矩阵全部通过"
+    status: done
+    progress: "已完成懒 root、增量 reservation、同进程 mutex/跨进程短锁、staging heartbeat 与崩溃恢复、finalize、TTL/LRU 双维清理、active_dirs/reserved_bytes；31 个 TempManager 单测、build、tsc、lint、全量 38 文件/522 用例均通过。"
+  - action: "S4 分页持久化与读取:四文件 publish(rename 前移除 heartbeat/lease 控制文件,最终 cache 仅 stdout.bin/stderr.bin/stdout.idx/meta.json)、固定 chunk 顺序编码/索引(辅助内存不随文件增长)、范围读取(二分检查点+增量解码)、四重校验、page 1 stderr 语义"
+    exit_signal: "BOM/GBK/emoji/CRLF/变 pageSize/损坏索引/旧格式 ID 矩阵通过;读写均不整文件加载;最终 cache 仅四文件"
+    status: done
+    progress: "已完成：page cache v2 四文件原子发布、版本化 stdout.idx、BOM/GBK/非法 UTF-8/emoji/CRLF code point 分页、pageSize 重算、范围读取与缓存四重校验；10 个分页单测、build、tsc、lint、全量 38 文件/523 用例均通过。"
+  - action: "S5 工具契约与乱码闭环:三 handler 接入 envelope(result.ts 定义 schema/工厂,含 SECRET_DETECTED 错误码);batch 并发 1/4 work queue + completed/skipped union;watch window/termination 语义;cache read isError 差异;audit command.output.read;shell.ts 先定位根因再定点修复 cmd/powershell 行内非 ASCII"
+    exit_signal: "三工具 e2e 正常/分页/错误路径 envelope 结构完整;MCP_SHELL=cmd|powershell 下 echo 中文测试与 pwsh 链路一致"
+    status: done
+    progress: "已完成共享 runCommandOutput 调用接入；公开 output schema、SECRET_DETECTED、统一 envelope、batch 动态 work queue/skipped union、watch window/termination、cache read 独立语义、command.output.read audit 和 cmd/powershell/pwsh 乱码闭环均已完成，并通过定向测试、build、tsc、lint 与 diff 校验。"
+  - action: "S6 阶段 C 门禁:roadmap 7.3 全矩阵回归(阈值边界/行为/编码索引/资源/secret) + npm run build / npx tsc --noEmit / npm run lint / npm test / npm run test:latency / git diff --check"
+    exit_signal: "全绿并留痕(命令 + 输出摘要)"
+    status: done
+    progress: "已完成阶段 C 门禁：npm run build 通过；npx tsc --noEmit 通过；npm run lint 通过；npm test -- --run 全绿（39 个文件、532 个测试）；npm run test:latency 全绿（24 项延迟测量）；git diff --check 通过。测试临时目录均解析到 E:/Codex_Temp。"
+
+checks:
+  # ---- 名词契约(design 1.1 B1-B9)----
+  - item: "B1 超 stdout 50MiB/stderr 1MiB 保留上限不杀进程,drain 计数;成功退出 ok:true,truncated:true;非零/timeout 保留真实错误语义"
+    source: 名词契约
+    status: passed
+  - item: "B2 ≤1MiB 小输出(含超 2000 字符)全量返回不落盘;仅超内存阈值才溢写;decision paging-cache-on-demand 被 supersede"
+    source: 名词契约
+    status: passed
+  - item: "B3 MCP_COMMAND_MEMORY_OUTPUT_BYTES/MAX_OUTPUT_BYTES/MAX_STDERR_BYTES/TEMP_MAX_TOTAL_BYTES 进程级缓存,无效值 spawn 前 VALIDATION_ERROR"
+    source: 名词契约
+    status: passed
+  - item: "B4 cache_id v2(page-cache-<13位毫秒>-<32位hex>,node:crypto);旧格式读取 PATH_NOT_FOUND;meta.json 白名单字段"
+    source: 名词契约
+    status: passed
+  - item: "B5 execute_command command 与 cache_id 严格二选一;同传/同缺、command 模式带 page、cache 模式带 command/cwd/timeout 均 VALIDATION_ERROR"
+    source: 名词契约
+    status: passed
+  - item: "B6 watch duration 到期 ok:true,timed_out:false,capture_limit_reached:true;强制终止后仍未关闭返回 detail=watch_termination_failed"
+    source: 名词契约
+    status: passed
+  - item: "B7 batch 有界 work queue(顺序并发1/parallel并发4,不按批等待);results 与输入等长按 index 排列;skipped union 不带 ok/latency/exit/output/cache;completed+skipped=len、failed=completed 中 ok=false、all_ok=failed===0&&skipped===0;空 batch 全零 all_ok=true"
+    source: 名词契约
+    status: passed
+  - item: "B8 stderr 仅首次响应与 page 1 返回;page>1 stderr=空但统计/encoding/truncated 完整;原失败命令读取 isError:false 且 envelope 保留原 error/exit/timed_out"
+    source: 名词契约
+    status: passed
+  - item: "B9 scan-before-persist:scanner 固定在 writer 前,只有已证明安全的前缀进 staging;每流 8192-byte quarantine 未决超限 fail-closed;secret 原文永不落 staging"
+    source: 名词契约
+    status: passed
+  # ---- 编排骨架(design 2.2)----
+  - item: "src/capture.ts 只管 child lifecycle/原始字节/backpressure/drain/actual 计数,不感知 page/cache/envelope"
+    source: 编排骨架
+    status: passed
+  - item: "src/command-output.ts 统一 scanner gate/spill transaction/finalize/降级/envelope;三 handler 只做入口语义;分页读取独立只读支线不过 policy/SafeGuard/rate limit 且不重跑命令"
+    source: 编排骨架
+    status: passed
+  # ---- 跨层纪律(design 2.2 / roadmap 4.6/4.12)----
+  - item: "secret 全量抑制:structured stdout/stderr 为空、retained_*_bytes=0、total_chars=0、paged=false、无 cache/page 字段、空流 encoding=utf8、占位只在 content;两 fallback buffer 清空;各流 truncated 按 actual>0 计算"
+    source: 跨层纪律
+    status: passed
+  - item: "fallback preview:每流 65536-byte scanner 已释放安全前缀,stdout ≤ effective pageSize code point;retained 统计只计实际返回预览字节;不创建 temp/cache_id"
+    source: 跨层纪律
+    status: passed
+  - item: "降级优先级 secret > temp 容量/锁/writer;scanner 一旦启用持续扫描 drain;命中后可停止 pattern 计算但仍 drain 并完成 actual 计数"
+    source: 跨层纪律
+    status: passed
+  - item: "错误语义:参数互斥/配置无效/越界页(带 total_pages)→VALIDATION_ERROR;非法/过期 cache_id→PATH_NOT_FOUND;索引/meta 损坏→EXECUTION_FAILED+cache_corrupt 不刷 TTL;cache 锁超时→retryable EXECUTION_FAILED+cache_lock_timeout;strict 命中→SECRET_DETECTED;错误分支保留 envelope 与 error.detail"
+    source: 跨层纪律
+    status: passed
+  - item: "只有锁内校验+范围读取成功才刷新滑动 TTL;非法 ID/越界页/读取失败不刷新;发布原子,rename 成功前不暴露 cache_id"
+    source: 跨层纪律
+    status: passed
+  - item: "quarantine 固定 8192 bytes 不可配置;共享 pattern registry 单一来源,whole-string 与流式 matcher 差分/属性测试防漂移"
+    source: 跨层纪律
+    status: passed
+  # ---- 挂载点(design 2.3)----
+  - item: "三工具公开 schema:execute_command 双模式、batch_execute result union、watch_command envelope;工具数仍 27/26"
+    source: 挂载点
+    status: passed
+  - item: "四个输出环境变量 + MCP_SECRETS_SCAN 扩展到命令输出"
+    source: 挂载点
+    status: passed
+  - item: "状态目录协议:page-cache-* 四文件布局 + cache_id v2 + staging 原子发布(rename 前移除控制文件)"
+    source: 挂载点
+    status: passed
+  - item: "ErrorCode 新增 SECRET_DETECTED;result.ts 定义 CommandOutputEnvelope/CacheDisabledReason/BatchCommandResult schema"
+    source: 挂载点
+    status: passed
+  - item: "audit 新增 command.output.read(只记 cache_id/页码/读取量,不记 command/cwd/内容)"
+    source: 挂载点
+    status: passed
+  # ---- 范围守护(design 3.3)----
+  - item: "超限路径无 SIGTERM/SIGKILL(除命令自身 timeout);旧超限即 EXECUTION_FAILED 路径不存在;无新增工具;无后台 job API"
+    source: 范围守护
+    status: passed
+  - item: "命令 policy/SafeGuard/shell 选择优先级(4.3)/Unix /bin/sh -c 未变;ProcessPool 未激活"
+    source: 范围守护
+    status: passed
+  - item: "final cache 仅四文件;staging/meta/audit 无 secret 原文;meta.json 无 command/cwd/输出副本/env"
+    source: 范围守护
+    status: passed
+  - item: "quarantine 上限不是环境变量;无新增运行时依赖;无第二份可漂移 pattern registry"
+    source: 范围守护
+    status: passed
+  - item: "小输出路径不创建 temp;README/AGENTS/ARCHITECTURE/requirements/decision 未提前改写;.serena/ 未进任何 commit"
+    source: 范围守护
+    status: passed
+  # ---- 验收场景(design 3.1/3.2)----
+  - item: "正常场景:非 secret 小输出不落盘全量返回;安全中等输出完整分页首响应仅第1页+retained stderr+cache_id;batch 队列/跳过/计数语义;watch 窗口结束;cmd|powershell echo 中文测试与 pwsh 一致"
+    source: 验收场景
+    status: passed
+  - item: "边界场景:超限不杀进程+分流 truncated+尾部字符边界收缩+actual 完整;编码矩阵(UTF-8/BOM 剥除/非法 U+FFFD/GBK/多字节跨 chunk/emoji·组合·ZWJ·CRLF);参数互斥与 cache read 语义;cache 四重校验与损坏处理;资源降级与 TTL/LRU/崩溃恢复;secret 四 tier 全矩阵与 fault injection;错误/降级 envelope 统计口径"
+    source: 验收场景
+    status: passed

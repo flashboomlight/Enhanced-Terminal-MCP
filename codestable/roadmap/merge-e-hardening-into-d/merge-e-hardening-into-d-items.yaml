@@ -13,10 +13,10 @@ items:
   - slug: command-output-spill-paging
     description: 为 execute_command、batch_execute、watch_command 建立共享 A+ 捕获、溢写、字符分页、secret、容量和结构化错误协议
     depends_on: [merge-e-hardening-base]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-20-command-output-spill-paging
     minimal_loop: false
-    notes: 取代 remaining-hardening/contract-truncate-success，不沿用旧的截断即错误或整文件分页实现
+    notes: 2026-08-21 验收通过。S1 捕获原语、S2 scan-before-persist、S3 TempManager transaction、S4 page cache v2、S5 三工具 envelope 与乱码闭环、S6 阶段 C 门禁全部 done；乱码根因为 cmd 管道原始字节 GBK、pwsh/powershell UTF-8，修复落在 command-output.ts 原始字节编码判定而非 shell.ts；详见 feature acceptance 报告
 
   - slug: publish-es-optional
     description: 将 Everything CLI 改为固定 SHA-256 的本地可选依赖，并从 npm 发布物中移除 es.exe

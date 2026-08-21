@@ -9,11 +9,11 @@ Supports **27 tools** across 7 categories: command execution, file I/O, system m
 - **3-Level Safety System** — strict/normal/off via `MCP_SAFETY_MODE`, hardBlock baseline always on; optional `MCP_COMMAND_POLICY=allow`
 - **Path & URL Security** — traversal detection, forbidden paths, sensitive file patterns, secret scanning
 - **Performance Optimized** — LRU result cache (128-entry, sliding TTL, ~32MB cap), adaptive timeouts, spawn-based streaming
-- **Structured Errors** — 18 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
-- **Session Persistence** — cwd, env vars, and command history survive restarts (auto-saved to `.enhanced-terminal-mcp/session.json`)
-- **Audit Logging** — structured JSON Lines audit log at `.enhanced-terminal-mcp/logs/audit.jsonl` (mode: `off` / `errors` / `all`)
-- **Temp Resource Manager** — TTL + LRU auto-recycled temp directories for page caches and future snapshots
-- **Command Output Paging** — large `execute_command` outputs can be read page-by-page via validated `cache_id` / `page` / `pageSize`
+- **Structured Errors** — 19 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
+- **Session Persistence** — cwd, env vars, and command history survive restarts (auto-saved to `.etmcp/session.json`)
+- **Audit Logging** — structured JSON Lines audit log at `.etmcp/logs/audit.jsonl` (mode: `off` / `errors` / `all`)
+- **Temp Resource Manager** — TTL + LRU auto-recycled temp directories; the `temp` root is created only when a temp resource is actually needed
+- **Command Output Paging** — large `execute_command` outputs can be read page-by-page via validated `cache_id` / `page` / `pageSize`; the current baseline still uses the legacy text cache while the A+ spill/paging upgrade is in progress
 - **Rate Limiting** — token bucket (10 req/s) for command execution
 - **Windows Everything Integration** — sub-10ms file search via Everything CLI
 
@@ -51,10 +51,10 @@ setup.bat
 | `MCP_LOG_LEVEL` | `info` | Log level: debug / info / warn / error |
 | `MCP_SHELL` | `pwsh` | Windows shell mode: `pwsh` (PowerShell 7, recommended), `powershell` (Windows PowerShell 5.1), `cmd` (legacy cmd.exe escape hatch). Unix is unaffected. |
 | `MCP_POWERSHELL_PATH` | — | Explicit path to a pwsh 7 / PowerShell executable. Takes highest priority; invalid path is a hard error (no silent fallback). |
-| `MCP_STATE_DIR` | `<project-root>/.etmcp` | State directory for session, audit logs, and temp files (legacy `<project-root>/.enhanced-terminal-mcp` auto-migrates session.json/audit.jsonl) |
+| `MCP_STATE_DIR` | `<project-root>/.etmcp` | State directory for session, audit logs, and temp files. With the default root, legacy `<project-root>/.enhanced-terminal-mcp` `session.json`/`logs/audit.jsonl` are migrated; `temp` and unknown files are never migrated. Setting this override disables automatic legacy migration. |
 | `MCP_AUDIT_MODE` | `errors` | Audit mode: `off` / `errors` / `all` |
 | `MCP_AUDIT_MAX_ENTRIES` | `10000` | Max audit log entries to retain |
-| `MCP_COMMAND_MAX_OUTPUT_BYTES` | `52428800` | Max captured stdout per command before returning an explicit truncation error |
+| `MCP_COMMAND_MAX_OUTPUT_BYTES` | `52428800` | Max captured stdout retained per command before the current command contract returns an explicit truncation error (the A+ contract is still in progress) |
 | `MCP_TEMP_TTL_MS` | `3600000` | Temp directory TTL in milliseconds |
 | `MCP_MAX_TEMP_DIRS` | `100` | Max temp directories before LRU eviction |
 | `MCP_TEMP_CLEANUP_INTERVAL_MS` | `300000` | Auto cleanup polling interval in milliseconds |
@@ -68,7 +68,7 @@ On Windows, command tools resolve a shell once per process, in this order:
 3. pwsh 7 found on `PATH`
 4. Windows PowerShell 5.1 fallback (logs a warning)
 
-All flavors emit UTF-8 output (pwsh 7 and Windows PowerShell 5.1 use the invocation-layer encoding preamble; cmd keeps `chcp 65001`). Use `MCP_SHELL=cmd` to restore the legacy cmd.exe behavior. Changing shells or installing pwsh requires a server restart (resolution is cached for the process lifetime).
+pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd keeps `chcp 65001`. Use `MCP_SHELL=cmd` to restore the legacy cmd.exe behavior. The remaining cmd/powershell inline non-ASCII issue is tracked in `codestable/issues/2026-08-19-cmd-powershell-inline-mojibake/` and is part of the in-progress M2 work. Changing shells or installing pwsh requires a server restart (resolution is cached for the process lifetime).
 
 ## Tool Reference
 
@@ -125,7 +125,7 @@ All flavors emit UTF-8 output (pwsh 7 and Windows PowerShell 5.1 use the invocat
 | `cache_stats` | LRU cache statistics |
 | `cache_invalidate` | Clear specific or all caches |
 | `session_state` | View/modify session cwd and env (get/set_cwd/set_env/reset); env applies to command tools |
-| `pool_stats` | Process pool status (currently inactive; always empty) |
+| `pool_stats` | Process pool status (currently inactive; no worker pool is active) |
 
 ### Resources
 - `health://status` — JSON health check with version, metrics, cache, session, temp, and audit info
@@ -148,7 +148,7 @@ MCP Client (stdio) → McpServer
   ├─ Session persistence (JSON file)
   ├─ ProcessPool (inactive stub; stats only — execution uses spawnStream)
   ├─ Adaptive timeouts (P95-based × 3)
-  └─ Structured errors (18 codes)
+  └─ Structured errors (19 codes)
 ```
 
 ## Development

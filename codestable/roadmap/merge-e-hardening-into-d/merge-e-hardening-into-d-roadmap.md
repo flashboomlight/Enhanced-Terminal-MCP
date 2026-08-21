@@ -3,7 +3,7 @@ doc_type: roadmap
 slug: merge-e-hardening-into-d
 status: active
 created: 2026-08-19
-last_reviewed: 2026-08-19
+last_reviewed: 2026-08-21
 tags: [merge, hardening, command-output, powershell, supply-chain]
 related_requirements: [powershell-default-shell]
 related_architecture: [ARCHITECTURE]
@@ -414,8 +414,8 @@ watch_command
    - 即使字符数超过默认 `pageSize=2000`，仍不为小输出自动落盘。
 
 2. **溢写模式**
-   - 首次真正超过 1 MiB 时才创建 staging。
-   - 1 MiB 到各流上限之间，完整写入缓存。
+   - 首次真正超过 1 MiB 时才进入溢写准备；先通过 secret 扫描门，确认有可发布的安全前缀后才懒创建 staging。
+   - 在未命中 secret 且 temp transaction 可用时，1 MiB 到各流上限之间完整写入缓存。
    - 首次响应仅返回 stdout 第 1 页和 stderr 诊断内容，并返回 `cache_id`。
    - 分页本身不等于截断；完整缓存存在时 `truncated=false`。
 
@@ -427,12 +427,20 @@ watch_command
    - 成功退出可返回 `ok:true, truncated:true`。
    - 非零退出或 timeout 仍保持其错误语义，并携带可用 `cache_id` 和诊断字段。
 
-4. **backpressure**
+4. **scan-before-persist 安全门**
+   - stdout/stderr 各自使用原始字节增量候选状态机；扫描门固定在 staging writer 之前，不依赖最终 UTF-8/GBK 判定。
+   - `cache` / `strict` 从第一个字节开始扫描；`write` 仅在真正准备溢写时启动，并先重放仍在内存中的 retained 前缀；`off` 完全旁路命令输出扫描。
+   - 每条流从最早未决候选起最多保留固定 `8192 bytes` quarantine。只有已证明不可能属于任何 secret 候选的安全前缀才可写入 staging。
+   - 未决候选超过 8192 bytes 时按 secret fail-closed；该上限是不可配置的安全常量。两条流合计 quarantine 最多 16 KiB，候选状态数量也必须有固定上限。
+   - quarantine 是 scanner 自有内存：位于 retained 前缀内的候选字节在 finalize 前只占用 provisional retained budget；安全释放后才进入最终 retained 统计，命中 secret 后按全量抑制规则归零。超过各流保留上限后的 drain-only 候选不计 retained；两者都不计 staging 实际字节或 reservation，释放到 writer 后不得重复计数。
+   - scanner 一旦启用，即使达到保留上限、temp 容量不足或 staging 失败，也必须继续扫描 drain 数据；secret 判定优先于缓存降级。
+
+5. **backpressure**
    - 写盘速度落后时必须使用 pause/resume、pipeline 或等价 backpressure。
    - 不允许把待写数据无界堆入 JS heap。
    - 输出达到保留上限后仍读取并丢弃后续字节，避免子进程因 pipe 填满而死锁。
 
-5. **首次响应**
+6. **首次响应**
    - `execute_command` 等待退出或 timeout。
    - `batch_execute` 等待已调度命令结束。
    - `watch_command` 等待命令退出或 `duration` 捕获窗口结束。
@@ -446,6 +454,14 @@ watch_command
 - `stdout_retained_bytes` / `stderr_retained_bytes`：各流实际保留的字节数。
 - `total_chars`：保留 stdout 按最终编码解码后的 Unicode code point 数。
 - 保留上限正好截在多字节字符中间时，finalize 必须把 retained 尾部收缩到最后一个完整字符边界；actual 字节统计不受影响。
+
+最终统计和降级预览固定按以下规则计算：
+
+- `retained_*_bytes` 只表示调用结束后仍实际可返回或可从 cache 读取的原始命令输出字节；scanner/quarantine、fallback buffer、已删除 staging 等内部暂存不能直接计入。
+- 任一启用 scanner 的 tier 命中 secret（含 8192-byte 未决候选 fail-closed）后，两个流都执行全量抑制：structured `stdout=""`、`stderr=""`，`stdout_retained_bytes=0`、`stderr_retained_bytes=0`、`retained_output_bytes=0`、`total_chars=0`、`paged=false`，且不返回 page 字段或 `cache_id`。固定占位说明只放在人类可读 `content`，不是命令输出，不计 retained；空 retained 流的 encoding 规范化为 `utf8`。`stdout_truncated` / `stderr_truncated` 分别等于对应 `*_total_bytes > 0`，`truncated=true`。
+- 非 secret 情况下，捕获层从每条流的首个已由 scanner 证明安全的字节开始维护一个纯内存前缀缓冲；`off` tier 视所有字节为已证明安全。内部常量 `COMMAND_OUTPUT_FALLBACK_PREVIEW_BYTES=65536`，按 stdout/stderr **每流**生效、不可配置，且不会触发状态目录或 temp 创建。
+- temp 容量、锁或 writer 失败后，只能从上述安全前缀生成 fallback preview：stdout 最多返回 effective `pageSize` 个 Unicode code point（未提供时 2000），stderr 最多返回缓冲中 65536 个原始字节解码后的完整字符；两流都先收缩到完整字符边界。`retained_*_bytes` 和 `total_chars` 只统计最终实际返回的原始预览，`paged=false`、无 page 字段和 `cache_id`，各流 `*_truncated` 按 actual 与 retained 比较，`truncated=true`。64 KiB 足以覆盖允许的最大 10000-code-point UTF-8 stdout 首页及 BOM，同时把额外内存固定在两流合计 128 KiB。
+- 若后续扫描命中 secret，必须清空两个 fallback buffer，并以上述 secret 全量抑制规则覆盖先前的 temp 降级候选；不得返回已经证明安全的另一条流作为旁路。
 
 统一机器可读结果：
 
@@ -548,15 +564,19 @@ execute_command({
 - cache 读取模式附带 command、cwd 或 timeout：`VALIDATION_ERROR`，不得静默忽略。
 - 非零退出：`EXECUTION_FAILED`，`isError:true`，保留诊断 envelope。
 - timeout：`TIMEOUT`，`isError:true`，保留诊断 envelope。
+- cache 读取成功时，当前读取调用使用 `isError:false`；若原命令非零退出或 timeout，envelope 仍原样保留 `ok:false`、原 `error`、`exit_code` 和 `timed_out`。读取基础设施错误才把当前调用标成 `isError:true`。
 
 #### `batch_execute`
 
 - 每个 command 使用独立捕获状态、独立字节统计和独立 `cache_id`。
 - 不把整批 stdout 合成一个缓存。
 - 某个 command 非零退出或 timeout 时，该 result 的 `ok=false` 并附带 error。
-- batch 顶层仍返回完整 `results` 和 `all_ok`/summary；单条失败不应让已完成结果失去机器可读结构。
-- `stop_on_error=true` 只影响尚未调度的后续顺序命令。
-- parallel 模式中已调度的命令必须正常收尾，不能因另一条失败丢失输出。
+- batch 使用有界 work queue：顺序模式并发 1，parallel 模式并发固定 4；不得按 4 条一批等待后再调度下一批。
+- `results` 始终与输入 commands 等长并按输入顺序排列；每项带稳定 `index` 和 `status: completed|skipped`。未调度项使用 `status: skipped`、`skip_reason: stop_on_error`，不伪造 exit/output/cache。
+- `status: skipped` 是“未创建子进程”的独立 union 分支，只有 `index`、原输入 `command`、`status` 和 `skip_reason`；不带 `ok`，也不带 latency、exit、timeout、output、统计或 cache 字段。调用方必须先按 `status` 判别。
+- `stop_on_error=true` 在任一模式都只阻止失败被观察后尚未调度的命令；已经 active 的命令必须正常收尾。`stop_on_error=false` 调度全部命令。
+- 顶层返回 `results`、`all_ok`、`completed`、`failed`、`skipped` 和 summary；固定不变量为 `completed + skipped = commands.length`、`failed = completed results 中 ok=false 的数量`、`all_ok = failed === 0 && skipped === 0`。单条失败不丢失其他结果。单条 strict secret 命中是该 result 的 `SECRET_DETECTED`，不是顶层基础设施失败。
+- 保持现有空数组兼容：`commands=[]` 不 spawn、不创建 temp、不消耗 per-command token，返回 `results=[]`、`completed=0`、`failed=0`、`skipped=0`、`all_ok=true`；batch 级 policy/SafeGuard/rate-limit 的既有调用边界不在本 feature 中另行改变。
 - policy、SafeGuard 或顶层基础设施在执行前失败时，整个 tool 才返回 `isError:true`。
 
 #### `watch_command`
@@ -565,9 +585,11 @@ execute_command({
 - `duration` 到期是 watch 的正常捕获窗口结束：
   ```text
   ok=true
+  timed_out=false
   capture_limit_reached=true
   ```
 - duration 到期后按现有温和终止→强制终止策略等待子进程关闭。
+- 若强制终止后子进程仍未确认关闭，返回 `EXECUTION_FAILED`、detail=`watch_termination_failed`；保留已捕获的安全诊断，且 `timed_out=false`、`capture_limit_reached=true`。
 - 在 duration 前非零退出仍为 `EXECUTION_FAILED`。
 - 输出达到保留上限不改变 watch 的捕获窗口语义。
 - 调用仍等待窗口结束或真实退出，不返回后台句柄。
@@ -581,6 +603,7 @@ execute_command({
 - `page` 从 1 开始，默认 1。
 - `pageSize` 按 Unicode code point 计数，默认 2000，最大 10000。
 - 后续读取改变 `pageSize` 时重新计算页边界和 `total_pages`，不重写缓存。
+- `stderr` 只在首次响应和 cache `page=1` 返回；`page>1` 固定返回 `stderr=""`，但 stderr 字节统计、encoding 和 truncated 字段仍保持完整。调用方可用同一 `cache_id` 重读 page 1 取回 retained stderr。
 - 非法、已过期或不存在的 `cache_id`：`PATH_NOT_FOUND`。
 - 合法缓存但 page 越界：`VALIDATION_ERROR`，机器可读 detail 包含 `total_pages`。
 - 只有成功读取才刷新滑动 TTL。
@@ -699,7 +722,7 @@ Record（每条 16 bytes）
 - Windows 无 BOM 且 UTF-8 非法：使用 `TextDecoder("gbk")`，非法序列替换为 `U+FFFD`。
 - Unix/macOS：固定 UTF-8，非法序列替换为 `U+FFFD`。
 - stdout 和 stderr 独立判定，避免一条流污染另一条流的编码结论。
-- 命令结束后对最多 50 MiB stdout 做一次有界内存顺序扫描，统一完成编码判定和索引；不维护易失效的实时 UTF-8 临时索引。
+- 命令结束后以固定大小 chunk 对最多 50 MiB stdout 做一次顺序扫描，辅助内存不得随文件大小增长；统一完成编码判定和索引，不维护易失效的实时 UTF-8 临时索引，也不得一次加载整个 stdout。
 - 翻页先二分查找最近检查点，再从对应 byte offset 增量解码；不得加载整个 `stdout.bin`。
 
 索引或 meta 损坏时：
@@ -714,20 +737,22 @@ Record（每条 16 bytes）
 
 发布顺序：
 
-1. 创建 staging。
-2. 写入原始 stdout/stderr。
-3. 完成 secret 判断。
-4. 确定编码并生成 `stdout.idx`。
-5. 最后生成 `meta.json`，标记 `complete:true`。
-6. flush/close 所有句柄。
-7. 在同一 temp root 内原子 rename 为最终 `page-cache-*`。
-8. rename 成功后才向调用方暴露 `cache_id`。
+1. 按 4.12 初始化 scanner；`cache` / `strict` 从首字节扫描，`write` 在首次溢写准备时先扫描内存前缀，`off` 旁路。
+2. 只有 scanner 已释放安全前缀且确实需要溢写时，才 cleanup、申请初始 reservation 并创建 staging。
+3. 后续 retained 字节先进入 scanner；writer 只接收已证明安全的前缀，未决 quarantine 和已命中 secret 的字节永不写入 staging。
+4. 流结束时解析未决候选；安全才释放 quarantine，命中或超过 8192 bytes 则执行对应 secret 策略。
+5. 确定编码并以固定大小 chunk 顺序生成 `stdout.idx`。
+6. 最后生成 `meta.json`，标记 `complete:true`。
+7. flush/close 所有句柄，并移除 staging 内 heartbeat/lease 等控制文件；最终 cache 目录只允许四个 4.9 文件。
+8. 在同一 temp root 内原子 rename 为最终 `page-cache-*`。
+9. rename 成功后才向调用方暴露 `cache_id`。
 
 任一步失败：
 
 - 不暴露 cache_id。
 - 删除当前 staging。
 - 继续 drain 已启动命令并等待真实结果。
+- 未命中 secret 时，按 4.6 的 `COMMAND_OUTPUT_FALLBACK_PREVIEW_BYTES=65536` 每流安全前缀规则生成预览；`retained_*_bytes` 只统计最终实际返回的预览，不把已删除 staging 或内部缓冲中未返回的字节算作 retained。
 - 返回安全预览以及：
   ```text
   truncated=true
@@ -755,7 +780,7 @@ Record（每条 16 bytes）
 - staging 和 reservation 带周期性 heartbeat lease。
 - cleanup 只能删除 lease 已过期且未被当前进程标记 active 的 staging。
 - server 启动时仅在 temp 已存在的情况下扫描恢复，不为扫描创建 temp。
-- cleanup 与分页读取共享锁协议。
+- cleanup、容量变更与分页读取共享同一跨进程锁协议；分页读取只在校验、范围读取和 touch 的短临界区持锁，不在最终 cache 目录留下 lease 文件。锁超时在执行/发布路径降级为 `temp_unavailable`，在 cache 读取路径返回 retryable `EXECUTION_FAILED` + detail=`cache_lock_timeout`。
 - Windows 下删除失败应保留条目并记录 warning，不能把 Map 状态误报为已删除。
 
 ### 4.11 TempManager、TTL、LRU 和容量
@@ -826,7 +851,16 @@ MCP_SECRETS_SCAN=off|write|cache|strict
 cache
 ```
 
-命令输出扫描必须同时覆盖 stdout 和 stderr，支持跨 chunk 匹配，不受旧 4 MiB 单次扫描上限影响。
+命令输出扫描必须同时覆盖 stdout 和 stderr，支持任意 chunk 切分，不受旧 4 MiB 单次扫描上限影响。实现使用共享 pattern registry，`scanContent` 的 whole-string regex 与命令输出的流式 matcher 不得维护两份可独立漂移的 secret 定义。
+
+流式 matcher 固定契约：
+
+- stdout/stderr 独立维护原始字节候选状态；ASCII anchor、边界和字符类按现有 pattern 语义匹配，高位字节按可能的 UTF-8/GBK 字符作保守分支，scanner 不等待最终 encoding 才工作。
+- 从最早未决候选开始保留 quarantine；无候选的安全前缀立即释放，已证明失败的候选从状态集中移除。状态数和回溯均有固定上限，不允许把全部输出保存在 scanner 中。
+- 每条流 quarantine 固定上限 `8192 bytes`，不可通过环境变量调大或关闭。候选在上限内保持精确/保守匹配；仍未决而将超过上限时直接判定 secret，fail-closed。
+- EOF 是有效边界：结束时必须解析短候选；满足模式则命中，不满足则释放。不得因 chunk 尾部、BOM、无效 UTF-8 或最终选择 GBK 而漏掉 ASCII credential。
+- scanner 是 pattern registry 的保守超集：允许在编码歧义或超长未决候选时产生安全侧 false positive，不允许对 registry 可匹配的输入产生 false negative。
+- 只有 scanner 已释放的安全字节才可进入 staging。quarantine、命中内容及其后续字节都不得先落盘再删除；不新增运行时依赖。
 
 行为：
 
@@ -836,32 +870,33 @@ cache
 
 - `write`
   - 保留现有 `write_file` 写入防护。
-  - 命令输出只有在准备持久化时进行流式扫描。
-  - 发现 secret 后立即停止持久化、删除 staging、不生成 cache_id。
-  - 返回不含原始命中内容的安全占位预览；命令退出状态不因此改变。
+  - 命令输出只有在真正准备持久化时启动流式扫描；必须先扫描仍在内存中的 retained 前缀，再决定是否创建 staging。
+  - 发现 secret 后立即停止持久化、删除仅含已证明安全前缀的 staging、不生成 cache_id；命中原文从未进入 staging。
+  - structured stdout/stderr 与 retained 统计按 4.6 全量归零；固定安全占位只放在人类可读 `content`。命令退出状态不因此改变，并设置 `cache_disabled_reason=secret_detected`。
 
 - `cache`（默认）
   - 包含 write 规则。
-  - 扫描全部命令输出，包括内存小输出、超过 4 MiB 的输出和停止保留后的 drain 数据。
+  - 从首字节扫描全部命令输出，包括内存小输出、超过 4 MiB 的输出、停止保留后的 drain 数据，以及 temp 容量/锁降级后的后续数据。
   - 发现 secret 时不返回原始输出、不生成 cache_id：
     ```text
     cache_disabled_reason=secret_detected
     truncated=true
     ```
   - 命令本身不因 secret 被判定失败。
+  - structured stdout/stderr 与 retained 统计按 4.6 全量归零；固定安全占位只放在人类可读 `content`。
 
 - `strict`
-  - 扫描全部输出。
+  - 从首字节扫描全部输出，范围与 cache 相同。
   - 发现 secret 后拒绝输出、删除 staging、不留分页文件。
   - 返回公共错误码：
     ```text
     SECRET_DETECTED
     ```
-  - `isError:true`，structuredContent 仍包含非敏感字节统计。
+  - `isError:true`、`cache_disabled_reason=secret_detected`；structuredContent 的 stdout/stderr 与 retained 统计按 4.6 全量归零，只保留 actual 非敏感字节统计、真实 exit/timeout 事实和结构化错误。
 
-安全预览只允许固定占位文本和非敏感统计，不保留匹配文本、前后文、command、cwd 或完整 stderr。
+secret 安全响应只允许在人类可读 `content` 使用固定占位文本，并在 structuredContent 保留非敏感统计；不得保留匹配文本、前后文、command、cwd 或任何原始 stdout/stderr。temp 降级但最终未命中 secret 时，才允许返回 4.6 定义的有界安全原始预览。
 
-secret 策略优先于容量降级：容量不足后仍要继续扫描 drain 数据，不能以“不再写盘”为由跳过扫描。
+secret 策略优先于容量降级：scanner 一旦按 tier 启用，容量不足、锁失败或 writer 失败后仍要继续扫描 drain 数据，不能以“不再写盘”为由跳过扫描。命中后可停止 pattern 计算，但仍必须 drain 并完成 actual 字节计数。
 
 ### 4.13 Everything 可选本地解析与发布协议
 
@@ -934,14 +969,23 @@ ENHANCED_TERMINAL_ES_PATH
 - **描述**：为三个命令工具建立共享 A+ 捕获、溢写、字符分页、secret、容量和结构化错误协议。
 - **所属模块**：M2，并消费 M1 的 shell、result、state 和安全基线。
 - **依赖**：`merge-e-hardening-base`。
-- **状态**：planned。
-- **对应 feature**：未启动。
-- **完成后可观察结果**：
+- **状态**：done（2026-08-21 验收通过）。
+- **对应 feature**：2026-08-20-command-output-spill-paging（design 已 approved）。
+- **已完成**：
+  - `src/capture.ts`：原始 stdout/stderr 字节捕获、actual 计数、backpressure、drain、timeout、watch window、终止失败和消费失败 fail-closed；每流 chunk 顺序保证。
+  - `src/command-output.ts`：三个 handler 共享的 A+ workflow——进程级输出上限解析、纯内存保留、超限继续 drain、scan-before-persist、8192-byte quarantine、双流 secret 抑制、65536-byte fallback preview、staging finalize 和完整 envelope；Windows 无 BOM 且非法 UTF-8 按 GBK 解码。
+  - `src/paging.ts`：page cache v2 四文件（`stdout.bin`/`stderr.bin`/`stdout.idx`/`meta.json`）、版本化二进制字符索引、范围读取、四重校验和 staging 原子发布。
+  - `src/temp-manager.ts`：懒创建、增量 reservation、同进程 mutex、跨进程短锁、staging heartbeat lease、崩溃恢复、TTL/LRU 双维清理和 `active_dirs`/`reserved_bytes`。
+  - `src/result.ts`：`SECRET_DETECTED`、`CommandOutputEnvelope`、`BatchCommandResult`、`CacheDisabledReason` 及对应公开 schema。
+  - `src/tools/command.ts`：execute_command 严格双模式、batch 并发 1/4 work queue 与 completed/skipped union、watch window/termination、cache read `isError` 差异和 `command.output.read` audit。
+  - `src/secret-registry.ts` / `src/secret-stream.ts`：whole-string 与流式 matcher 的共享 pattern 来源，8192-byte quarantine 和差分/属性测试。
+- **完成后可观察结果**（已达成）：
   - 小输出不落盘。
   - 中等输出完整分页。
   - 超限输出继续 drain 并正确标记。
   - error/timeout 保留机器可读诊断和 cache_id。
   - GBK、Unicode code point、backpressure、TTL/LRU、容量和 secret 模式均有回归证据。
+  - cmd/powershell/pwsh 三链路 `echo 中文测试` 一致。
 
 ### 5.3 `publish-es-optional`
 
@@ -1048,11 +1092,14 @@ git diff --check
 - 小输出不创建 temp/cache。
 - 中等输出完整分页，首次响应只含第 1 页。
 - 超限继续 drain，等待真实退出。
-- 成功截断、非零退出、timeout、watch duration、batch stop/parallel。
+- 成功截断、非零退出、timeout、watch duration、watch 终止失败、batch stop/parallel 有界队列与 skipped 行。
+- 空 batch 返回长度/计数全零且 `all_ok=true`；skipped 分支不含 `ok` 或任何伪造进程字段，`completed + skipped = commands.length`。
 - error 的 `structuredContent` 保留 detail、统计和 cache_id。
+- cache 读取原失败命令时当前调用 `isError:false`，envelope 仍保留原失败；cache 本身读取失败时 `isError:true`。
 - 新 command 与 cache read 参数互斥。
 - cache_id 不重跑命令、不消耗 command rate token。
 - 非法 ID、路径穿越、junction、越界页和损坏索引。
+- page 1 可重复取得 retained stderr；page>1 的 stderr 为空且统计不丢失。
 
 编码与索引：
 
@@ -1067,6 +1114,7 @@ git diff --check
 - 慢写盘 backpressure。
 - 输出超过保留上限后内存不随 actual output 线性增长。
 - 通过降低测试配置模拟 1 GiB 容量门禁。
+- temp 容量/锁/writer 降级只返回每流最多 65536-byte 安全前缀；stdout 受 effective `pageSize` 字符上限约束，retained 统计只计实际返回预览。
 - TTL、成功读取 touch、非法读取不 touch。
 - LRU 数量和容量清理。
 - active 目录、并发 reservation、崩溃 staging 恢复。
@@ -1076,10 +1124,13 @@ secret：
 
 - off/write/cache/strict。
 - stdout/stderr。
-- 命中内容跨 chunk。
+- 每个 pattern 在每个可能字节边界切分时仍能命中；whole-string regex 与流式 matcher 做差分/属性验证。
+- quarantine 8191/8192/8193 bytes、EOF 未决候选、编码歧义和超长候选 fail-closed。
 - 超过 4 MiB 后仍扫描。
 - secret 与容量不足同时发生时，secret 策略优先。
 - strict 只返回 `SECRET_DETECTED` 和非敏感统计。
+- write/cache/strict 命中后 structured stdout/stderr 为空，全部 retained 统计和 `total_chars` 为零；占位 `content` 不计命令输出，两个 fallback buffer 均被清空。
+- fault injection 在 scanner、writer、reservation、finalize 和 rename 各阶段中断后，staging/meta/audit 均不含 secret 原文；最终 cache 始终只有四个文件。
 - meta/audit 不保存输出或 secret 上下文。
 
 ### 7.4 阶段 D：Everything 与 package 门禁
@@ -1124,7 +1175,7 @@ git diff --check
 
 ## 8. 文档同步规则
 
-最终实现完成前，不提前把计划写入 architecture 或 requirements。
+最终 A+ / M3 实现完成前，不把目标态字段写入 architecture 或 requirements；本次只回写已在代码中存在的 M2 过渡事实。
 
 M4 按以下规则同步：
 
@@ -1139,6 +1190,8 @@ M4 按以下规则同步：
 - `codestable/requirements/powershell-default-shell.md`（仅最终行为确有变化时）
 - package metadata 和 `.gitignore`
 - 当前仍被引用的 state/temp/paging/Everything decision
+
+2026-08-21 已先完成一次当前状态同步：README、AGENTS、ARCHITECTURE，以及 state/temp/paging decision 已反映 `.etmcp`、懒创建、19 个现有错误码和 M2 部分实现；M4 仍需在 M2/M3 验收后完成最终 A+ 契约与发布口径收口。
 
 必须统一：
 
@@ -1161,27 +1214,27 @@ M4 按以下规则同步：
 
 ### 旧 roadmap 收口
 
-最终同步时：
+本次文档同步已执行：
 
 - 删除旧 D `merge-plan.md` 的唯一替代已由本 roadmap 完成，不恢复重复文件。
-- E `remaining-hardening` 中：
+- D 仓库副本的 `remaining-hardening` 中：
   - `contract-truncate-success`
   - `publish-es-optional`
 
-  改为 `dropped`，notes 明确写：
+  已改为 `dropped`，notes 明确写：
 
   ```text
   moved/superseded by merge-e-hardening-into-d/<new-item>
   ```
 
-- 两项都转移后，E `remaining-hardening` 的所有 item 均为 `done` 或 `dropped`，主文档状态改为 `completed`。
+- 两项都转移后，D 副本 `remaining-hardening` 的所有 item 均为 `done` 或 `dropped`，主文档状态已改为 `completed`；E 目录仍由用户自行处理。
 - 不把旧条目标为 `done` 来冒充它们按原设计实现过。
 
 ## 9. 观察项
 
-- D 当前 architecture 仍描述 Node 18、26 工具、活跃预热池和旧 session 路径；这些是验收阶段必须回写的现状差异，不在 roadmap 落盘阶段提前修改。
-- E 的旧分页 decision 使用“输出超过 pageSize 即落盘”和整文件读取；A+ 会 supersede 该当前决策。
-- E 的旧 state/temp decisions 使用 `.enhanced-terminal-mcp`；最终需要更新或 supersede。
+- D 当前 architecture 已回写 Node >=20、27/26 工具、inactive ProcessPool、`.etmcp` 和 M2 过渡状态；最终 A+ envelope/page cache v2 仍须在 M2 acceptance 后更新。
+- D 副本的旧 paging decision 仍描述当前 legacy `stdout.txt`/`stderr.txt` 整文件读取；A+ acceptance 后才可 supersede，当前不应提前写成 v2 已完成。
+- D 副本的 state/temp decisions 已更新为 `.etmcp` 与懒创建；历史 feature design/acceptance 仍保留原名称作为历史事实。
 - 全局 `%TEMP%` session 可能属于其他项目，因此只提示、不自动迁移；若用户确实需要旧 D session，应单独人工核对。
 - `es_tool/es.exe` 可留在源码仓库作开发夹具，但必须通过 package dry-run 证明未发布。
 - 本 roadmap 不把应用层 hardening 描述为 OS sandbox 或形式化安全证明。
@@ -1190,3 +1243,6 @@ M4 按以下规则同步：
 
 - 2026-08-19：初版。固定 D/E/共同祖先三个 commit；定义完整历史 merge、A+ 输出、`.etmcp`、可选 Everything、文档同步、回滚与完整验收契约。
 - 2026-08-19：M1 `merge-e-hardening-base` 验收通过（merge commit `3f6d477`，双亲 `dee6771`+`e28f2e9`）。执行期修正：backup 锚点定为 `dee6771`（merge 前真实 HEAD，非 `7eea862`/`990f988`）；E 未携带 4.5 迁移实现，由 M1 在 D 侧按 4.5 协议新实现；`result.ts` 错误结构按 SDK 1.29 单一 object 约束落地为 `withErrorSchema`（M2 4.6 再收敛完整 envelope）；D 内联 `src/shell.test.ts` 归位 `tests/unit/`。详见 feature acceptance 报告。
+- 2026-08-20：M2 进度重新对齐。确认 S1 已完成；S2 仅完成内存 scanner/差分与边界测试，staging 前扫描和落盘 fault injection 仍缺；S3 代码已大部分存在但关键资源治理矩阵未验收；S4 仍是旧 PageCache；S5 仅完成共享捕获入口接入，公开 envelope、batch/watch/cache/audit 契约未闭环；S6 尚未执行。roadmap item 与 feature checklist 均保留 `in-progress`，不提前宣称完成。
+- 2026-08-21：完成当前状态文档同步：修正 README/AGENTS/ARCHITECTURE 的 `.etmcp`、错误码、测试快照和 M2 过渡口径；更新 state/temp/paging active decisions；将旧 `remaining-hardening` 的两个重复 planned 条目标记 `dropped` 并指向 M2/M3。未修改历史 feature 文档、E 仓库或代码。
+- 2026-08-21：M2 `command-output-spill-paging` 验收通过。S1–S6 全部闭环：共享 A+ 捕获/溢写/分页/secret/容量/envelope 落地，cmd/powershell/pwsh 中文乱码闭环；乱码根因确认为 cmd 管道原始字节 GBK、pwsh/powershell UTF-8，修复落在 `command-output.ts` 原始字节编码判定（`shell.ts` 不变）。阶段 C 门禁全绿（build/tsc/lint/test 532 用例/test:latency 24 项/diff --check）。详见 feature acceptance 报告。

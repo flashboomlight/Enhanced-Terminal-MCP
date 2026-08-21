@@ -1,6 +1,6 @@
 roadmap: remaining-hardening
 created: 2026-07-12
-last_reviewed: 2026-07-12
+last_reviewed: 2026-08-21
 
 items:
   - slug: cmd-hardblock-regression-corpus
@@ -54,10 +54,10 @@ items:
   - slug: contract-truncate-success
     description: 大输出截断改为 ok+truncated+partial（改 outputSchema，需契约授权）
     depends_on: []
-    status: planned
+    status: dropped
     feature: null
     minimal_loop: false
-    notes: AGENTS 契约红线，须逐 issue 授权 — 未实现
+    notes: moved/superseded by merge-e-hardening-into-d/command-output-spill-paging（M2，当前 in-progress）；不得再作为 remaining-hardening 独立 feature 启动
 
   - slug: publish-sbom-hash-doc
     description: 发布面文档固定节（es 哈希、补丁脚本、锁定依赖说明）
@@ -70,10 +70,10 @@ items:
   - slug: publish-es-optional
     description: es.exe 可选安装或平台分包，缩小非 Windows 包体
     depends_on: [publish-sbom-hash-doc]
-    status: planned
+    status: dropped
     feature: null
     minimal_loop: false
-    notes: 改变 package files / 安装路径 — 未实现
+    notes: moved/superseded by merge-e-hardening-into-d/publish-es-optional（M3，当前 planned）；不得再作为 remaining-hardening 独立 feature 启动
 
   - slug: deps-zod-v4-spike
     description: zod v4 迁移 spike 与 go/no-go，不默认 merge 生产

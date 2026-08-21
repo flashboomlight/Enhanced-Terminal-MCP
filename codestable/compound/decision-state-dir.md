@@ -3,6 +3,8 @@ name: state-dir-centralization
 description: 把会话状态、审计日志、临时资源集中到一个可配置的状态目录，避免散落在系统临时目录
 metadata:
   type: decision
+status: active
+updated: 2026-08-21
 ---
 
 # Decision: 统一状态目录
@@ -16,12 +18,14 @@ metadata:
 
 ## 决定
 
-在项目工作目录下创建 `.enhanced-terminal-mcp/`，集中存放：
+在项目工作目录下使用 `.etmcp/`，集中存放：
 - `session.json`
 - `logs/audit.jsonl`
-- `temp/` 临时资源
+- `temp/` 临时资源（仅真正需要临时资源时懒创建）
 
-通过 `MCP_STATE_DIR` 环境变量可覆盖位置。
+通过 `MCP_STATE_DIR` 环境变量可覆盖位置；覆盖后相对路径仍相对固定的 `projectRoot` 解析，且不触发旧目录自动迁移。
+
+旧 `<projectRoot>/.enhanced-terminal-mcp` 只允许迁移 `session.json` 与 `logs/audit.jsonl`；旧 `temp/` 和未知文件永不迁移。全局 `%TEMP%\\.enhanced-terminal-mcp-session.json` 不自动导入或删除，只能给出不泄露内容的提示。
 
 ## 权衡
 
@@ -36,7 +40,7 @@ metadata:
 
 - 需要迁移旧状态文件（Phase 1 已实现）
 - 测试必须隔离 `MCP_STATE_DIR`
-- `.gitignore` 需要添加 `.enhanced-terminal-mcp/`
+- `.gitignore` 同时忽略 `.etmcp/` 与 legacy `.enhanced-terminal-mcp/`，防止迁移残留进入 Git
 
 ## 相关实现
 

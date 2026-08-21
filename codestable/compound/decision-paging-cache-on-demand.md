@@ -3,6 +3,8 @@ name: paging-cache-on-demand
 description: execute_command 默认不缓存小输出，只有显式分页请求或输出超限时才落盘
 metadata:
   type: decision
+status: active
+updated: 2026-08-21
 ---
 
 # Decision: 分页缓存按需落盘
@@ -34,6 +36,8 @@ metadata:
 - 分页响应会返回 `cache_id`，后续读取同一输出应传 `cache_id`
 - 缓存文件由 `TempManager` 自动回收
 - stdout 超过 `MCP_COMMAND_MAX_OUTPUT_BYTES` 时返回明确错误，避免静默截断
+
+> 当前代码基线仍是 `page-cache-{timestamp}-{random}` + `stdout.txt`/`stderr.txt`/`meta.json` 的 legacy 实现；A+ 的二进制索引、范围读取和统一 envelope 由 `command-output-spill-paging` feature 负责，尚未在验收前取代本决策。
 
 ## 相关实现
 

@@ -1,10 +1,10 @@
 ---
 doc_type: roadmap
 slug: remaining-hardening
-status: active
+status: completed
 created: 2026-07-12
-last_reviewed: 2026-07-12
-implementation_note: "2026-07-12 A-track landed except contract-truncate-success and publish-es-optional; B-track design spikes in drafts/"
+last_reviewed: 2026-08-21
+implementation_note: "原 A-track 已落地；contract-truncate-success 与 publish-es-optional 已迁移到 merge-e-hardening-into-d 的 M2/M3，原条目标记 dropped；B/C 轨仅保留历史边界与 drafts/ 参考"
 tags: [security, command-policy, sandbox, secrets, deps, product-boundary]
 related_requirements: []
 related_architecture: [ARCHITECTURE]
@@ -43,7 +43,7 @@ Enhanced Terminal MCP 在 2026-07-11～12 完成了多轮安全与可靠性加�
 - 单测迁至 `tests/unit/`；`patch-package` 仅 devDep；postinstall 零依赖脚本
 - state-persistence roadmap Phase 1–6 已 completed
 
-### 1.2 触发本规划的“剩余边界”清单（对照表）
+### 1.2 触发本规划的“剩余边界”清单（历史对照表）
 
 | ID | 边界 | 当前状态 | 归属轨道 |
 |----|------|----------|----------|
@@ -52,7 +52,7 @@ Enhanced Terminal MCP 在 2026-07-11～12 完成了多轮安全与可靠性加�
 | B3 | 密钥扫描启发式误报/漏报 | 自研正则 + 4MB 上限 | **A** 可换引擎或分层策略 |
 | B4 | zod 仍在 v3 | SDK 兼容 3\|\|4，未迁移 | **A** 技术债 |
 | B5 | `pool_stats` 空壳产品 | inactive stub，已诚实标注 | **A** 可删/改契约或真激活（风险高） |
-| B6 | 大输出截断仍 `isError=true` | partial 在 error message | **A** 需改 outputSchema（契约） |
+| B6 | 大输出截断仍 `isError=true` | 当前代码仍如此；已迁移到 merge-e-hardening-into-d 的 M2 A+ | **A**（由新 roadmap 承接） |
 | B7 | batch 限流按批 1 token | 防循环弱防资源打满 | **A** |
 | B8 | 内容级密钥仍可读出（只是不缓存） | 读路径不拦密钥正文 | **A/C** 与工具定位冲突 |
 | B9 | OS 级隔离（容器/Job Object） | 无 | **B** |
@@ -93,7 +93,7 @@ Enhanced Terminal MCP 在 2026-07-11～12 完成了多轮安全与可靠性加�
 
 ---
 
-## 3. 模块拆分（概设）
+## 3. 模块拆分（历史概设；输出契约与发布条目已转移）
 
 ```
 remaining-hardening
@@ -116,17 +116,17 @@ remaining-hardening
 - **触碰代码**：`src/scan.ts`、`src/wrap.ts`、`src/tools/files.ts`、`src/cache.ts`
 - **承载子 feature**：`secrets-scan-tiers`、`secrets-read-policy`、`secrets-optional-engine`
 
-### 模块 M3 · tool-contracts
+### 模块 M3 · tool-contracts（已转移输出契约条目）
 
 - **职责**：outputSchema、错误语义、限流粒度、pool 工具产品真相
 - **触碰代码**：`src/tools/command.ts`、`src/ratelimit.ts`、`src/pool.ts`、`src/tools/utility.ts`、`src/stream.ts`
-- **承载子 feature**：`contract-truncate-success`、`contract-batch-ratelimit`、`contract-pool-stats-retire`
+- **承载子 feature**：`contract-batch-ratelimit`、`contract-pool-stats-retire`；`contract-truncate-success` 已转移至 `merge-e-hardening-into-d` 的 M2
 
-### 模块 M4 · supply-chain-publish
+### 模块 M4 · supply-chain-publish（已转移发布条目）
 
 - **职责**：发布 `files`、postinstall、锁定哈希、可选 zod 迁移
 - **触碰代码**：`package.json`、`scripts/`、`es_tool/`、`src/es-integrity.ts`
-- **承载子 feature**：`publish-es-optional`、`deps-zod-v4-spike`、`publish-sbom-hash-doc`
+- **承载子 feature**：`deps-zod-v4-spike`、`publish-sbom-hash-doc`；`publish-es-optional` 已转移至 `merge-e-hardening-into-d` 的 M3
 
 ### 模块 M5 · product-model-options
 
@@ -347,11 +347,10 @@ execute_command_argv: {
 
 ## 8. 如何使用本规划（给执行者）
 
-1. 打开 `remaining-hardening-items.yaml`，选一条 `status: planned`。
-2. 说「开始做 roadmap remaining-hardening 的 {slug}」。
-3. `cs-feat-design` 必须把 **第 4 节接口契约**当硬约束；要改契约先 `cs-roadmap update`。
-4. 验收时 `cs-feat-accept` 回写 items `done`。
-5. **禁止**在未更新本 roadmap 的情况下开启“再加几条 hardBlock 正则”的开放式任务——一律挂到 #1 语料库或新 item。
+1. 本 roadmap 的 `items.yaml` 已无 `status: planned` 条目；不要从这里重新启动输出契约或 Everything 发布工作。
+2. 大输出 A+ 继续使用 `merge-e-hardening-into-d` 的 `command-output-spill-paging`（M2）；Everything 可选发布继续使用同一 roadmap 的 `publish-es-optional`（M3）。
+3. 其他新增 hardening 需求必须先补充本 roadmap 的 item，再启动 `cs-feat-design`；不要重新启用已 dropped 的两个旧 slug。
+4. **禁止**在未更新 roadmap 的情况下开启“再加几条 hardBlock 正则”的开放式任务——一律挂到既有语料库或新 item。
 
 ---
 
@@ -359,3 +358,4 @@ execute_command_argv: {
 
 - 2026-07-12：初版。汇总 hardening 后剩余 A/B/C 三轨；定义 M1–M5 与 12 条 planned + dropped 种子；最小闭环为 hardBlock 回归语料库。
 - 2026-07-12（落地）：完成 corpus / audit metrics / secrets tiers+read / batch rate mode / pool `active` / publish docs / zod+argv+sandbox spikes。仍 planned：`contract-truncate-success`（契约授权）、`publish-es-optional`。
+- 2026-08-21：`contract-truncate-success` 与 `publish-es-optional` 已迁移到 `merge-e-hardening-into-d` 的 M2/M3；本 roadmap 两个旧 item 标记 `dropped`，主文档状态改为 `completed`，避免形成重复执行入口。
