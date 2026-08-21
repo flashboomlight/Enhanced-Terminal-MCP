@@ -6,15 +6,28 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { adaptiveTimeout } from "../adaptive.js";
 import { audit } from "../audit.js";
+import { type CommandOutputRun, getCommandOutputLimits, runCommandOutput } from "../command-output.js";
 import { checkCommandPolicy, classifyPolicyReason, getCommandPolicyMode } from "../command-policy.js";
 import { logger } from "../logger.js";
-import { pageCache } from "../paging.js";
+import { PageCacheCorruptError, PageCacheReadError, pageCache } from "../paging.js";
 import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
-import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
+import {
+  type BatchCommandResult,
+  type CommandOutputEnvelope,
+  commandOutputSchema,
+  completedBatchSchema,
+  ErrorCode,
+  Errors,
+  fail,
+  type StructuredError,
+  skippedBatchSchema,
+  success,
+  type ToolResult,
+  withErrorSchema,
+} from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { session } from "../session.js";
 import { buildShellInvocation, getShellSpec, shellResolutionFail } from "../shell.js";
-import { spawnStream } from "../stream.js";
 import { wrapHandler } from "../wrap.js";
 
 /** 前置安全预检：策略（hardBlock + blocklist/allow）。返回错误 ToolResult 或 null（通过） */
@@ -50,20 +63,177 @@ function recordCommandAudit(
   audit.record({ action: "command.execute", tool, detail: { command, ...detail }, success, error });
 }
 
-function getCommandMaxOutputBytes(): number {
-  const configured = parseInt(process.env.MCP_COMMAND_MAX_OUTPUT_BYTES || "", 10);
-  if (Number.isFinite(configured) && configured > 0) {
-    return Math.max(1024, configured);
-  }
-  return 50 * 1024 * 1024;
-}
-
 function getSessionEnv(): Record<string, string> {
   return session.get().env;
 }
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** 将共享命令结果映射为统一机器可读 envelope。 */
+function buildCommandEnvelope(result: CommandOutputRun, capturedMs: number, ok: boolean): CommandOutputEnvelope {
+  const stdoutBytes = result.stdoutRetainedBytes;
+  const stderrBytes = result.stderrRetainedBytes;
+  const totalOutputBytes = result.stdoutActualBytes + result.stderrActualBytes;
+  const retainedOutputBytes = stdoutBytes + stderrBytes;
+  const totalChars = result.cachePage?.total_chars ?? result.stdoutRetainedChars;
+  const envelope: CommandOutputEnvelope = {
+    ok,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exit_code: result.exitCode,
+    timed_out: result.timedOut,
+    truncated: result.truncated || result.stderrTruncated,
+    stdout_truncated: result.truncated,
+    stderr_truncated: result.stderrTruncated,
+    paged: result.paged,
+    total_output_bytes: totalOutputBytes,
+    retained_output_bytes: retainedOutputBytes,
+    stdout_total_bytes: result.stdoutActualBytes,
+    stdout_retained_bytes: stdoutBytes,
+    stderr_total_bytes: result.stderrActualBytes,
+    stderr_retained_bytes: stderrBytes,
+    total_chars: result.secretDetected ? 0 : totalChars,
+    stdout_encoding: result.stdoutEncoding,
+    stderr_encoding: result.stderrEncoding,
+    capture_limit_reached: result.captureLimitReached || undefined,
+    captured_ms: capturedMs,
+  };
+  if (result.cache) {
+    envelope.cache_id = result.cache.id;
+    envelope.page = result.cachePage?.page ?? 1;
+    envelope.total_pages = result.cachePage?.total_pages ?? result.cache.totalPages;
+    envelope.page_size = result.cachePage?.page_size ?? result.cache.pageSize;
+  }
+  if (result.cacheDisabledReason) envelope.cache_disabled_reason = result.cacheDisabledReason;
+  return envelope;
+}
+
+/** 将分页读取结果映射为 envelope；读取成功不继承 MCP isError。 */
+function buildCachedEnvelope(
+  pageResult: Awaited<ReturnType<typeof pageCache.read>>,
+  capturedMs: number,
+): CommandOutputEnvelope {
+  const originalError = pageResult.error
+    ? ({
+        code: Object.values(ErrorCode).includes(pageResult.error.code as (typeof ErrorCode)[keyof typeof ErrorCode])
+          ? (pageResult.error.code as (typeof ErrorCode)[keyof typeof ErrorCode])
+          : ErrorCode.EXECUTION_FAILED,
+        message: pageResult.error.message,
+        retryable: pageResult.error.retryable,
+        suggestion: pageResult.error.suggestion,
+        param: pageResult.error.param,
+        detail:
+          pageResult.error.code === ErrorCode.EXECUTION_FAILED || pageResult.error.code === ErrorCode.TIMEOUT
+            ? pageResult.error.detail
+            : { cache_error_code: pageResult.error.code, detail: pageResult.error.detail },
+      } satisfies StructuredError)
+    : undefined;
+  return {
+    ok: pageResult.error === undefined && pageResult.exit_code === 0 && !pageResult.timed_out,
+    stdout: pageResult.content,
+    stderr: pageResult.stderr,
+    exit_code: pageResult.exit_code,
+    timed_out: pageResult.timed_out,
+    truncated: pageResult.truncated,
+    stdout_truncated: pageResult.stdout_truncated,
+    stderr_truncated: pageResult.stderr_truncated,
+    paged: true,
+    total_output_bytes: pageResult.total_output_bytes,
+    retained_output_bytes: pageResult.retained_output_bytes,
+    stdout_total_bytes: pageResult.stdout_total_bytes,
+    stdout_retained_bytes: pageResult.stdout_retained_bytes,
+    stderr_total_bytes: pageResult.stderr_total_bytes,
+    stderr_retained_bytes: pageResult.stderr_retained_bytes,
+    total_chars: pageResult.total_chars,
+    stdout_encoding: pageResult.stdout_encoding,
+    stderr_encoding: pageResult.stderr_encoding,
+    cache_id: pageResult.cache_id,
+    page: pageResult.page,
+    total_pages: pageResult.total_pages,
+    page_size: pageResult.page_size,
+    capture_limit_reached: pageResult.capture_limit_reached || undefined,
+    captured_ms: capturedMs,
+    error: originalError,
+  };
+}
+
+/** 将命令事实转为共享错误体；不把 secret 原文写入 detail。 */
+function commandError(result: CommandOutputRun, subject = "Command"): StructuredError | undefined {
+  if (result.secretDetected && result.secretTier === "strict") {
+    return { code: ErrorCode.SECRET_DETECTED, message: "Command output contained a secret pattern", retryable: false };
+  }
+  if (result.terminationFailed) {
+    return {
+      code: ErrorCode.EXECUTION_FAILED,
+      message: `${subject} termination failed`,
+      retryable: true,
+      detail: { watch_termination_failed: true },
+    };
+  }
+  if (result.timedOut) return { code: ErrorCode.TIMEOUT, message: `${subject} timed out`, retryable: true };
+  if (result.exitCode !== null && result.exitCode !== 0) {
+    return {
+      code: ErrorCode.EXECUTION_FAILED,
+      message: `${subject} failed (exit ${result.exitCode})`,
+      retryable: true,
+    };
+  }
+  return undefined;
+}
+
+/** 将 cache read 的异常映射为 execute_command 的结构化失败。 */
+function cacheReadFailure(error: unknown, cacheId: string): ToolResult {
+  if (error instanceof PageCacheCorruptError) {
+    return fail(ErrorCode.EXECUTION_FAILED, error.message, {
+      retryable: false,
+      param: "cache_id",
+      detail: { cache_corrupt: true, code: error.code },
+    });
+  }
+  if (error instanceof PageCacheReadError) {
+    if (error.code === "cache_page_out_of_range") {
+      return fail(ErrorCode.VALIDATION_ERROR, error.message, {
+        retryable: true,
+        param: "page",
+        detail: error.detail,
+      });
+    }
+    return fail(ErrorCode.PATH_NOT_FOUND, error.message, {
+      retryable: error.retryable,
+      param: "cache_id",
+      detail: { cache_id: cacheId },
+    });
+  }
+  const code = (error as { code?: string }).code;
+  if (code === "temp_lock_timeout") {
+    return fail(ErrorCode.EXECUTION_FAILED, errMsg(error), {
+      retryable: true,
+      param: "cache_id",
+      detail: { cache_lock_timeout: true },
+    });
+  }
+  return fail(ErrorCode.EXECUTION_FAILED, errMsg(error) || "Failed to read paged output", {
+    retryable: true,
+    param: "cache_id",
+  });
+}
+
+/** 记录不含 command/cwd/content 的分页读取审计。 */
+function recordOutputRead(cacheId: string, page: number, pageResult: CommandOutputEnvelope): void {
+  audit.record({
+    action: "command.output.read",
+    tool: "execute_command",
+    detail: {
+      cache_id: cacheId,
+      page,
+      stdout_bytes: pageResult.stdout_retained_bytes,
+      stderr_bytes: pageResult.stderr_retained_bytes,
+      read_bytes: pageResult.stdout_retained_bytes + (page === 1 ? pageResult.stderr_retained_bytes : 0),
+    },
+    success: true,
+  });
 }
 
 export function registerCommandTools(server: McpServer) {
@@ -84,22 +254,7 @@ export function registerCommandTools(server: McpServer) {
       title: "Execute Terminal Command",
       description: "Execute a single shell/terminal command. Returns structured result with exit code and stderr.",
       inputSchema: ExecuteCommandInput,
-      outputSchema: withErrorSchema(
-        z.object({
-          stdout: z.string(),
-          stderr: z.string(),
-          exit_code: z
-            .number()
-            .nullable()
-            .describe("Process exit code; null when undetermined (e.g. timed out before exit)"),
-          timed_out: z.boolean(),
-          cache_id: z.string().optional(),
-          page: z.number().optional(),
-          total_pages: z.number().optional(),
-          page_size: z.number().optional(),
-          total_chars: z.number().optional(),
-        }),
-      ),
+      outputSchema: withErrorSchema(commandOutputSchema),
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -108,192 +263,122 @@ export function registerCommandTools(server: McpServer) {
     },
     wrapHandler("execute_command", async ({ command, cache_id, cwd, timeout, page, pageSize }: ExecuteCommandInput) => {
       const t0 = Date.now();
-      if (cache_id) {
-        try {
-          const pageResult = await pageCache.get(cache_id, page || 1, pageSize);
-          if (!pageResult) {
-            return fail(ErrorCode.PATH_NOT_FOUND, `Paged output not found or page is out of range: ${cache_id}`, {
-              retryable: true,
-              param: "cache_id",
-            });
-          }
-          return success(
-            pageResult.content,
-            {
-              stdout: pageResult.content,
-              stderr: pageResult.stderr,
-              exit_code: pageResult.exit_code,
-              timed_out: false,
-              cache_id: pageResult.cache_id,
-              page: pageResult.page,
-              total_pages: pageResult.total_pages,
-              page_size: pageResult.page_size,
-              total_chars: pageResult.total_chars,
-            },
-            { latency_ms: Date.now() - t0, page: pageResult.page, total_pages: pageResult.total_pages },
-          );
-        } catch (e: unknown) {
-          return fail(ErrorCode.EXECUTION_FAILED, errMsg(e) || "Failed to read paged output", { retryable: true });
-        }
-      }
-
-      if (!command) {
-        return fail(ErrorCode.VALIDATION_ERROR, "command is required unless cache_id is provided", {
+      const hasCommand = command !== undefined;
+      const hasCache = cache_id !== undefined;
+      if (hasCommand === hasCache) {
+        return fail(ErrorCode.VALIDATION_ERROR, "Provide exactly one of command or cache_id", {
           retryable: true,
-          param: "command",
+          param: hasCommand ? "cache_id" : "command",
+        });
+      }
+      if (hasCache && (cwd !== undefined || timeout !== undefined)) {
+        return fail(ErrorCode.VALIDATION_ERROR, "cache_id mode does not accept command, cwd, or timeout", {
+          retryable: true,
+          param: cwd !== undefined ? "cwd" : "timeout",
+        });
+      }
+      if (hasCommand && page !== undefined) {
+        return fail(ErrorCode.VALIDATION_ERROR, "command mode does not accept page; use cache_id to read pages", {
+          retryable: true,
+          param: "page",
         });
       }
 
-      const dp = precheckCommand(command, "command");
-      if (dp) return dp;
+      if (hasCache) {
+        try {
+          const pageResult = await pageCache.read(cache_id, page ?? 1, pageSize);
+          const envelope = buildCachedEnvelope(pageResult, Date.now() - t0);
+          recordOutputRead(cache_id, pageResult.page, envelope);
+          return success(pageResult.content, envelope, {
+            latency_ms: Date.now() - t0,
+            page: pageResult.page,
+            total_pages: pageResult.total_pages,
+          });
+        } catch (error) {
+          return cacheReadFailure(error, cache_id);
+        }
+      }
 
+      const commandText = command as string;
+      const dp = precheckCommand(commandText, "command");
+      if (dp) return dp;
       const rateErr = checkRateLimit(commandRateLimit, "execute_command");
-      if (rateErr)
+      if (rateErr) {
         return fail(ErrorCode.EXECUTION_FAILED, rateErr, {
           retryable: true,
           suggestion: "Wait ~100ms and retry (token bucket refills 10/s)",
         });
-
-      const block = await guardDestructiveAction("execute_command", `执行命令: ${command}`);
+      }
+      const { limits, error: limitsError } = getCommandOutputLimits();
+      if (!limits) {
+        return fail(ErrorCode.VALIDATION_ERROR, limitsError ?? "Invalid command output limits configuration", {
+          retryable: false,
+        });
+      }
+      const block = await guardDestructiveAction("execute_command", `执行命令: ${commandText}`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
 
       try {
         const shellSpec = await getShellSpec();
-        const inv = buildShellInvocation(command, shellSpec);
+        const inv = buildShellInvocation(commandText, shellSpec);
         const effectiveCwd = cwd || session.getCwd();
-        const effectiveTimeout = timeout || adaptiveTimeout("execute_command");
-        const result = await spawnStream(inv.file, inv.args, {
+        const effectiveTimeout = timeout ?? adaptiveTimeout("execute_command");
+        const result = await runCommandOutput(inv.file, inv.args, {
           timeout: effectiveTimeout,
           cwd: effectiveCwd,
           env: getSessionEnv(),
-          maxOutput: getCommandMaxOutputBytes(),
+          limits,
+          pageSize,
         });
-        session.pushHistory(command);
-
-        if (result.timedOut) {
-          audit.record({
-            action: "command.execute",
-            tool: "execute_command",
-            detail: { command, cwd: effectiveCwd, timedOut: true },
-            success: false,
-            error: "Command timed out",
-          });
-          return fail(ErrorCode.TIMEOUT, "Command timed out", {
-            retryable: true,
-            param: "timeout",
-            suggestion: "Use a simpler command or increase timeout",
-          });
-        }
-
-        if (result.truncated) {
-          audit.record({
-            action: "command.execute",
-            tool: "execute_command",
-            detail: { command, cwd: effectiveCwd, maxOutputBytes: getCommandMaxOutputBytes() },
-            success: false,
-            error: "Command output exceeded max output limit",
-          });
-          const partial = (result.stdout || "").slice(0, 500);
-          return fail(
-            ErrorCode.EXECUTION_FAILED,
-            `Command output exceeded MCP_COMMAND_MAX_OUTPUT_BYTES (${getCommandMaxOutputBytes()} bytes); output truncated.\n[partial stdout]:\n${partial}`,
-            {
-              retryable: true,
-              param: "command",
-              suggestion: "Write output to a file, request a smaller output, or raise MCP_COMMAND_MAX_OUTPUT_BYTES",
-            },
-          );
-        }
-
-        const output = result.stdout || "(no output)";
-        const errInfo = result.stderr ? `\n[stderr]:\n${result.stderr.slice(0, 500)}` : "";
-
-        if (result.exitCode !== 0) {
-          audit.record({
-            action: "command.execute",
-            tool: "execute_command",
-            detail: { command, cwd: effectiveCwd, exitCode: result.exitCode },
-            success: false,
-            error: result.stderr?.slice(0, 200) || `exit ${result.exitCode}`,
-          });
-          return fail(
-            ErrorCode.EXECUTION_FAILED,
-            `Command failed (exit ${result.exitCode})\n[stdout]:\n${output.slice(0, 500)}${errInfo}`,
-            { retryable: true },
-          );
-        }
-        const defaultPageSize = 2000;
-        const requestedPageSize = pageSize || defaultPageSize;
-        const needsPaging = page !== undefined || output.length > requestedPageSize;
-
-        if (needsPaging) {
-          const cache = await pageCache.cache(
-            command,
-            effectiveCwd,
-            result.exitCode ?? 0,
-            output,
-            result.stderr || "",
-            requestedPageSize,
-          );
-          const pageResult = await pageCache.get(cache.id, page || 1, requestedPageSize);
-          if (!pageResult) {
-            return fail(ErrorCode.VALIDATION_ERROR, `Invalid page: ${page}`, {
-              retryable: true,
-              param: "page",
-              detail: { total_pages: cache.totalPages },
-            });
-          }
-          audit.record({
-            action: "command.execute",
-            tool: "execute_command",
-            detail: {
-              command,
-              cwd: effectiveCwd,
-              exitCode: 0,
-              latency_ms: Date.now() - t0,
-              page: pageResult.page,
-              total_pages: pageResult.total_pages,
-            },
-            success: true,
-          });
-          const recordedExit = result.exitCode ?? 0;
-          return success(
-            pageResult.content,
-            {
-              stdout: pageResult.content,
-              stderr: result.stderr,
-              exit_code: recordedExit,
-              timed_out: false,
-              cache_id: pageResult.cache_id,
-              page: pageResult.page,
-              total_pages: pageResult.total_pages,
-              page_size: pageResult.page_size,
-              total_chars: pageResult.total_chars,
-            },
-            { latency_ms: Date.now() - t0, page: pageResult.page, total_pages: pageResult.total_pages },
-          );
-        }
+        session.pushHistory(commandText);
+        const capturedMs = Date.now() - t0;
+        const error = commandError(result);
+        const ok = error === undefined;
+        const envelope = buildCommandEnvelope(result, capturedMs, ok);
+        if (error) envelope.error = error;
 
         audit.record({
           action: "command.execute",
           tool: "execute_command",
-          detail: { command, cwd: effectiveCwd, exitCode: 0, latency_ms: Date.now() - t0 },
-          success: true,
-        });
-        return success(
-          output,
-          {
-            stdout: result.stdout,
-            stderr: result.stderr,
-            exit_code: result.exitCode ?? 0,
-            timed_out: false,
+          detail: {
+            command: commandText,
+            cwd: effectiveCwd,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            truncated: result.truncated || result.stderrTruncated,
+            paged: result.paged,
+            cacheId: result.cache?.id,
+            latency_ms: capturedMs,
           },
-          { latency_ms: Date.now() - t0 },
-        );
-      } catch (e: unknown) {
-        const msg = errMsg(e) || "Unknown error";
-        recordCommandAudit("execute_command", command, { cwd: cwd || session.getCwd() }, false, msg);
-        return shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
+          success: ok,
+          error: error?.message,
+        });
+
+        let content = result.stdout || "(no output)";
+        if (result.secretDetected) {
+          content = "Command output suppressed because a secret pattern was detected";
+        } else if (result.stderr) {
+          content += `\n[stderr]:\n${result.stderr.slice(0, 500)}`;
+        }
+        if (!ok) {
+          const code = error?.code ?? ErrorCode.EXECUTION_FAILED;
+          return fail(code, error?.message ?? "Command failed", {
+            retryable: error?.retryable,
+            param: error?.param,
+            suggestion: error?.suggestion,
+            detail: error?.detail,
+            structured: envelope as unknown as Record<string, unknown>,
+          });
+        }
+        return success(content, envelope, {
+          latency_ms: capturedMs,
+          page: envelope.page,
+          total_pages: envelope.total_pages,
+        });
+      } catch (error) {
+        const msg = errMsg(error) || "Unknown error";
+        recordCommandAudit("execute_command", commandText, { cwd: cwd || session.getCwd() }, false, msg);
+        return shellResolutionFail(error) ?? fail(ErrorCode.EXECUTION_FAILED, msg, { retryable: true });
       }
     }),
   );
@@ -315,15 +400,11 @@ export function registerCommandTools(server: McpServer) {
       inputSchema: BatchExecuteInput,
       outputSchema: withErrorSchema(
         z.object({
-          results: z.array(
-            z.object({
-              command: z.string(),
-              stdout: z.string(),
-              stderr: z.string(),
-              ok: z.boolean(),
-              latency_ms: z.number(),
-            }),
-          ),
+          results: z.array(completedBatchSchema.or(skippedBatchSchema)),
+          all_ok: z.boolean(),
+          completed: z.number(),
+          failed: z.number(),
+          skipped: z.number(),
           summary: z.string(),
         }),
       ),
@@ -333,6 +414,15 @@ export function registerCommandTools(server: McpServer) {
       const t0 = Date.now();
       const stop = stop_on_error !== false;
       const isParallel = parallel === true;
+
+      if (commands.length === 0) {
+        const summary = "All 0 commands OK";
+        return success(
+          summary,
+          { results: [], all_ok: true, completed: 0, failed: 0, skipped: 0, summary },
+          { latency_ms: Date.now() - t0 },
+        );
+      }
 
       for (const cmd of commands) {
         const blocked = precheckCommand(cmd, "commands");
@@ -347,90 +437,147 @@ export function registerCommandTools(server: McpServer) {
       if (batchMode === "per_command") {
         for (let i = 0; i < commands.length; i++) {
           const rateErr = checkRateLimit(commandRateLimit, "batch_execute");
-          if (rateErr)
+          if (rateErr) {
             return fail(ErrorCode.EXECUTION_FAILED, rateErr, {
               retryable: true,
               suggestion: "Wait ~100ms and retry (token bucket refills 10/s); or set MCP_BATCH_RATE_MODE=batch",
               detail: { batch_rate_mode: batchMode, consumed: i, total: commands.length },
             });
+          }
         }
       } else {
         const rateErr = checkRateLimit(commandRateLimit, "batch_execute");
-        if (rateErr)
+        if (rateErr) {
           return fail(ErrorCode.EXECUTION_FAILED, rateErr, {
             retryable: true,
             suggestion: "Wait ~100ms and retry (token bucket refills 10/s)",
             detail: { batch_rate_mode: batchMode },
           });
+        }
+      }
+
+      const { limits, error: limitsError } = getCommandOutputLimits();
+      if (!limits) {
+        return fail(ErrorCode.VALIDATION_ERROR, limitsError ?? "Invalid command output limits configuration", {
+          retryable: false,
+          param: "commands",
+        });
       }
 
       try {
         const shellSpec = await getShellSpec();
-        const results: Array<{ command: string; stdout: string; stderr: string; ok: boolean; latency_ms: number }> = [];
-        let allOk = true;
+        const slots: Array<BatchCommandResult | undefined> = Array.from({ length: commands.length });
+        let nextIndex = 0;
+        let stopScheduling = false;
 
-        const execOne = async (cmd: string, idx: number) => {
+        const execOne = async (index: number): Promise<BatchCommandResult> => {
+          const commandText = commands[index];
           const ct0 = Date.now();
           try {
-            logger.info("batch_execute", `step ${idx + 1}/${commands.length}`, cmd);
-            const inv = buildShellInvocation(cmd, shellSpec);
-            const r = await spawnStream(inv.file, inv.args, {
+            logger.info("batch_execute", `step ${index + 1}/${commands.length}`, commandText);
+            const inv = buildShellInvocation(commandText, shellSpec);
+            const r = await runCommandOutput(inv.file, inv.args, {
               timeout: 30000,
               cwd: cwd || session.getCwd(),
               env: getSessionEnv(),
-              maxOutput: getCommandMaxOutputBytes(),
+              limits,
+            });
+            const latency = Date.now() - ct0;
+            const error = commandError(r);
+            const ok = error === undefined;
+            const envelope = buildCommandEnvelope(r, latency, ok);
+            if (error) envelope.error = error;
+            audit.record({
+              action: "command.execute",
+              tool: "batch_execute",
+              detail: {
+                command: commandText,
+                cwd: cwd || session.getCwd(),
+                exitCode: r.exitCode,
+                timedOut: r.timedOut,
+                truncated: r.truncated || r.stderrTruncated,
+                paged: r.paged,
+              },
+              success: ok,
+              error: error?.message,
             });
             return {
-              command: cmd,
-              stdout: r.stdout || "",
-              stderr: r.truncated
-                ? `${r.stderr || ""}${r.stderr ? "\n" : ""}[OUTPUT_TRUNCATED] Command output exceeded MCP_COMMAND_MAX_OUTPUT_BYTES`
-                : r.stderr || "",
-              ok: !r.truncated && r.exitCode === 0,
-              latency_ms: Date.now() - ct0,
+              index,
+              command: commandText,
+              status: "completed",
+              latency_ms: latency,
+              ...envelope,
             };
-          } catch (e: unknown) {
-            return { command: cmd, stdout: "", stderr: errMsg(e) || "failed", ok: false, latency_ms: Date.now() - ct0 };
+          } catch (error) {
+            const latency = Date.now() - ct0;
+            const structured: CommandOutputEnvelope = {
+              ok: false,
+              stdout: "",
+              stderr: "",
+              exit_code: null,
+              timed_out: false,
+              truncated: false,
+              stdout_truncated: false,
+              stderr_truncated: false,
+              paged: false,
+              total_output_bytes: 0,
+              retained_output_bytes: 0,
+              stdout_total_bytes: 0,
+              stdout_retained_bytes: 0,
+              stderr_total_bytes: 0,
+              stderr_retained_bytes: 0,
+              total_chars: 0,
+              stdout_encoding: "utf8",
+              stderr_encoding: "utf8",
+              captured_ms: latency,
+              error: { code: ErrorCode.EXECUTION_FAILED, message: errMsg(error) || "Command failed", retryable: true },
+            };
+            return { index, command: commandText, status: "completed", latency_ms: latency, ...structured };
           }
         };
 
-        if (isParallel) {
-          // 并发限制为 4，避免同时 spawn 过多进程
-          const concurrency = 4;
-          const settled: typeof results = [];
-          for (let i = 0; i < commands.length; i += concurrency) {
-            const batch = commands.slice(i, i + concurrency);
-            const batchResults = await Promise.all(batch.map((cmd: string, j: number) => execOne(cmd, i + j)));
-            settled.push(...batchResults);
+        const worker = async (): Promise<void> => {
+          while (true) {
+            if (stop && stopScheduling) return;
+            const index = nextIndex++;
+            if (index >= commands.length) return;
+            const item = await execOne(index);
+            slots[index] = item;
+            if (stop && item.status === "completed" && !item.ok) stopScheduling = true;
           }
-          results.push(...settled);
-          allOk = settled.every((r) => r.ok);
-        } else {
-          for (let i = 0; i < commands.length; i++) {
-            const r = await execOne(commands[i], i);
-            results.push(r);
-            if (!r.ok) {
-              allOk = false;
-              if (stop) break;
-            }
-          }
-        }
+        };
 
-        session.pushHistory(commands.join("; "));
+        const concurrency = isParallel ? 4 : 1;
+        await Promise.all(Array.from({ length: Math.min(concurrency, commands.length) }, () => worker()));
+        for (let index = 0; index < slots.length; index++) {
+          if (!slots[index])
+            slots[index] = { index, command: commands[index], status: "skipped", skip_reason: "stop_on_error" };
+        }
+        const results = slots as BatchCommandResult[];
+        const completed = results.filter((item) => item.status === "completed").length;
+        const skipped = results.filter((item) => item.status === "skipped").length;
+        const failed = results.filter((item) => item.status === "completed" && !item.ok).length;
+        const allOk = failed === 0 && skipped === 0;
         const summary = allOk
-          ? `All ${results.length} commands OK`
-          : `${results.filter((r) => r.ok).length}/${results.length} commands OK`;
+          ? `All ${completed} commands OK`
+          : `${completed} completed, ${failed} failed, ${skipped} skipped`;
+        session.pushHistory(commands.join("; "));
         audit.record({
           action: "command.execute",
           tool: "batch_execute",
-          detail: { commands, parallel: isParallel, allOk },
+          detail: { commands, parallel: isParallel, completed, failed, skipped, allOk },
           success: allOk,
-          error: allOk ? undefined : "Some commands failed",
+          error: allOk ? undefined : "Some commands failed or were skipped",
         });
-        return success(summary, { results, summary }, { latency_ms: Date.now() - t0 });
-      } catch (e: unknown) {
+        return success(
+          summary,
+          { results, all_ok: allOk, completed, failed, skipped, summary },
+          { latency_ms: Date.now() - t0 },
+        );
+      } catch (error) {
         return (
-          shellResolutionFail(e) ?? fail(ErrorCode.EXECUTION_FAILED, errMsg(e) || "Batch failed", { retryable: true })
+          shellResolutionFail(error) ??
+          fail(ErrorCode.EXECUTION_FAILED, errMsg(error) || "Batch failed", { retryable: true })
         );
       }
     }),
@@ -450,19 +597,20 @@ export function registerCommandTools(server: McpServer) {
       title: "Watch Command Output",
       description: "Execute a command and capture output for a limited duration. Useful for real-time monitoring.",
       inputSchema: WatchCommandInput,
-      outputSchema: withErrorSchema(
-        z.object({
-          output: z.string(),
-          captured_ms: z.number(),
-          exit_code: z.number().nullable().optional(),
-        }),
-      ),
+      outputSchema: withErrorSchema(commandOutputSchema),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("watch_command", async ({ command, duration, cwd }: WatchCommandInput) => {
       const t0 = Date.now();
       const blocked = precheckCommand(command, "command");
       if (blocked) return blocked;
+
+      const { limits, error: limitsError } = getCommandOutputLimits();
+      if (!limits) {
+        return fail(ErrorCode.VALIDATION_ERROR, limitsError ?? "Invalid command output limits configuration", {
+          retryable: false,
+        });
+      }
 
       const block = await guardDestructiveAction("watch_command", `监控命令: ${command}`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
@@ -471,72 +619,58 @@ export function registerCommandTools(server: McpServer) {
         const shellSpec = await getShellSpec();
         const inv = buildShellInvocation(command, shellSpec);
         const effectiveCwd = cwd || session.getCwd();
-        const result = await spawnStream(inv.file, inv.args, {
-          timeout: duration || 5000,
+        const effectiveDuration = duration ?? 5000;
+        const result = await runCommandOutput(inv.file, inv.args, {
+          timeout: effectiveDuration,
+          timeoutMode: "watch_window",
           cwd: effectiveCwd,
           env: getSessionEnv(),
-          maxOutput: getCommandMaxOutputBytes(),
+          limits,
         });
-        const output = result.stdout || "(no output)";
-        if (result.timedOut) {
-          audit.record({
-            action: "command.execute",
-            tool: "watch_command",
-            detail: { command, cwd: effectiveCwd, timedOut: true },
-            success: false,
-            error: "Watch timed out",
-          });
-          return success(
-            `$ ${command}\n(timed out)\n${output}`,
-            { output, captured_ms: duration || 5000, exit_code: result.exitCode },
-            { latency_ms: Date.now() - t0 },
-          );
-        }
-        if (result.truncated) {
-          audit.record({
-            action: "command.execute",
-            tool: "watch_command",
-            detail: { command, cwd: effectiveCwd, maxOutputBytes: getCommandMaxOutputBytes() },
-            success: false,
-            error: "Watch output exceeded max output limit",
-          });
-          return fail(
-            ErrorCode.EXECUTION_FAILED,
-            `Watch output exceeded MCP_COMMAND_MAX_OUTPUT_BYTES (${getCommandMaxOutputBytes()} bytes)`,
-            {
-              retryable: true,
-              param: "command",
-              suggestion: "Use a narrower command or raise MCP_COMMAND_MAX_OUTPUT_BYTES",
-            },
-          );
-        }
-        if (result.exitCode !== 0) {
-          audit.record({
-            action: "command.execute",
-            tool: "watch_command",
-            detail: { command, cwd: effectiveCwd, exitCode: result.exitCode },
-            success: false,
-            error: result.stderr?.slice(0, 200) || `exit ${result.exitCode}`,
-          });
-          return fail(
-            ErrorCode.EXECUTION_FAILED,
-            `Watch command failed (exit ${result.exitCode})\n[stdout]:\n${output.slice(0, 500)}${
-              result.stderr ? `\n[stderr]:\n${result.stderr.slice(0, 500)}` : ""
-            }`,
-            { retryable: true },
-          );
-        }
+        const capturedMs = Date.now() - t0;
+        const error = commandError(result, "Watch command");
+        const ok = error === undefined;
+        const envelope = buildCommandEnvelope(result, capturedMs, ok);
+        if (error) envelope.error = error;
         audit.record({
           action: "command.execute",
           tool: "watch_command",
-          detail: { command, cwd: effectiveCwd, exitCode: result.exitCode },
-          success: true,
+          detail: {
+            command,
+            cwd: effectiveCwd,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            captureLimitReached: result.captureLimitReached,
+            terminationFailed: result.terminationFailed,
+            truncated: result.truncated || result.stderrTruncated,
+            paged: result.paged,
+            cacheId: result.cache?.id,
+            latency_ms: capturedMs,
+          },
+          success: ok,
+          error: error?.message,
         });
-        return success(
-          `$ ${command}\n${output}`,
-          { output, captured_ms: Date.now() - t0, exit_code: result.exitCode },
-          { latency_ms: Date.now() - t0 },
-        );
+
+        let output = result.stdout || "(no output)";
+        if (result.secretDetected) {
+          output = "Command output suppressed because a secret pattern was detected";
+        } else if (result.stderr) {
+          output += `\n[stderr]:\n${result.stderr.slice(0, 500)}`;
+        }
+        if (!ok) {
+          return fail(error?.code ?? ErrorCode.EXECUTION_FAILED, error?.message ?? "Watch command failed", {
+            retryable: error?.retryable,
+            param: error?.param,
+            suggestion: error?.suggestion,
+            detail: error?.detail,
+            structured: envelope as unknown as Record<string, unknown>,
+          });
+        }
+        return success(result.secretDetected ? output : `$ ${command}\n${output}`, envelope, {
+          latency_ms: capturedMs,
+          page: envelope.page,
+          total_pages: envelope.total_pages,
+        });
       } catch (e: unknown) {
         const msg = errMsg(e) || "Watch failed";
         recordCommandAudit("watch_command", command, {}, false, msg);

@@ -33,6 +33,7 @@ export const ErrorCode = {
   URL_INVALID: "URL_INVALID",
   HOST_INVALID: "HOST_INVALID",
   ARCHIVE_FAILED: "ARCHIVE_FAILED",
+  SECRET_DETECTED: "SECRET_DETECTED",
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -51,9 +52,46 @@ export interface ToolError {
   ok: false;
   content: string;
   error: StructuredError;
+  /** 错误时保留命令类的机器可读 envelope，不改变 isError 语义。 */
+  structured?: Record<string, unknown>;
 }
 
 export type ToolResult<T = unknown> = ToolSuccess<T> | ToolError;
+
+export type CacheDisabledReason = "secret_detected" | "temp_capacity_exceeded" | "temp_unavailable";
+
+export interface CommandOutputEnvelope {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  timed_out: boolean;
+  truncated: boolean;
+  stdout_truncated: boolean;
+  stderr_truncated: boolean;
+  paged: boolean;
+  total_output_bytes: number;
+  retained_output_bytes: number;
+  stdout_total_bytes: number;
+  stdout_retained_bytes: number;
+  stderr_total_bytes: number;
+  stderr_retained_bytes: number;
+  total_chars: number;
+  stdout_encoding: "utf8" | "gbk";
+  stderr_encoding: "utf8" | "gbk";
+  cache_id?: string;
+  page?: number;
+  total_pages?: number;
+  page_size?: number;
+  cache_disabled_reason?: CacheDisabledReason;
+  capture_limit_reached?: boolean;
+  captured_ms?: number;
+  error?: StructuredError;
+}
+
+export type BatchCommandResult =
+  | ({ index: number; command: string; status: "completed" } & CommandOutputEnvelope & { latency_ms: number })
+  | { index: number; command: string; status: "skipped"; skip_reason: "stop_on_error" };
 
 export interface StructuredError {
   code: ErrorCodeType;
@@ -87,7 +125,13 @@ export function success<T>(content: string, structured: T, meta?: Partial<ToolMe
 export function fail(
   code: ErrorCodeType,
   message: string,
-  opts?: { retryable?: boolean; suggestion?: string; param?: string; detail?: unknown },
+  opts?: {
+    retryable?: boolean;
+    suggestion?: string;
+    param?: string;
+    detail?: unknown;
+    structured?: Record<string, unknown>;
+  },
 ): ToolError {
   return {
     ok: false,
@@ -100,6 +144,7 @@ export function fail(
       param: opts?.param,
       detail: opts?.detail,
     },
+    structured: opts?.structured,
   };
 }
 
@@ -223,6 +268,52 @@ export const structuredErrorSchema = z.object({
   detail: z.unknown().optional(),
 });
 
+/** 命令类工具共用的机器可读输出 envelope schema。 */
+export const commandOutputSchema = z.object({
+  ok: z.boolean(),
+  stdout: z.string(),
+  stderr: z.string(),
+  exit_code: z.number().nullable(),
+  timed_out: z.boolean(),
+  truncated: z.boolean(),
+  stdout_truncated: z.boolean(),
+  stderr_truncated: z.boolean(),
+  paged: z.boolean(),
+  total_output_bytes: z.number(),
+  retained_output_bytes: z.number(),
+  stdout_total_bytes: z.number(),
+  stdout_retained_bytes: z.number(),
+  stderr_total_bytes: z.number(),
+  stderr_retained_bytes: z.number(),
+  total_chars: z.number(),
+  stdout_encoding: z.enum(["utf8", "gbk"]),
+  stderr_encoding: z.enum(["utf8", "gbk"]),
+  cache_id: z.string().optional(),
+  page: z.number().optional(),
+  total_pages: z.number().optional(),
+  page_size: z.number().optional(),
+  cache_disabled_reason: z.enum(["secret_detected", "temp_capacity_exceeded", "temp_unavailable"]).optional(),
+  capture_limit_reached: z.boolean().optional(),
+  captured_ms: z.number().optional(),
+  error: structuredErrorSchema.optional(),
+});
+
+/** batch completed/skipped union 的公共输出 schema。 */
+export const completedBatchSchema = z.object({
+  index: z.number(),
+  command: z.string(),
+  status: z.literal("completed"),
+  latency_ms: z.number(),
+  ...commandOutputSchema.shape,
+});
+
+export const skippedBatchSchema = z.object({
+  index: z.number(),
+  command: z.string(),
+  status: z.literal("skipped"),
+  skip_reason: z.literal("stop_on_error"),
+});
+
 /**
  * 工具 outputSchema 合并错误 envelope 字段。
  *
@@ -260,6 +351,6 @@ export function toCallToolResult(result: ToolResult): CallToolResult {
   return {
     content: [{ type: "text" as const, text: result.content }],
     isError: true,
-    structuredContent: { ok: false as const, error: result.error },
+    structuredContent: { ...(result.structured ?? {}), ok: false as const, error: result.error },
   } as CallToolResult;
 }

@@ -275,7 +275,7 @@ describe("Command Execution Latency", () => {
     const scriptPath = path.join(TMP_DIR, "paged-output.js");
     fs.writeFileSync(
       scriptPath,
-      "process.stdout.write('A'.repeat(2500)); process.stdout.write('B'.repeat(1000));",
+      "process.stdout.write('A'.repeat(700000)); process.stdout.write('B'.repeat(500000));",
       "utf-8",
     );
     const result = await client.callTool({
@@ -289,17 +289,17 @@ describe("Command Execution Latency", () => {
     const first = result.structuredContent as any;
     expect(first.cache_id).toBeTruthy();
     expect(first.page).toBe(1);
-    expect(first.total_pages).toBe(2);
+    expect(first.total_pages).toBe(600);
     expect(first.stdout).toContain("A");
 
     const page2 = await client.callTool({
       name: "execute_command",
-      arguments: { cache_id: first.cache_id, page: 2, pageSize: 2000 },
+      arguments: { cache_id: first.cache_id, page: 351, pageSize: 2000 },
     });
     expect(page2.isError).toBeFalsy();
     const second = page2.structuredContent as any;
     expect(second.cache_id).toBe(first.cache_id);
-    expect(second.page).toBe(2);
+    expect(second.page).toBe(351);
     expect(second.stdout).toContain("B");
   });
 

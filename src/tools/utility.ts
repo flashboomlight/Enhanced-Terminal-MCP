@@ -70,8 +70,10 @@ export function formatTempStatsMessage(stats: {
   oldest_dir_ms: number;
   newest_dir_ms: number;
   removed_count: number;
+  active_dirs: number;
+  reserved_bytes: number;
 }): string {
-  return `Temp dirs: ${stats.total_dirs}, total size: ${stats.total_size_bytes} bytes, oldest: ${stats.oldest_dir_ms}ms, newest: ${stats.newest_dir_ms}ms, removed: ${stats.removed_count}`;
+  return `Temp dirs: ${stats.total_dirs}, total size: ${stats.total_size_bytes} bytes, oldest: ${stats.oldest_dir_ms}ms, newest: ${stats.newest_dir_ms}ms, removed: ${stats.removed_count}, active: ${stats.active_dirs}, reserved: ${stats.reserved_bytes} bytes`;
 }
 
 /** 格式化 telemetry 报告文本 */
@@ -90,6 +92,8 @@ export function formatTelemetryText(
     oldest_dir_ms: number;
     newest_dir_ms: number;
     removed_count: number;
+    active_dirs: number;
+    reserved_bytes: number;
   },
   auditSummary: { mode: string; enabled: boolean },
 ): string {
@@ -121,6 +125,8 @@ export function registerUtilityTools(server: McpServer) {
             oldest_dir_ms: z.number(),
             newest_dir_ms: z.number(),
             removed_count: z.number(),
+            active_dirs: z.number(),
+            reserved_bytes: z.number(),
           }),
           audit: z.object({
             mode: z.string(),
@@ -412,6 +418,8 @@ export function registerUtilityTools(server: McpServer) {
           oldest_dir_ms: z.number(),
           newest_dir_ms: z.number(),
           removed_count: z.number(),
+          active_dirs: z.number(),
+          reserved_bytes: z.number(),
         }),
       ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },

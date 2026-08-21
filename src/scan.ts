@@ -6,7 +6,11 @@
  * - write: 仅写路径应调用（默认语义由调用方决定；本函数仍扫描，调用方按 tier 跳过）
  * - cache: 写 + 缓存路径扫描（默认）
  * - strict: 写 + 缓存 + 读路径可拒绝返回
+ *
+ * pattern 定义唯一来源在 secret-registry.ts（命令输出流式 matcher 同源），此处只做 whole-string 判定。
  */
+import { SECRET_PATTERNS } from "./secret-registry.js";
+
 export interface ScanResult {
   safe: boolean;
   findings: string[];
@@ -16,25 +20,6 @@ export type SecretsScanTier = "off" | "write" | "cache" | "strict";
 
 /** 超过此字节数跳过扫描，避免大文件顺序正则 / 轻度 ReDoS */
 export const SCAN_CONTENT_MAX_BYTES = 4 * 1024 * 1024;
-
-const SECRET_PATTERNS: Array<{ name: string; regex: RegExp }> = [
-  { name: "OpenAI API Key", regex: /\bsk-(?:proj-)?[A-Za-z0-9]{32,}\b/ },
-  { name: "GitHub Token", regex: /\bgh[ps]_[A-Za-z0-9_]{20,}\b/ },
-  { name: "AWS Access Key", regex: /\bAKIA[0-9A-Z]{16}\b/ },
-  {
-    name: "AWS Secret Key",
-    regex: /(?:aws_secret_access_key|secret_key|SecretAccessKey)\s*[:=]\s*["']?[0-9a-zA-Z/+]{40}["']?/i,
-  },
-  { name: "Private Key Header", regex: /-----BEGIN (?:RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY-----/ },
-  { name: "JWT Token", regex: /\beyJ[A-Za-z0-9-_=]{10,}\.[A-Za-z0-9-_=]{10,}\.?[A-Za-z0-9-_.+/=]*/ },
-  { name: "Slack Token", regex: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/ },
-  { name: "Generic API Key", regex: /\bapi[_-]?key\s*[:=]\s*["']?[A-Za-z0-9_-]{32,}["']?/i },
-  {
-    name: "Connection String",
-    regex: /(?:mongodb|mysql|postgres|redis):\/\/[^:\s]{1,128}:[^@\s]{1,128}@(?!localhost|127\.0\.0\.1)[^\s]{1,256}/i,
-  },
-  { name: "Discord Token", regex: /\b[MN][A-Za-z0-9]{23}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27}\b/ },
-];
 
 export function getSecretsScanTier(): SecretsScanTier {
   const raw = (process.env.MCP_SECRETS_SCAN || "cache").toLowerCase().trim();
