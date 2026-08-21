@@ -13,12 +13,14 @@ describe("temp-manager", () => {
   let originalStateDir: string | undefined;
   let originalTtl: string | undefined;
   let originalMax: string | undefined;
+  let originalCleanupInterval: string | undefined;
   let tmpStateDir: string;
 
   beforeEach(async () => {
     originalStateDir = process.env.MCP_STATE_DIR;
     originalTtl = process.env.MCP_TEMP_TTL_MS;
     originalMax = process.env.MCP_MAX_TEMP_DIRS;
+    originalCleanupInterval = process.env.MCP_TEMP_CLEANUP_INTERVAL_MS;
     tmpStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-temp-test-"));
     process.env.MCP_STATE_DIR = tmpStateDir;
     process.env.MCP_TEMP_TTL_MS = "100";
@@ -33,6 +35,8 @@ describe("temp-manager", () => {
     else delete process.env.MCP_TEMP_TTL_MS;
     if (originalMax !== undefined) process.env.MCP_MAX_TEMP_DIRS = originalMax;
     else delete process.env.MCP_MAX_TEMP_DIRS;
+    if (originalCleanupInterval !== undefined) process.env.MCP_TEMP_CLEANUP_INTERVAL_MS = originalCleanupInterval;
+    else delete process.env.MCP_TEMP_CLEANUP_INTERVAL_MS;
     resetStateDirCache();
     await fs.rm(tmpStateDir, { recursive: true, force: true });
   });
@@ -174,14 +178,12 @@ describe("temp-manager", () => {
     const tm = new TempManager();
     const dir = await tm.create("locked");
     await fs.writeFile(path.join(dir.dir, "file.txt"), "x");
-    // 模拟无法删除：把目录标记为只读（Windows）或直接改名让路径失效
-    const renamed = `${dir.dir}-moved`;
-    await fs.rename(dir.dir, renamed);
-    // 仍让 TempManager 以为该目录存在
+    (tm as any).removeDir = async () => false;
+    await new Promise((resolve) => setTimeout(resolve, 150));
     const result = await tm.cleanup();
     expect(result.removed).toBe(0);
     expect(result.remaining).toBe(1);
-    await fs.rm(renamed, { recursive: true, force: true });
+    await fs.rm(dir.dir, { recursive: true, force: true });
   });
 });
 
