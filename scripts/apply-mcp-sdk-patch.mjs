@@ -4,14 +4,22 @@
  * 若 SDK 已含补丁或包不存在则静默跳过。
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const targets = [
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const installRoots = [
+  packageRoot,
+  process.env.INIT_CWD,
+  process.env.npm_config_local_prefix,
+]
+  .filter((value) => typeof value === "string" && value.length > 0)
+  .map((value) => resolve(value))
+  .filter((value, index, values) => values.indexOf(value) === index);
+const targets = installRoots.flatMap((root) => [
   join(root, "node_modules", "@modelcontextprotocol", "sdk", "dist", "esm", "server", "mcp.js"),
   join(root, "node_modules", "@modelcontextprotocol", "sdk", "dist", "cjs", "server", "mcp.js"),
-];
+]);
 
 const MARKER = "PATCH: Ensure `required` is always an array";
 

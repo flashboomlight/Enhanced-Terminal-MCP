@@ -158,13 +158,16 @@ MCP Client (stdio) → McpServer
 ## Development
 
 ```bash
-npm install
-npm run build      # clean build/ and compile TypeScript
-npm run test       # Run unit tests
-npm run test:latency # E2E latency benchmarks
-npm run lint       # Biome linter
-npm run format     # Biome formatter
+pnpm install
+pnpm run build          # clean build/ and compile TypeScript
+pnpm exec tsc --noEmit  # Type-check without emitting
+pnpm test               # Run unit tests
+pnpm run test:latency   # E2E latency benchmarks
+pnpm run lint           # Biome linter
+pnpm run format         # Biome formatter
 ```
+
+Development uses pnpm `11.21.0`. pnpm can reuse a machine-configured shared content store; on the maintainer machine, `pnpm store path` is `E:\pnpm\v11`. This path is configuration, not part of the repository contract. Each MCP project keeps its own `node_modules`, virtual store, and lockfile. Do not share a runtime `node_modules` directory or use `NODE_PATH` between projects. The published package remains installable by npm as shown in Quick Start.
 
 ## Supply chain & integrity
 

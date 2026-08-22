@@ -21,7 +21,7 @@ implements: [everything-search-optional]
 Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server，通过 stdio 传输协议向 AI 客户端提供 **27 个工具**（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 26 个；命令执行、文件 I/O、文件管理、搜索、系统、归档、运维遥测 7 类）、1 个 `health://status` 资源、2 个 prompt（`usage-guide` / `safety-info`）。
 
 - 包入口：`build/index.js`（`src/index.ts` 编译产物）
-- 依赖：`@modelcontextprotocol/sdk` 1.29（精确 + overrides；postinstall 零依赖补丁脚本）、`zod` 3
+- 依赖：`@modelcontextprotocol/sdk` 1.29（精确 + overrides；postinstall 零依赖补丁脚本）、`zod` 3；项目依赖由 pnpm 11.21.0 + `pnpm-lock.yaml` 管理，多个 MCP 可复用机器配置的 content store，但各自保留 virtual store 和 `node_modules`
 - 主要消费方：Claude Desktop / Cherry Studio 等 MCP 客户端
 
 ## 2. 核心概念 / 术语表
@@ -104,7 +104,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `tools/pwsh/` | bootstrap 安装的便携 pwsh 7（`.version` 版本标记；与 `tools/.pwsh-staging/` 一并被 gitignore） |
 | `scripts/apply-mcp-sdk-patch.mjs` | postinstall 零依赖 SDK 补丁脚本；`patch-package` 仅 devDependency |
 | `patches/` | patch 开发参考 |
-| `build/` | `npm run build` 先清理后生成的 tsc 产物；不应保留已从 `src/` 删除的历史文件 |
+| `build/` | `pnpm run build` 先清理后生成的 tsc 产物；不应保留已从 `src/` 删除的历史文件 |
 | `scripts/clean-build.mjs` | build 前只清理项目根目录下的 `build/`，避免旧编译文件进入 npm 发布包 |
 
 ## 4. 状态目录结构

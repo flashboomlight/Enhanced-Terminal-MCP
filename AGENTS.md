@@ -28,11 +28,12 @@ Enhanced Terminal MCP v3.1.0：通过 MCP 协议向 AI 客户端提供 27 个（
 ## 常用命令
 
 ```bash
-npm run build          # tsc 编译到 build/
-  npm test               # vitest 全量（当前工作树快照 39 文件 / 543 个 test/it 用例调用）
-npm run test:latency   # e2e 延迟基准
-npm run lint           # biome check src/ tests/
-npm run format         # biome 格式化
+pnpm run build          # tsc 编译到 build/
+pnpm exec tsc --noEmit  # 独立类型检查
+pnpm test               # vitest 全量（当前工作树快照 39 文件 / 543 个 test/it 用例调用）
+pnpm run test:latency   # e2e 延迟基准
+pnpm run lint           # biome check src/ tests/
+pnpm run format         # biome 格式化
 python codestable/tools/validate-yaml.py --file <doc> --require doc_type --require status
 ```
 
@@ -49,7 +50,8 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 
 - **项目名**：Enhanced Terminal MCP
 - **技术栈**：TypeScript + ESM + Node.js 20+
-- **包管理器**：npm
+- **包管理器**：pnpm 11.21.0（`packageManager` 已固定；发布包仍兼容 npm consumer）
+- **依赖锁定文件**：`pnpm-lock.yaml`
 - **构建输出**：`build/`
 - **主要入口**：`src/index.ts`
 - **沉淀目录**：`codestable/compound/` 存 learning / decision / trick / explore,改动前可检索相关历史沉淀
@@ -80,8 +82,9 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 - `fileURLToPath` 在 Windows 路径含空格时行为不稳定，路径解析优先使用 `dirname(fileURLToPath(import.meta.url))` + `path.join`
 - `build/` 目录下的 `version.js` 与 `src/version.ts` 共享相同的 package.json 相对路径逻辑
 - Windows 输出编码由 `src/shell.ts` 的 invocation 负责：pwsh/5.1 使用 UTF-8 preamble，cmd flavor 使用 `chcp 65001`；不要假设所有 shell 都要套 `cmd.exe /c`。
-- 修改 `src/**` 后，依赖 `build/index.js` 的 e2e/latency 子进程测试必须先执行 `npm run build`；build 会先由 `scripts/clean-build.mjs` 清理旧产物，再生成当前编译结果
-- 本项目位于 D 盘，Windows 构建、测试和相关缓存可以优先使用项目内 Git 忽略的目录，例如 `D:/ALL MCP/Enhanced Terminal MCP/.etmcp/test-tmp` 与 `.etmcp/npm-cache`；不得落到 C 盘。若工具依赖 `TEMP` / `TMP` / `TMPDIR`，运行命令时将它们显式指向项目内临时目录
+- 修改 `src/**` 后，依赖 `build/index.js` 的 e2e/latency 子进程测试必须先执行 `pnpm run build`；build 会先由 `scripts/clean-build.mjs` 清理旧产物，再生成当前编译结果
+- 本项目位于 D 盘，开发依赖安装统一使用 pnpm。pnpm 的共享 content store 由机器配置决定，当前 `pnpm store path` 为 `E:/pnpm/v11`；不得把这个机器路径写入实现文件、package metadata、lockfile 或发布物。每个项目仍保留自己的 `node_modules` 和 virtual store，不共享运行时目录。
+- Windows 构建、测试和相关临时数据优先使用项目内 Git 忽略的目录，例如 `D:/ALL MCP/Enhanced Terminal MCP/.etmcp/test-tmp` 与 `.etmcp/npm-cache`；不得落到 C 盘。若工具依赖 `TEMP` / `TMP` / `TMPDIR`，运行命令时将它们显式指向项目内临时目录；`.etmcp/npm-cache` 仅用于 npm clean consumer 验证
 - 测试中的临时目录在 `afterEach` / `afterAll` 中必须清理，避免残留
 - `wrapHandler` 对 handler 返回值有结构要求，直接返回裸字符串会破坏接口
 - `hardBlock` 是命令执行的不可关闭底线(全模式含 off 生效),调整安全模式或命令工具入口时不得移除;详见 `codestable/compound/2026-07-11-decision-hardblock-uncloseable-baseline.md`
@@ -94,4 +97,4 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 
 ## UI 验证要求
 
-- 本项目无前端 UI，所有改动通过 `npm run build`、`npx tsc --noEmit`、`npm run lint`、`npm test`、`npm run test:latency` 验证
+- 本项目无前端 UI，所有改动通过 `pnpm run build`、`pnpm exec tsc --noEmit`、`pnpm run lint`、`pnpm test`、`pnpm run test:latency` 验证
