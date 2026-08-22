@@ -48,6 +48,9 @@ tools/.pwsh-old
 # Local CodeGraph index
 .codegraph/
 
+# Local Serena project index
+.serena/
+
 # Runtime state (merged default .etmcp; legacy pre-migration)
 .etmcp/
 .enhanced-terminal-mcp/
