@@ -281,7 +281,7 @@ describe("Command Execution Latency", () => {
     const result = await client.callTool({
       name: "execute_command",
       arguments: {
-        command: `node ${scriptPath}`,
+        command: `node "${scriptPath}"`,
         pageSize: 2000,
       },
     });

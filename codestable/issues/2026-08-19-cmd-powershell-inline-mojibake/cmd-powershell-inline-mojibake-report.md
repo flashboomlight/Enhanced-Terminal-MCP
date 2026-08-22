@@ -1,8 +1,10 @@
 ---
 doc_type: issue-report
 issue: 2026-08-19-cmd-powershell-inline-mojibake
-status: confirmed
+status: resolved
 severity: P2
+resolution_date: "2026-08-21"
+resolved_by: 2026-08-20-command-output-spill-paging
 summary: MCP_SHELL=cmd/powershell 时行内非 ASCII 参数(如中文)输出乱码,默认 pwsh 链路正常
 tags: [encoding, shell, cmd, powershell, windows]
 ---
@@ -42,3 +44,7 @@ Windows 下显式切换 `MCP_SHELL=cmd` 或 `MCP_SHELL=powershell` 后,`execute_
 
 - 线索(未经阶段 2 确认):与 cmd 行内参数的非 ASCII 编码解析有关;现有 `chcp 65001` preamble 只处理输出代码页,不覆盖行内参数本身的解析。
 - 归口建议:可随 roadmap `merge-e-hardening-into-d` 4.6 envelope 阶段重写命令类工具 schema 时一并处理,或独立排期。
+
+## 修复记录（2026-08-21）
+
+M2 `command-output-spill-paging` 验收时闭环：根因确认为 cmd 管道输出原始字节为 GBK、pwsh/powershell 为 UTF-8，修复落在 `src/command-output.ts` 的 `detectOutputEncoding`（原始字节编码判定），`src/shell.ts` 的 shell 选择与 invocation 未变。三链路（cmd / powershell / pwsh）`echo 中文测试` 输出一致，验收场景 S5 通过（`tests/unit/tools/command.test.ts`「decodes Chinese output consistently across cmd, powershell, and pwsh」）。

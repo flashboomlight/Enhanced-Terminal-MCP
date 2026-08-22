@@ -454,13 +454,15 @@ describe("temp-manager S3 transaction", () => {
   });
 
   test("touch refreshes TTL and a later idle cleanup removes the directory", async () => {
+    // Keep enough margin for the full suite while preserving the sliding-TTL assertion.
+    process.env.MCP_TEMP_TTL_MS = "500";
     const tm = manager();
     const dir = await tm.create("sliding");
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     tm.touch(dir.id);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     await expect(tm.cleanup()).resolves.toEqual({ removed: 0, remaining: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     await expect(tm.cleanup()).resolves.toEqual({ removed: 1, remaining: 0 });
   });
 

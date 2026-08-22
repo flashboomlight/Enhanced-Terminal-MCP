@@ -17,11 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pool_stats` structured field `active: false` (pool remains inactive).
 - es.exe SHA-256 gate (`src/es-integrity.ts`); zero-dep MCP SDK postinstall patch script.
 - CodeStable roadmap `remaining-hardening` + boundary decisions (shell ≠ sandbox, allow optional, zod v3).
+- Default Windows shell switched to PowerShell 7 (`MCP_SHELL=pwsh`) with `MCP_POWERSHELL_PATH` explicit fail-closed override, bundled portable pwsh bootstrap via `setup.bat`, and `powershell`/`cmd` compatibility modes.
+- `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` switch to hide the `file_info` tool (26 tools when set).
+- Unified state directory `<project-root>/.etmcp` (session, audit, temp) with transactional migration of legacy `session.json`/`logs/audit.jsonl`; `temp`/unknown files are never migrated.
+- Command output A+ runtime: shared raw-byte capture, spill to page cache v2 (`stdout.bin`/`stderr.bin`/`stdout.idx`/`meta.json`), `cache_id` paged reads without re-run, `SECRET_DETECTED` error code, and the full `CommandOutputEnvelope` for `execute_command`/`batch_execute`/`watch_command`.
+- Output governance env vars `MCP_COMMAND_MEMORY_OUTPUT_BYTES` / `MCP_COMMAND_MAX_STDERR_BYTES` / `MCP_TEMP_MAX_TOTAL_BYTES` with process-level validation (`VALIDATION_ERROR` on invalid values).
+- Everything CLI local-optional resolution (`ENHANCED_TERMINAL_ES_PATH` → `<state-dir>/tools/es.exe` → unavailable) with fingerprint + locked SHA-256; `search_files` fallback, structured `everything_search` installation detail, zero-download runtime, and `es.exe` removal from the npm package.
+- Build output cleanup before TypeScript compilation so removed source files do not remain in `build/` or npm packages.
 
 ### Changed
 
 - Unit tests live under `tests/unit/`; `patch-package` is devDependency only.
 - Package `files` ships `scripts/apply-mcp-sdk-patch.mjs` instead of relying on production `patch-package`.
+- Session/audit/temp locations moved to `.etmcp` under the project root; `MCP_STATE_DIR` override disables automatic legacy migration.
+- cmd/powershell inline non-ASCII mojibake fixed in the M2 output-decoding layer (`src/command-output.ts`); shell selection and invocation unchanged.
 
 ## [3.1.0] - 2026-07-05
 

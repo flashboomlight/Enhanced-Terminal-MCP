@@ -21,15 +21,15 @@ items:
   - slug: publish-es-optional
     description: 将 Everything CLI 改为固定 SHA-256 的本地可选依赖，并从 npm 发布物中移除 es.exe
     depends_on: [command-output-spill-paging]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-21-publish-es-optional
     minimal_loop: false
-    notes: 取代 remaining-hardening 中同名 planned 条目；安装期、启动期和运行期均不得下载
+    notes: 2026-08-22 验收通过；S1-S5 resolver、fingerprint/hash 校验、搜索契约、npm 发布裁剪、全量门禁和 12 项 feature checks 全部完成；安装期、启动期和运行期均不得下载
 
   - slug: post-merge-doc-sync-and-acceptance
     description: 把最终实现同步为唯一当前文档口径，关闭旧计划，并执行完整本地发布验收
     depends_on: [publish-es-optional]
-    status: planned
+    status: done
     feature: null
     minimal_loop: false
-    notes: 不配置 remote、不 push、不建 PR；E 仓库由用户在验收后自行处理
+    notes: 2026-08-22 最终收口完成；当前文档、M1-M3 acceptance、package dry-run、MCP smoke、全量测试和 Git hygiene 已核对；不配置 remote、不 push、不建 PR；E 仓库由用户自行处理

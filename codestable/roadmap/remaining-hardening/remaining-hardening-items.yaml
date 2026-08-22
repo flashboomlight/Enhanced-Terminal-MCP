@@ -73,7 +73,7 @@ items:
     status: dropped
     feature: null
     minimal_loop: false
-    notes: moved/superseded by merge-e-hardening-into-d/publish-es-optional（M3，当前 planned）；不得再作为 remaining-hardening 独立 feature 启动
+    notes: moved/superseded by merge-e-hardening-into-d/publish-es-optional（M3，当前 in-progress）；不得再作为 remaining-hardening 独立 feature 启动
 
   - slug: deps-zod-v4-spike
     description: zod v4 迁移 spike 与 go/no-go，不默认 merge 生产

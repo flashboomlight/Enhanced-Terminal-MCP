@@ -126,7 +126,7 @@ remaining-hardening
 
 - **职责**：发布 `files`、postinstall、锁定哈希、可选 zod 迁移
 - **触碰代码**：`package.json`、`scripts/`、`es_tool/`、`src/es-integrity.ts`
-- **承载子 feature**：`deps-zod-v4-spike`、`publish-sbom-hash-doc`；`publish-es-optional` 已转移至 `merge-e-hardening-into-d` 的 M3
+- **承载子 feature**：`deps-zod-v4-spike`、`publish-sbom-hash-doc`；`publish-es-optional` 已转移至 `merge-e-hardening-into-d` 的 M3（新 M3 采用本地可选解析、固定 hash、零下载且不进入 npm 包）
 
 ### 模块 M5 · product-model-options
 
@@ -284,10 +284,10 @@ execute_command_argv: {
    - 模块：M4
    - 依赖：无
 
-9. **publish-es-optional** — es.exe 改为 optional 平台包或 postinstall 下载+校验，缩小非 Windows 安装物
-   - 模块：M4
-   - 依赖：`publish-sbom-hash-doc`
-   - 备注：改变安装体积与 files 字段
+9. **publish-es-optional** — `[已迁移至 merge-e-hardening-into-d M3]` es.exe 本地可选解析、固定 hash 校验与 npm 发布物裁剪
+   - 模块：M4（历史规划归类）
+   - 依赖：`publish-sbom-hash-doc`（旧规划依赖，当前 M3 依赖新 roadmap 的 M2）
+   - 备注：旧的 optional 平台包 / postinstall 下载方案已放弃；当前方案禁止下载，改变安装体积与 files 字段
 
 10. **deps-zod-v4-spike** — zod v4 迁移 spike：兼容矩阵、SDK、改动面评估，产出 go/no-go
     - 模块：M4

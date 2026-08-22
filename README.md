@@ -9,13 +9,13 @@ Supports **27 tools** across 7 categories: command execution, file I/O, system m
 - **3-Level Safety System** — strict/normal/off via `MCP_SAFETY_MODE`, hardBlock baseline always on; optional `MCP_COMMAND_POLICY=allow`
 - **Path & URL Security** — traversal detection, forbidden paths, sensitive file patterns, secret scanning
 - **Performance Optimized** — LRU result cache (128-entry, sliding TTL, ~32MB cap), adaptive timeouts, spawn-based streaming
-- **Structured Errors** — 19 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
+- **Structured Errors** — 20 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
 - **Session Persistence** — cwd, env vars, and command history survive restarts (auto-saved to `.etmcp/session.json`)
 - **Audit Logging** — structured JSON Lines audit log at `.etmcp/logs/audit.jsonl` (mode: `off` / `errors` / `all`)
 - **Temp Resource Manager** — TTL + LRU auto-recycled temp directories; the `temp` root is created only when a temp resource is actually needed
-- **Command Output Paging** — large `execute_command` outputs can be read page-by-page via validated `cache_id` / `page` / `pageSize`; the current baseline still uses the legacy text cache while the A+ spill/paging upgrade is in progress
+- **Command Output Paging** — large `execute_command` outputs spill to a byte-indexed page cache v2 under `.etmcp/temp` and can be read page-by-page via validated `cache_id` / `page` / `pageSize`; small outputs stay in memory and never touch disk
 - **Rate Limiting** — token bucket (10 req/s) for command execution
-- **Windows Everything Integration** — sub-10ms file search via Everything CLI
+- **Windows Everything Integration (optional)** — sub-10ms file search via Everything CLI, resolved locally from `ENHANCED_TERMINAL_ES_PATH` or `<state-dir>/tools/es.exe` with a locked SHA-256; `search_files` falls back to native search when unavailable
 
 ## Quick Start
 
@@ -54,10 +54,14 @@ setup.bat
 | `MCP_STATE_DIR` | `<project-root>/.etmcp` | State directory for session, audit logs, and temp files. With the default root, legacy `<project-root>/.enhanced-terminal-mcp` `session.json`/`logs/audit.jsonl` are migrated; `temp` and unknown files are never migrated. Setting this override disables automatic legacy migration. |
 | `MCP_AUDIT_MODE` | `errors` | Audit mode: `off` / `errors` / `all` |
 | `MCP_AUDIT_MAX_ENTRIES` | `10000` | Max audit log entries to retain |
-| `MCP_COMMAND_MAX_OUTPUT_BYTES` | `52428800` | Max captured stdout retained per command before the current command contract returns an explicit truncation error (the A+ contract is still in progress) |
+| `MCP_COMMAND_MAX_OUTPUT_BYTES` | `52428800` | Max captured stdout bytes retained per command before the result is flagged `truncated` and spilled to the page cache; see `MCP_COMMAND_MEMORY_OUTPUT_BYTES` for the in-memory spill threshold |
 | `MCP_TEMP_TTL_MS` | `3600000` | Temp directory TTL in milliseconds |
 | `MCP_MAX_TEMP_DIRS` | `100` | Max temp directories before LRU eviction |
 | `MCP_TEMP_CLEANUP_INTERVAL_MS` | `300000` | Auto cleanup polling interval in milliseconds |
+| `MCP_COMMAND_MEMORY_OUTPUT_BYTES` | `1048576` | In-memory retention threshold per command; output beyond this spills to the page cache (`paged=true`) |
+| `MCP_COMMAND_MAX_STDERR_BYTES` | `1048576` | Max stderr bytes retained per command |
+| `MCP_TEMP_MAX_TOTAL_BYTES` | `1073741824` | Max total temp bytes before LRU eviction kicks in |
+| `ENHANCED_TERMINAL_ES_PATH` | — | Explicit path to a fixed-SHA-256 Everything CLI (`es.exe`). Takes priority over `<state-dir>/tools/es.exe`; an invalid explicit path fails closed. `search_files` falls back only when the implicit state binary is unavailable; `everything_search` returns structured installation detail. |
 
 ### Windows Default Shell (pwsh 7)
 
@@ -68,7 +72,7 @@ On Windows, command tools resolve a shell once per process, in this order:
 3. pwsh 7 found on `PATH`
 4. Windows PowerShell 5.1 fallback (logs a warning)
 
-pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd keeps `chcp 65001`. Use `MCP_SHELL=cmd` to restore the legacy cmd.exe behavior. The remaining cmd/powershell inline non-ASCII issue is tracked in `codestable/issues/2026-08-19-cmd-powershell-inline-mojibake/` and is part of the in-progress M2 work. Changing shells or installing pwsh requires a server restart (resolution is cached for the process lifetime).
+pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd keeps `chcp 65001`. Use `MCP_SHELL=cmd` to restore the legacy cmd.exe behavior. The cmd/powershell inline non-ASCII mojibake issue was fixed in the M2 output-decoding layer (`src/command-output.ts`); see `codestable/issues/2026-08-19-cmd-powershell-inline-mojibake/`. Changing shells or installing pwsh requires a server restart (resolution is cached for the process lifetime).
 
 ## Tool Reference
 
@@ -155,7 +159,7 @@ MCP Client (stdio) → McpServer
 
 ```bash
 npm install
-npm run build      # TypeScript compile
+npm run build      # clean build/ and compile TypeScript
 npm run test       # Run unit tests
 npm run test:latency # E2E latency benchmarks
 npm run lint       # Biome linter
@@ -166,7 +170,7 @@ npm run format     # Biome formatter
 
 | Artifact | Notes |
 |----------|--------|
-| `es_tool/es.exe` | Windows Everything CLI. Executed only after SHA-256 matches `ES_EXE_SHA256` in `src/es-integrity.ts` (`5101b3a6d9542de378e077f4b8c66c4e608d3bff088092427749b65fbb18b342`). Update binary ⇒ update constant + tests. |
+| `es_tool/es.exe` | Everything CLI development/test fixture only (locked to `ES_EXE_SHA256` in `src/es-integrity.ts`: `5101b3a6d9542de378e077f4b8c66c4e608d3bff088092427749b65fbb18b342`). Production resolves `ENHANCED_TERMINAL_ES_PATH` → `<state-dir>/tools/es.exe` → unavailable; the fixture is not included in the npm package. Update binary ⇒ update constant + tests. |
 | `scripts/apply-mcp-sdk-patch.mjs` | Zero-dep `postinstall` patch for `@modelcontextprotocol/sdk@1.29.0` (object schema `required: []`). `patch-package` is **devDependency only**. |
 | SDK pin | `@modelcontextprotocol/sdk` locked to `1.29.0` (no caret) + `overrides` so the patch target stays stable. |
 | Zod | Stays on **v3** until roadmap spike `deps-zod-v4-spike` goes go (see `codestable/compound/2026-07-12-decision-zod-v3-remain.md`). |

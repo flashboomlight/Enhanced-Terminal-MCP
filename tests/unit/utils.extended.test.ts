@@ -6,6 +6,8 @@ import * as os from "node:os";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { safeExecFile as SafeExecFileType } from "../../src/utils.js";
 
+vi.unmock("../../src/shell.js");
+
 type ExecCallback = (error: Error | null, stdout?: Buffer | string, stderr?: Buffer | string) => void;
 
 const IS_WIN = os.platform() === "win32";
@@ -28,10 +30,6 @@ async function loadSafeExec() {
 // safeExec — 统一 shell spec（真实执行）
 // ====================================================================
 describe("safeExec (统一 shell spec)", () => {
-  beforeEach(() => {
-    vi.unmock("../../src/shell.js");
-  });
-
   test("正常执行返回 stdout 与空 stderr", async () => {
     const safeExec = await loadSafeExec();
     const result = await safeExec("echo hello", 10000);

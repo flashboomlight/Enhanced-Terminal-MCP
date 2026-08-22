@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
-import { ensureEsExeIntegrity } from "../es-integrity.js";
+import { type EsExeResolution, resolveEsExe } from "../es-integrity.js";
 import { logger } from "../logger.js";
 import { escapePsString, IS_WIN } from "../platform.js";
 import { getRegex } from "../regex.js";
@@ -21,6 +21,29 @@ import { wrapHandler } from "../wrap.js";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** 将 Everything resolver 的失败转换为搜索工具可消费的结构化错误。 */
+function esResolutionFailure(resolution: Extract<EsExeResolution, { available: false }>, toolName: string) {
+  const { diagnostic } = resolution;
+  const explicit = resolution.source === "explicit";
+  const configurationError = explicit && toolName === "search_files";
+  return fail(
+    configurationError ? ErrorCode.VALIDATION_ERROR : ErrorCode.EXECUTION_FAILED,
+    explicit
+      ? `Configured ${diagnostic.env_name} is not usable (${diagnostic.reason})`
+      : `Everything CLI is unavailable (${diagnostic.reason})`,
+    {
+      retryable: false,
+      param: explicit ? diagnostic.env_name : undefined,
+      suggestion: explicit
+        ? `Fix ${diagnostic.env_name} or unset it and retry; the configured path will not silently fall back.`
+        : toolName === "everything_search"
+          ? `Use search_files, or provide a verified es.exe through ${diagnostic.env_name} or ${diagnostic.default_path}.`
+          : `Use native search fallback; provide a verified es.exe through ${diagnostic.env_name} or ${diagnostic.default_path}.`,
+      detail: diagnostic,
+    },
+  );
 }
 
 /** 将 glob 模式（* 和 ?）转换为不区分大小写的正则 */
@@ -72,8 +95,12 @@ export function registerSearchTools(server: McpServer) {
       try {
         if (IS_WIN) {
           try {
-            const esPath = await ensureEsExeIntegrity();
-            if (esPath) {
+            const resolution = await resolveEsExe();
+            if (!resolution.available) {
+              if (resolution.source === "explicit") return esResolutionFailure(resolution, "search_files");
+              logger.debug("search_files", "everything-skipped", resolution.diagnostic.reason);
+            } else {
+              const esPath = resolution.path;
               const normalizedDir = resolve(dir_path).toLowerCase();
               await new Promise<void>((done) => {
                 const args = ["-s", "-n", String(maxR * 2), pattern];
@@ -95,8 +122,6 @@ export function registerSearchTools(server: McpServer) {
                   },
                 );
               });
-            } else {
-              logger.debug("search_files", "everything-skipped", "es.exe integrity check failed");
             }
           } catch (err) {
             logger.debug("search_files", "everything-fallback", String(err));
@@ -175,13 +200,9 @@ export function registerSearchTools(server: McpServer) {
       }
 
       try {
-        const esPathWin = await ensureEsExeIntegrity();
-        if (!esPathWin) {
-          return fail(ErrorCode.EXECUTION_FAILED, "Everything CLI failed integrity check or is missing", {
-            retryable: false,
-            suggestion: "Use search_files, or restore es_tool/es.exe matching the locked SHA-256",
-          });
-        }
+        const resolution = await resolveEsExe();
+        if (!resolution.available) return esResolutionFailure(resolution, "everything_search");
+        const esPathWin = resolution.path;
         const results: string[] = [];
 
         await new Promise<void>((resolve) => {

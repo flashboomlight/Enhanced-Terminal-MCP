@@ -1,11 +1,16 @@
 ---
-name: paging-cache-on-demand
-description: execute_command 默认不缓存小输出，只有显式分页请求或输出超限时才落盘
-metadata:
-  type: decision
-status: active
-updated: 2026-08-21
+doc_type: decision
+category: architecture
+date: "2026-07-05"
+slug: paging-cache-on-demand
+status: superseded
+superseded-by: 2026-08-22-decision-command-output-spill-paging.md
+area: command-output
+tags: [command-output, paging, cache]
+updated: "2026-08-22"
 ---
+
+**[已取代]** 见 `2026-08-22-decision-command-output-spill-paging.md`。
 
 # Decision: 分页缓存按需落盘
 
@@ -37,7 +42,7 @@ updated: 2026-08-21
 - 缓存文件由 `TempManager` 自动回收
 - stdout 超过 `MCP_COMMAND_MAX_OUTPUT_BYTES` 时返回明确错误，避免静默截断
 
-> 当前代码基线仍是 `page-cache-{timestamp}-{random}` + `stdout.txt`/`stderr.txt`/`meta.json` 的 legacy 实现；A+ 的二进制索引、范围读取和统一 envelope 由 `command-output-spill-paging` feature 负责，尚未在验收前取代本决策。
+> 2026-08-21 更新：page cache v2（原始字节 + `stdout.idx` 字符索引 + staging 原子发布 + 范围读取）已随 `command-output-spill-paging` 验收落地，本决策中“显式 `page` 或超 `pageSize` 才落盘”的按需语义由新的内存阈值溢写模型（`MCP_COMMAND_MEMORY_OUTPUT_BYTES`）承载；legacy `stdout.txt` 目录不再生产写入，旧目录由 TTL 自然消亡。
 
 ## 相关实现
 

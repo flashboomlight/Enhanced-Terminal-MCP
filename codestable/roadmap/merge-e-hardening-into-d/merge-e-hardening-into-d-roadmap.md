@@ -3,7 +3,7 @@ doc_type: roadmap
 slug: merge-e-hardening-into-d
 status: active
 created: 2026-08-19
-last_reviewed: 2026-08-21
+last_reviewed: 2026-08-22
 tags: [merge, hardening, command-output, powershell, supply-chain]
 related_requirements: [powershell-default-shell]
 related_architecture: [ARCHITECTURE]
@@ -37,10 +37,10 @@ codestable/roadmap/2026-08-19-merge-e-hardening-into-d/merge-plan.md
 
 仍使用旧 HEAD，并主张保留未接入生产路径的 ProcessPool、继续打包 `es.exe`、机械合并文档等已经被本次讨论推翻的结论。本 roadmap 将直接替换旧文件，不保留重复副本。
 
-E 的 `remaining-hardening` roadmap 仍有两个 `planned` 条目：
+E 的 `remaining-hardening` roadmap 曾有两个 `planned` 条目；它们已迁移到本 roadmap 并在旧位置标记为 `dropped`，避免重复执行入口：
 
-- `contract-truncate-success`：原目标只是把大输出截断从错误改成成功。
-- `publish-es-optional`：原目标是把 `es.exe` 改成可选发布物。
+- `contract-truncate-success`：原目标只是把大输出截断从错误改成成功，现由 M2 A+ 输出协议承载。
+- `publish-es-optional`：原目标是把 `es.exe` 改成可选发布物，现由 M3 本地解析协议承载。
 
 本 roadmap 不照搬旧实现：
 
@@ -992,8 +992,8 @@ ENHANCED_TERMINAL_ES_PATH
 - **描述**：将 Everything CLI 改为固定 hash 的本地可选依赖，并从 npm 发布物中移除二进制。
 - **所属模块**：M3。
 - **依赖**：`command-output-spill-paging`。
-- **状态**：planned。
-- **对应 feature**：未启动。
+- **状态**：done（2026-08-22 验收通过；S1–S5 resolver、fingerprint/hash、搜索契约、npm 发布裁剪、全量门禁与 feature checks 全部完成）。
+- **对应 feature**：2026-08-21-publish-es-optional。
 - **完成后可观察结果**：
   - 显式路径和 state 路径可校验使用。
   - 错误显式配置 fail-closed。
@@ -1007,8 +1007,8 @@ ENHANCED_TERMINAL_ES_PATH
 - **描述**：把最终实现同步为唯一当前文档口径，关闭旧计划，并执行完整本地发布验收。
 - **所属模块**：M4，覆盖 M1～M3。
 - **依赖**：`publish-es-optional`。
-- **状态**：planned。
-- **对应 feature**：未启动。
+- **状态**：done（2026-08-22 最终本地收口完成）。
+- **对应 feature**：无（roadmap final closure）。
 - **完成后可观察结果**：
   - 当前 README、AGENTS、ARCHITECTURE、CHANGELOG、requirements/decisions 与代码一致。
   - E `remaining-hardening` 的两个旧 planned 条目不再形成重复计划。
@@ -1175,7 +1175,7 @@ git diff --check
 
 ## 8. 文档同步规则
 
-最终 A+ / M3 实现完成前，不把目标态字段写入 architecture 或 requirements；本次只回写已在代码中存在的 M2 过渡事实。
+M2 A+ 实现与验收已完成；在 M3 实现与验收完成前，不把 M3 目标态字段写入 architecture 或 requirements。M4 负责把 M2/M3 最终事实统一回写当前文档。
 
 M4 按以下规则同步：
 
@@ -1191,7 +1191,7 @@ M4 按以下规则同步：
 - package metadata 和 `.gitignore`
 - 当前仍被引用的 state/temp/paging/Everything decision
 
-2026-08-21 已先完成一次当前状态同步：README、AGENTS、ARCHITECTURE，以及 state/temp/paging decision 已反映 `.etmcp`、懒创建、19 个现有错误码和 M2 部分实现；M4 仍需在 M2/M3 验收后完成最终 A+ 契约与发布口径收口。
+2026-08-22 已完成 M4 最终同步：README、AGENTS、ARCHITECTURE、Everything requirement、active decision、package metadata 和 feature acceptance 已与最终代码一致；`build/` 采用 build 前清理，最终 package 和 MCP smoke 已通过。
 
 必须统一：
 
@@ -1232,8 +1232,8 @@ M4 按以下规则同步：
 
 ## 9. 观察项
 
-- D 当前 architecture 已回写 Node >=20、27/26 工具、inactive ProcessPool、`.etmcp` 和 M2 过渡状态；最终 A+ envelope/page cache v2 仍须在 M2 acceptance 后更新。
-- D 副本的旧 paging decision 仍描述当前 legacy `stdout.txt`/`stderr.txt` 整文件读取；A+ acceptance 后才可 supersede，当前不应提前写成 v2 已完成。
+- D 当前 architecture 已回写 Node >=20、27/26 工具、inactive ProcessPool、`.etmcp`、M2/M3 运行事实和 M4 build/package 收口。
+- D 副本的旧 paging decision 已标记 `superseded`；当前 active decision 为 `2026-08-22-decision-command-output-spill-paging.md`。
 - D 副本的 state/temp decisions 已更新为 `.etmcp` 与懒创建；历史 feature design/acceptance 仍保留原名称作为历史事实。
 - 全局 `%TEMP%` session 可能属于其他项目，因此只提示、不自动迁移；若用户确实需要旧 D session，应单独人工核对。
 - `es_tool/es.exe` 可留在源码仓库作开发夹具，但必须通过 package dry-run 证明未发布。
@@ -1246,3 +1246,7 @@ M4 按以下规则同步：
 - 2026-08-20：M2 进度重新对齐。确认 S1 已完成；S2 仅完成内存 scanner/差分与边界测试，staging 前扫描和落盘 fault injection 仍缺；S3 代码已大部分存在但关键资源治理矩阵未验收；S4 仍是旧 PageCache；S5 仅完成共享捕获入口接入，公开 envelope、batch/watch/cache/audit 契约未闭环；S6 尚未执行。roadmap item 与 feature checklist 均保留 `in-progress`，不提前宣称完成。
 - 2026-08-21：完成当前状态文档同步：修正 README/AGENTS/ARCHITECTURE 的 `.etmcp`、错误码、测试快照和 M2 过渡口径；更新 state/temp/paging active decisions；将旧 `remaining-hardening` 的两个重复 planned 条目标记 `dropped` 并指向 M2/M3。未修改历史 feature 文档、E 仓库或代码。
 - 2026-08-21：M2 `command-output-spill-paging` 验收通过。S1–S6 全部闭环：共享 A+ 捕获/溢写/分页/secret/容量/envelope 落地，cmd/powershell/pwsh 中文乱码闭环；乱码根因确认为 cmd 管道原始字节 GBK、pwsh/powershell UTF-8，修复落在 `command-output.ts` 原始字节编码判定（`shell.ts` 不变）。阶段 C 门禁全绿（build/tsc/lint/test 532 用例/test:latency 24 项/diff --check）。详见 feature acceptance 报告。
+- 2026-08-21：M3 `publish-es-optional` design 获批，items.yaml 切换为 `in-progress`；先完成 S1–S2 resolver、显式/state 来源区分、fingerprint 失效和固定 hash 校验。
+- 2026-08-22：M3 `publish-es-optional` 验收通过；S3–S5、12 项 checks、build/tsc/lint/543 tests/latency/package dry-run/零下载核对/diff --check 全部通过，items.yaml 改为 `done`。另修正既有 temp-manager TTL 测试时间余量，未改变生产行为；M4 保留为最终整体文档与发布收口。
+- 2026-08-22：M4 最终本地收口完成；`build/` 增加 clean-before-build，项目内 `.etmcp/test-tmp` 验证通过，MCP smoke（27 tools、temp_stats、命令正常/错误、无/有 Everything 搜索路径）通过，npm pack 不含测试产物、`middleware` 或 `es.exe`；M4 item 改为 `done`。
+- 2026-08-22：M4 收尾维护完成；将 `tests/unit/utils.extended.test.ts` 的 `vi.unmock()` 移到模块顶层，针对性测试与全量测试无 warning 通过。

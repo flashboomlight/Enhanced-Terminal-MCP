@@ -9,7 +9,7 @@
   },
   "files": [
     "build/",
-    "es_tool/es.exe",
+    "scripts/clean-build.mjs",
     "scripts/apply-mcp-sdk-patch.mjs",
     "README.md",
     "CHANGELOG.md"
@@ -18,6 +18,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
+    "prebuild": "node scripts/clean-build.mjs",
     "build": "tsc",
     "start": "node build/index.js",
     "dev": "tsx src/index.ts",
