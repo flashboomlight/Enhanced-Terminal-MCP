@@ -1,0 +1,81 @@
+feature: 2026-08-23-harness-headless-safety
+created: 2026-08-23
+
+steps:
+  - action: "S1 确认模式与结果契约：实现 confirmation mode 解析、strict/normal/off 优先级、Elicitation 状态决策、ELICITATION_REQUIRED/ELICITATION_CANCELLED/SAFETY_BLOCKED 映射和 safety_protocol_version=2"
+    exit_signal: "未设置新变量时 normal 桌面行为保持现状；无 Elicitation、实际取消、strict、path 和 policy 阻断可被结构化区分；headless surface 固定为 workspace-delete"
+    status: done
+  - action: "S2 workspace allowlist 边界：实现 MCP_ALLOWED_ROOTS 的平台分隔符解析、绝对规范化、根目录有效性/reparse 校验、严格后代匹配和 target 父路径检查"
+    exit_signal: "headless 缺失/无效配置 fail-closed；allowlist 根本身、根外路径、相邻前缀路径、reparse root/ancestor/target/parent 均不会进入删除执行"
+    status: done
+  - action: "S3 delete_preview 契约：实现单文件/空目录/非空目录 preview、sha256-lstat-v1 canonical digest、100000 条目/30 秒预算、结构化输出和五分钟单进程 preview id"
+    exit_signal: "preview 无副作用；输出字段和类型稳定；预算超限不生成 id；重启、过期、重复使用和跨进程 id 均无效"
+    status: done
+  - action: "S4 delete_path headless 编排：接入 preview id、快照重新校验、mutator mutex、single-file/empty-dir/non-empty-dir 删除规则和 workspace-delete headless policy"
+    exit_signal: "只有 headless allowlist 内且快照匹配的目标才会删除；目标变化、reparse、根目录本身、错误 recursive 或无效 preview 均不产生删除副作用"
+    status: done
+  - action: "S5 工具面与可观测性收口：保持 write/copy/archive/command/network/process 不属于本 feature 的 headless surface，补 capability/health 摘要、审计授权来源和错误 meta"
+    exit_signal: "headless 调用排除工具返回 SAFETY_BLOCKED；capability 报告 workspace-delete 和安全协议版本；审计不写入 secret 原文"
+    status: done
+  - action: "S6 回归与 harness 验证：覆盖 normal 桌面 Elicitation、无 Elicitation、auto、strict/off、workspace-delete headless、路径/reparse/preview/token/并发边界和排除工具"
+    exit_signal: "design 第 3 节全部关键场景有可观察证据；现有工具正常路径和旧 normal 行为无回归；跨进程独占限制有明确验证或文档证据"
+    status: done
+  - action: "S7 文档与质量门禁：回写用户配置/架构现状说明，运行 build、typecheck、lint、全量测试和目标 feature 验证"
+    exit_signal: "README/架构术语与实现一致；所有项目质量门禁通过；未修改本 feature 之外的源码或用户既有 dirty 改动"
+    status: done
+
+checks:
+  - item: "design frontmatter status=approved，checklist feature 与 design 一致，未提前生成 acceptance"
+    source: "design frontmatter / CodeStable feature lifecycle"
+    status: passed
+  - item: "未设置 MCP_CONFIRMATION_MODE 时 normal 桌面受保护工具仍走 Elicitation；不因本 feature 改变默认命令行为"
+    source: "design 0 success criteria 1/6；acceptance 1/12"
+    status: passed
+  - item: "strict 在 confirmation mode 之前生效；off 只跳过 SafeGuard，不跳过 security.ts 和现有 command policy/hardBlock"
+    source: "design 1.1 / 2.1 mode precedence"
+    status: passed
+  - item: "无 Elicitation 返回 ELICITATION_REQUIRED，真实拒绝返回 ELICITATION_CANCELLED，安全/策略拒绝返回 SAFETY_BLOCKED"
+    source: "design 2.1 error mapping；acceptance 2-4"
+    status: passed
+  - item: "headless 缺少 MCP_ALLOWED_ROOTS、包含空项/相对路径/无效目录/根 reparse 时 fail-closed"
+    source: "design 1.4 allowlist contract；acceptance 5"
+    status: passed
+  - item: "headless target 必须是 allowlist 根的严格后代；根本身、根外路径和相邻前缀路径均拒绝"
+    source: "design 2.2 workspace-delete matrix；acceptance 7"
+    status: passed
+  - item: "target、目标父路径或递归树的 symlink/junction/reparse point 均被拒绝"
+    source: "design 2.2 reparse boundary；acceptance 13"
+    status: passed
+  - item: "delete_preview 支持单文件、空目录和非空目录，并正确约束 recursive=false/true"
+    source: "design delete_preview contract；acceptance 9"
+    status: passed
+  - item: "delete_preview structuredContent 包含 path、type、recursive、counts、total_bytes、snapshot、preview_id、expires_at"
+    source: "design delete_preview JSON schema；acceptance 15"
+    status: passed
+  - item: "sha256-lstat-v1 使用 UTF-8 路径排序、/ 分隔符、canonical JSON 数组、bigint size/mtimeNs、单个换行拼接和小写 SHA-256 hex"
+    source: "design preview digest contract"
+    status: passed
+  - item: "preview 超过 100000 条目或 30 秒返回 VALIDATION_ERROR，不生成 id"
+    source: "design preview budget；acceptance 16"
+    status: passed
+  - item: "preview id 当前进程保存 5 分钟、单次原子消费；重启/过期/重复/跨进程 id 均不执行删除"
+    source: "design preview lifecycle；acceptance 10/17/22"
+    status: passed
+  - item: "delete_path 在 mutator mutex 内重新校验 preview snapshot；path/type/size/mtime/reparse 变化返回 preview_stale"
+    source: "design preview lifecycle；acceptance 11/17"
+    status: passed
+  - item: "headless write_file、copy_move、archive、command、download_file、kill_process 均返回 SAFETY_BLOCKED 且无副作用"
+    source: "design headless surface boundary；acceptance 24"
+    status: passed
+  - item: "feature-owned ToolResult meta 携带 safety_protocol_version=2；旧客户端可按 generic error 处理，新客户端可路由新错误码"
+    source: "design 2.1 protocol version；acceptance 20"
+    status: passed
+  - item: "MCP_AUDIT_MODE=all 记录 authorization_source、decision、error_code，不写入 secret 原文"
+    source: "design 0 success criteria 7；acceptance 21"
+    status: passed
+  - item: "跨进程 headless delete 不被进程内 mutex 假装成已保护；workspace 独占/OS sandbox 前提在实现和文档中可观察"
+    source: "design preview lifecycle；acceptance 17/22"
+    status: passed
+  - item: "README、ARCHITECTURE 和运行配置说明中的 SafeGuard/headless/workspace-delete 术语与最终实现一致"
+    source: "design migration and acceptance writeback boundary"
+    status: passed

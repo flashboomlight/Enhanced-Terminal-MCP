@@ -18,7 +18,7 @@ implements: [everything-search-optional]
 
 ## 1. 项目简介
 
-Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server，通过 stdio 传输协议向 AI 客户端提供 **27 个工具**（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 26 个；命令执行、文件 I/O、文件管理、搜索、系统、归档、运维遥测 7 类）、1 个 `health://status` 资源、2 个 prompt（`usage-guide` / `safety-info`）。
+Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server，通过 stdio 传输协议向 AI 客户端提供 **28 个工具**（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 27 个；命令执行、文件 I/O、文件管理、搜索、系统、归档、运维遥测 7 类）、1 个 `health://status` 资源、2 个 prompt（`usage-guide` / `safety-info`）。
 
 - 包入口：`build/index.js`（`src/index.ts` 编译产物）
 - 依赖：`@modelcontextprotocol/sdk` 1.29（精确 + overrides；postinstall 零依赖补丁脚本）、`zod` 3；项目依赖由 pnpm 11.21.0 + `pnpm-lock.yaml` 管理，多个 MCP 可复用机器配置的 content store，但各自保留 virtual store 和 `node_modules`
@@ -32,7 +32,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 | wrapHandler | 统一 handler 包装器：自动 telemetry 采集 + LRU 缓存命中/写入 |
 | ToolResult | 统一结果协议 `{ok, content, structured, meta}` 或 `{ok:false, error}` |
 | StructuredError | 20 个错误码 + `retryable` / `suggestion` / `param` / `detail` 提示（含 M2 已落地的 `SECRET_DETECTED`） |
-| SafeGuard | 三级安全策略引擎（strict / normal / off），normal 下走 MCP Elicitation 确认 |
+| SafeGuard | 三级安全策略引擎（strict / normal / off）+ `MCP_CONFIRMATION_MODE`；normal 默认走 MCP Elicitation，headless 仅提供 workspace-delete |
 | hardBlock | 不可关闭的灾难性命令硬底线（所有安全模式含 off 均生效） |
 | 硬性底线 | `security.ts` 的路径/命令/URL 校验，任何安全模式下都生效 |
 | CommandSpec | 跨平台命令规格 `{file, args, useShell?}`，供 `execFile` 参数化执行 |
@@ -53,10 +53,10 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 
 | 模块 | 职责 |
 |------|------|
-| `src/index.ts` | 入口：创建 McpServer → initSafeGuard → 注册业务工具 + 运维工具 → 注册资源/prompts → 连接 stdio → 优雅退出 |
+| `src/index.ts` | 入口：创建 McpServer → 校验 headless policy → initSafeGuard → 注册业务工具 + 运维工具 → 注册资源/prompts → 连接 stdio → 优雅退出 |
 | `src/tools/command.ts` | `execute_command` / `batch_execute` / `watch_command`。Windows 消费 `shell.ts` 统一解析的 shell spec（默认 pwsh 7，详见 ADR-7/14），Unix 用 `/bin/sh -c`；命令 policy + 危险模式检查 + 限流 + SafeGuard + audit 后调用共享 `runCommandOutput`。公开输入输出已是 M2 A+ envelope（分页/secret/容量字段） |
 | `src/tools/files.ts` | `read_file`（分页/编码）/ `write_file`（秘密扫描 + 覆写确认）/ `list_directory`（符号链接循环保护）/ `file_info`（可被 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 禁用）/ `make_directory` |
-| `src/tools/manage.ts` | `copy_move` / `delete_path`（递归删除需 `recursive=true` + 确认） |
+| `src/tools/manage.ts` | `copy_move` / `delete_preview` / `delete_path`（headless delete_path 必须使用 preview；递归删除需 `recursive=true`） |
 | `src/tools/search.ts` | `search_files`（Windows 优先使用经 resolver 校验的 Everything；隐式 state binary 不可用时原生递归兜底；显式配置错误直接结构化失败）/ `everything_search`（仅 Windows；binary 不可用时返回带安装信息的结构化失败）/ `grep_content`（解析为 pwsh/powershell flavor 时走统一 spec 的 Select-String → Unix grep → 原生三级降级；参数单引号内联转义） |
 | `src/tools/system.ts` | `get_system_info` / `process_list` / `kill_process`（关键进程保护）/ `network_info` / `environment_vars`（敏感键打码） |
 | `src/tools/archive.ts` | `compress_archive` / `extract_archive`（Windows 走 PowerShell Compress/Expand-Archive）/ `download_file`（HTTP/HTTPS 白名单 + 指数退避重试） |
@@ -68,7 +68,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 |------|------|
 | `src/security.ts` | 路径穿越（含 URL 多重编码绕过）、系统目录黑名单、敏感文件/目录模式、危险命令正则（D 的 PowerShell `-EncodedCommand`/`iex`/`Start-Process`/`Stop-Computer`/`Set-ExecutionPolicy`/盘符根递归删除 + E 的间接执行/解释器/管道绕过规则的并集）、URL 协议白名单、主机名校验、进程名消毒 |
 | `src/command-policy.ts` | 命令策略统一入口：`blocklist`（默认）/ `allow`（词级白名单 + 禁止 shell 元字符/管道/嵌套 shell）；hardBlock 永远先执行 |
-| `src/safeguard.ts` | strict 禁用 6 个破坏性工具；normal 对 delete/write/kill 走 Elicitation；关键进程黑名单全模式生效 |
+| `src/safeguard.ts` | strict 禁用受保护工具；normal 默认走 Elicitation；headless 只允许 delete_path 决策，关键进程黑名单全模式生效 |
 | `src/result.ts` | ToolResult 协议、20 错误码、`fail`/`success` 工厂、MCP `CallToolResult` 转换；命令类 A+ envelope 与 `SECRET_DETECTED` 已落地 |
 | `src/wrap.ts` | handler 包装：telemetry 记录 + 缓存命中/回填 |
 | `src/cache.ts` | LRU 实现 + `CACHEABLE_TOOLS`（7 个只读工具）+ 工具级 TTL + 按前缀/路径失效 |
@@ -133,7 +133,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 - **ADR-2 全部工具带类型化 schema**：Zod `inputSchema` + `outputSchema` + `annotations`（readOnly/destructive/idempotent hints），输出同时给人类文本和 `structuredContent`。
 - **ADR-3 统一结果协议**：所有 handler 返回 `ToolResult`，错误统一 20 个错误码并携带 LLM 可决策的 `retryable/suggestion/param`；命令类 `SECRET_DETECTED` 与完整 A+ envelope 已随 M2 落地。
 - **ADR-4 中间件化横切**：`wrapHandler` 统一做 telemetry 和缓存，handler 本体不感知。
-- **ADR-5 安全双层**：`security.ts` 硬性底线（任何模式生效）+ `safeguard.ts` 策略层（strict/normal/off + Elicitation）；危险命令正则、关键进程保护属于硬底线。hardBlock 全模式（含 off）不可关闭。
+- **ADR-5 安全双层**：`security.ts` 硬性底线（任何模式生效）+ `safeguard.ts` 策略层（strict/normal/off + confirmation mode）；normal 默认 Elicitation，headless 仅提供 preview-bound workspace-delete；危险命令正则、关键进程保护属于硬底线。hardBlock 全模式（含 off）不可关闭。
 - **ADR-6 跨平台 CommandSpec**：能参数化的系统命令一律 `execFile(file, args)`；需要 shell 特性的才走 shell，并限制在上游已校验的输入。
 - **ADR-7 Windows 默认 PowerShell（2026-08-16 powershell-default-shell 起取代旧 cmd 方案）**：命令工具与平台 spec 统一消费 `shell.ts` 解析的 shell spec。默认 `MCP_SHELL=pwsh`，按「`MCP_POWERSHELL_PATH` 显式路径（fail closed）→ 项目便携 pwsh 7（`tools/pwsh`）→ PATH pwsh → Windows PowerShell 5.1 回退」一次解析、进程级缓存（成败皆缓存，改配置/装 pwsh 需重启）；`MCP_SHELL=cmd|powershell` 为兼容档（cmd 档下 PS 类平台 spec 回退 powershell.exe 保持 v3.1 行为）；Unix 不进入该流程仍 `/bin/sh`。中文 Windows 实测 pwsh 7 管道输出同为 GBK，故 invocation 层对 pwsh 7 与 5.1 统一加 UTF-8 preamble。
 - **ADR-8 流式执行**：既有 `safeExec` / `quickExec` 继续使用 `spawnStream`（输出超上限截断并终止；超时先 SIGTERM，2s 后 SIGKILL）；`execute_command` / `batch_execute` / `watch_command` 已切换到 `capture.ts` 共享捕获与 `command-output.ts` 编排；输出超限停止 retention 并继续 drain，公开成功/错误 envelope 已随 M2 收口。

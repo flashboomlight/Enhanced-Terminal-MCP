@@ -12,7 +12,7 @@ import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
 import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
-import { guardDestructiveAction } from "../safeguard.js";
+import { getSafetyProtocolVersion, guardDestructiveAction, isHeadlessExcludedTool } from "../safeguard.js";
 import { scanContent, shouldBlockSecretReads, shouldScanOnWrite } from "../scan.js";
 import { validatePath, validateRealPath } from "../security.js";
 import { formatSize } from "../utils.js";
@@ -170,6 +170,14 @@ export function registerFileTools(server: McpServer) {
       // symlink 二次校验：若 file_path 经解析指向系统/敏感目录则拒绝
       const realErr = await validateRealPath(file_path, "write_file");
       if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "file_path" });
+      if (isHeadlessExcludedTool("write_file")) {
+        return fail(ErrorCode.SAFETY_BLOCKED, "write_file is outside the headless workspace-delete surface", {
+          retryable: false,
+          param: "file_path",
+          detail: { reason: "headless_surface" },
+          meta: { safety_protocol_version: getSafetyProtocolVersion() },
+        });
+      }
 
       // 内容安全扫描（MCP_SECRETS_SCAN=off 跳过；超 4MB 跳过）
       if (shouldScanOnWrite() && Buffer.byteLength(content, "utf-8") <= SCAN_MAX_BYTES) {

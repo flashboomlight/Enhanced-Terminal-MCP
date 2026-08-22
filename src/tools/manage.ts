@@ -8,11 +8,120 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
+import { isHeadlessPolicyEnabled, validateHeadlessDeleteTarget } from "../headless-policy.js";
 import { logger } from "../logger.js";
-import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
-import { guardDestructiveAction } from "../safeguard.js";
+import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
+import {
+  describeSafetyDecision,
+  evaluateDestructiveAction,
+  getConfirmationMode,
+  getSafetyProtocolVersion,
+  guardDestructiveAction,
+  type SafetyDecision,
+} from "../safeguard.js";
 import { validatePath, validateRealPath } from "../security.js";
+import { createDeletePreview, deleteWithPreview, WorkspaceDeleteError } from "../workspace-delete.js";
 import { wrapHandler } from "../wrap.js";
+
+const SAFETY_META = { safety_protocol_version: getSafetyProtocolVersion() as 2, latency_ms: 0 } as const;
+
+function decisionFailure(toolName: string, description: string, decision: SafetyDecision): ToolResult {
+  if (decision.status === "required") {
+    return fail(ErrorCode.ELICITATION_REQUIRED, describeSafetyDecision(decision, toolName, description), {
+      retryable: false,
+      param: "target_path",
+      suggestion:
+        "Use a client with form Elicitation or configure MCP_CONFIRMATION_MODE=headless with MCP_ALLOWED_ROOTS",
+      detail: {
+        confirmation_mode: getConfirmationMode(),
+        client_supports_elicitation: decision.clientSupportsElicitation,
+      },
+      meta: SAFETY_META,
+    });
+  }
+  if (decision.status === "declined") {
+    return fail(ErrorCode.ELICITATION_CANCELLED, describeSafetyDecision(decision, toolName, description), {
+      retryable: false,
+      param: "target_path",
+      meta: SAFETY_META,
+    });
+  }
+  if (decision.status === "blocked") {
+    return fail(ErrorCode.SAFETY_BLOCKED, describeSafetyDecision(decision, toolName, description), {
+      retryable: false,
+      param: "target_path",
+      detail: { reason: decision.reason, confirmation_mode: getConfirmationMode() },
+      meta: SAFETY_META,
+    });
+  }
+  return fail(ErrorCode.INTERNAL_ERROR, "Unexpected safety decision", {
+    retryable: false,
+    meta: SAFETY_META,
+  });
+}
+
+function workspaceDeleteFailure(error: unknown, targetPath: string): ToolResult {
+  if (error instanceof WorkspaceDeleteError) {
+    return fail(error.code, error.message, {
+      retryable: error.retryable,
+      suggestion: error.suggestion,
+      param: "target_path",
+      detail: error.detail,
+      meta: SAFETY_META,
+    });
+  }
+  const mapped = mapFsError(error, targetPath, "target_path");
+  if (!mapped.ok) mapped.meta = SAFETY_META;
+  return mapped;
+}
+
+async function validateDeleteInput(targetPath: string): Promise<ToolResult | null> {
+  const pathErr = validatePath(targetPath, "delete_path");
+  if (pathErr) {
+    return fail(ErrorCode.PATH_FORBIDDEN, pathErr, {
+      retryable: false,
+      param: "target_path",
+      meta: SAFETY_META,
+    });
+  }
+  const realErr = await validateRealPath(targetPath, "delete_path");
+  if (realErr) {
+    return fail(ErrorCode.PATH_FORBIDDEN, realErr, {
+      retryable: false,
+      param: "target_path",
+      meta: SAFETY_META,
+    });
+  }
+  if (isHeadlessPolicyEnabled()) {
+    const boundaryError = await validateHeadlessDeleteTarget(targetPath);
+    if (boundaryError) {
+      return fail(ErrorCode.SAFETY_BLOCKED, boundaryError, {
+        retryable: false,
+        param: "target_path",
+        detail: { reason: "headless_root" },
+        meta: SAFETY_META,
+      });
+    }
+  }
+  return null;
+}
+
+const DeletePreviewSchema = z.object({
+  path: z.string(),
+  type: z.enum(["file", "directory"]),
+  recursive: z.boolean(),
+  file_count: z.number().int().nonnegative(),
+  directory_count: z.number().int().nonnegative(),
+  total_bytes: z.number().int().nonnegative(),
+  snapshot: z.object({
+    algorithm: z.literal("sha256-lstat-v1"),
+    entry_count: z.number().int().positive(),
+    digest: z.string().regex(/^[0-9a-f]{64}$/),
+  }),
+  preview_id: z.string().uuid(),
+  expires_at: z.string(),
+});
+type DeletePreviewResult = z.infer<typeof DeletePreviewSchema>;
 
 /** 统一 fs 错误：ENOENT -> PATH_NOT_FOUND */
 function mapFsError(e: unknown, p: string, param: string) {
@@ -89,9 +198,53 @@ export function registerManageTools(server: McpServer) {
     }),
   );
 
+  const DeletePreviewInput = z.object({
+    target_path: z.string().describe("Path to preview for deletion"),
+    recursive: z.boolean().optional().describe("Preview directory recursively, default false"),
+  });
+  type DeletePreviewInput = z.infer<typeof DeletePreviewInput>;
+
+  server.registerTool(
+    "delete_preview",
+    {
+      title: "Preview Delete",
+      description: "Inspect a file or directory deletion without changing the filesystem.",
+      inputSchema: DeletePreviewInput,
+      outputSchema: withErrorSchema(DeletePreviewSchema),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    wrapHandler("delete_preview", async ({ target_path, recursive }: DeletePreviewInput) => {
+      const pathErr = validatePath(target_path, "delete_preview");
+      if (pathErr) {
+        return fail(ErrorCode.PATH_FORBIDDEN, pathErr, {
+          retryable: false,
+          param: "target_path",
+          meta: SAFETY_META,
+        });
+      }
+      const realErr = await validateRealPath(target_path, "delete_preview");
+      if (realErr) {
+        return fail(ErrorCode.PATH_FORBIDDEN, realErr, {
+          retryable: false,
+          param: "target_path",
+          meta: SAFETY_META,
+        });
+      }
+      try {
+        const preview = await createDeletePreview(target_path, recursive === true);
+        return success(`Delete preview ready: ${preview.path}`, preview satisfies DeletePreviewResult, {
+          safety_protocol_version: getSafetyProtocolVersion(),
+        });
+      } catch (error) {
+        return workspaceDeleteFailure(error, target_path);
+      }
+    }),
+  );
+
   const DeletePathInput = z.object({
     target_path: z.string().describe("Path to delete"),
     recursive: z.boolean().optional().describe("Delete directory recursively, default false"),
+    preview_id: z.string().uuid().optional().describe("Required for headless workspace-delete"),
   });
   type DeletePathInput = z.infer<typeof DeletePathInput>;
 
@@ -104,15 +257,45 @@ export function registerManageTools(server: McpServer) {
       outputSchema: withErrorSchema(z.object({ path: z.string(), type: z.string() })),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
-    wrapHandler("delete_path", async ({ target_path, recursive }: DeletePathInput) => {
-      const pathErr = validatePath(target_path, "delete_path");
-      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "target_path" });
-      // symlink 二次校验：删除前确认真实路径非系统/敏感目录
-      const realErr = await validateRealPath(target_path, "delete_path");
-      if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "target_path" });
+    wrapHandler("delete_path", async ({ target_path, recursive, preview_id }: DeletePathInput) => {
+      const inputError = await validateDeleteInput(target_path);
+      if (inputError) return inputError;
 
-      const block = await guardDestructiveAction("delete_path", `删除: ${target_path}`);
-      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "target_path" });
+      const description = `删除: ${target_path}`;
+      const decision = await evaluateDestructiveAction("delete_path", description);
+      if (decision.status !== "allow") return decisionFailure("delete_path", description, decision);
+
+      if (isHeadlessPolicyEnabled()) {
+        if (!preview_id) {
+          return fail(ErrorCode.VALIDATION_ERROR, "Headless delete requires a preview_id", {
+            retryable: true,
+            param: "preview_id",
+            suggestion: "Call delete_preview first",
+            meta: SAFETY_META,
+          });
+        }
+        try {
+          const deleted = await deleteWithPreview(target_path, recursive === true, preview_id);
+          logger.warn("delete_path", `deleted ${deleted.type}`, deleted.path);
+          audit.record({
+            action: "file.delete",
+            tool: "delete_path",
+            detail: {
+              path: deleted.path,
+              type: deleted.type,
+              authorization_source: "headless",
+              safety_protocol_version: getSafetyProtocolVersion(),
+            },
+            success: true,
+          });
+          toolCache.invalidateByValue(target_path);
+          return success(`Deleted ${deleted.type}: ${deleted.path}`, deleted, {
+            safety_protocol_version: getSafetyProtocolVersion(),
+          });
+        } catch (error) {
+          return workspaceDeleteFailure(error, target_path);
+        }
+      }
 
       try {
         const stat = await fs.stat(target_path);
@@ -136,10 +319,14 @@ export function registerManageTools(server: McpServer) {
           success: true,
         });
         toolCache.invalidateByValue(target_path);
-        return success(`Deleted ${stat.isDirectory() ? "directory" : "file"}: ${target_path}`, {
-          path: target_path,
-          type: stat.isDirectory() ? "dir" : "file",
-        });
+        return success(
+          `Deleted ${stat.isDirectory() ? "directory" : "file"}: ${target_path}`,
+          {
+            path: target_path,
+            type: stat.isDirectory() ? "dir" : "file",
+          },
+          SAFETY_META,
+        );
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         audit.record({
@@ -149,7 +336,9 @@ export function registerManageTools(server: McpServer) {
           success: false,
           error: msg,
         });
-        return mapFsError(e, target_path, "target_path");
+        const mapped = mapFsError(e, target_path, "target_path");
+        if (!mapped.ok) mapped.meta = SAFETY_META;
+        return mapped;
       }
     }),
   );

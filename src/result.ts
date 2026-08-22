@@ -52,6 +52,7 @@ export interface ToolError {
   ok: false;
   content: string;
   error: StructuredError;
+  meta?: ToolMeta;
   /** 错误时保留命令类的机器可读 envelope，不改变 isError 语义。 */
   structured?: Record<string, unknown>;
 }
@@ -109,6 +110,7 @@ export interface ToolMeta {
   cache_hit?: boolean;
   page?: number;
   total_pages?: number;
+  safety_protocol_version?: 2;
 }
 
 // ====================================================================
@@ -131,8 +133,15 @@ export function fail(
     param?: string;
     detail?: unknown;
     structured?: Record<string, unknown>;
+    meta?: Partial<ToolMeta>;
   },
 ): ToolError {
+  const meta = opts?.meta
+    ? {
+        ...opts.meta,
+        latency_ms: opts.meta.latency_ms ?? 0,
+      }
+    : undefined;
   return {
     ok: false,
     content: `[${code}] ${message}`,
@@ -144,6 +153,7 @@ export function fail(
       param: opts?.param,
       detail: opts?.detail,
     },
+    ...(meta ? { meta } : {}),
     structured: opts?.structured,
   };
 }
@@ -331,6 +341,7 @@ export function withErrorSchema<T extends z.ZodRawShape>(successSchema: z.ZodObj
 }
 
 export function toCallToolResult(result: ToolResult): CallToolResult {
+  const protocolMeta = result.meta?.safety_protocol_version === 2 ? { _meta: { ...result.meta } } : {};
   if (result.ok) {
     const content = [
       {
@@ -344,11 +355,12 @@ export function toCallToolResult(result: ToolResult): CallToolResult {
       typeof result.structured === "object" &&
       !Array.isArray(result.structured)
     ) {
-      return { content, structuredContent: result.structured as Record<string, unknown> };
+      return { ...protocolMeta, content, structuredContent: result.structured as Record<string, unknown> };
     }
-    return { content };
+    return { ...protocolMeta, content };
   }
   return {
+    ...protocolMeta,
     content: [{ type: "text" as const, text: result.content }],
     isError: true,
     structuredContent: { ...(result.structured ?? {}), ok: false as const, error: result.error },

@@ -1,6 +1,6 @@
 # AGENTS.md — 项目与 AI 协作指引
 
-Enhanced Terminal MCP v3.1.0：通过 MCP 协议向 AI 客户端提供 27 个（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 26 个）终端/文件/系统工具的 TypeScript 服务端。
+Enhanced Terminal MCP v3.1.0：通过 MCP 协议向 AI 客户端提供 28 个（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 27 个）终端/文件/系统工具的 TypeScript 服务端。
 
 本文件是 AI 协作的项目级硬约束入口（继承 E hardening 线的约束），所有 CodeStable 子工作流默认遵守本文件的所有规则。
 

@@ -2,7 +2,7 @@
 
 A powerful terminal/CLI interface for AI models via the [Model Context Protocol (MCP)](https://modelcontextprotocol.org/).
 
-Supports **27 tools** across 7 categories: command execution, file I/O, system management, search, archives, telemetry, and session management.
+Supports **28 tools** across 7 categories: command execution, file I/O, system management, search, archives, telemetry, and session management.
 
 ## Features
 
@@ -44,6 +44,8 @@ setup.bat
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm destructive tools), `off` (no checks; hardBlock still on) |
+| `MCP_CONFIRMATION_MODE` | `elicitation` | `elicitation` (interactive confirmation), `auto` (use Elicitation only when the client advertises form support), `headless` (workspace-delete only; requires `MCP_ALLOWED_ROOTS`) |
+| `MCP_ALLOWED_ROOTS` | — | Absolute path list separated by the platform delimiter; required for `MCP_CONFIRMATION_MODE=headless`. The headless surface is limited to `delete_preview` and preview-bound `delete_path`; the configured roots themselves cannot be deleted. |
 | `MCP_COMMAND_POLICY` | `blocklist` | `blocklist` (dangerous patterns + hardBlock) or `allow` (executable allowlist + hardBlock; no shell chaining) |
 | `MCP_COMMAND_ALLOW` | built-in list | Comma-separated executables/prefixes when policy is `allow` (e.g. `npm,git,node`) |
 | `MCP_BATCH_RATE_MODE` | `batch` | `batch` (1 token per batch_execute) or `per_command` (1 token per command in batch) |
@@ -96,7 +98,10 @@ pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd k
 | Tool | Description |
 |------|-------------|
 | `copy_move` | Copy or move files/directories; protected by safety confirmation |
+| `delete_preview` | Preview a file or directory deletion without changing the filesystem |
 | `delete_path` | Delete file or directory (requires recursive for non-empty dirs) |
+
+For a non-interactive harness, set `MCP_CONFIRMATION_MODE=headless` and `MCP_ALLOWED_ROOTS`. Every headless deletion must use `delete_preview` first; command, write, archive, download, and process tools are not part of this headless surface.
 
 ### Search Tools
 | Tool | Description | Cache |
