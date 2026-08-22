@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - cmd/powershell inline non-ASCII mojibake fixed in the M2 output-decoding layer (`src/command-output.ts`); shell selection and invocation unchanged.
 - Tool surface is now 28 tools by default (27 when `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1`); default normal Elicitation behavior remains compatible and headless is limited to workspace deletion.
 
+### Fixed
+
+- Headless workspace-delete surface is now enforced regardless of `MCP_SAFETY_MODE`: `MCP_SAFETY_MODE=off` no longer re-enables command/write/archive/download/process tools in headless mode (a startup warning is logged; `strict` still blocks `delete_path` itself).
+- `make_directory` is rejected in headless mode; it previously escaped the workspace-delete surface.
+- Safety refusals (`ELICITATION_REQUIRED`, `ELICITATION_CANCELLED`, headless `SAFETY_BLOCKED`) are now recorded in the audit log as `safety.decision` entries without secrets.
+- Expired `delete_preview` tokens are swept whenever a new preview is created.
+
 ## [3.1.0] - 2026-07-05
 
 ### Added

@@ -11,8 +11,13 @@ import * as z from "zod";
 import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
-import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
-import { getSafetyProtocolVersion, guardDestructiveAction, isHeadlessExcludedTool } from "../safeguard.js";
+import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
+import {
+  getConfirmationMode,
+  getSafetyProtocolVersion,
+  guardDestructiveAction,
+  isHeadlessExcludedTool,
+} from "../safeguard.js";
 import { scanContent, shouldBlockSecretReads, shouldScanOnWrite } from "../scan.js";
 import { validatePath, validateRealPath } from "../security.js";
 import { formatSize } from "../utils.js";
@@ -30,6 +35,27 @@ function mapFsError(e: unknown, path: string, param: string) {
     return fail(ErrorCode.PATH_NOT_FOUND, `File not found: ${path}`, { retryable: true, param });
   }
   return Errors.executionFailed(msg);
+}
+
+/** headless 面外工具的统一拒绝：不经 evaluateDestructiveAction 的内联点，需自带审计 */
+function headlessSurfaceBlock(toolName: string, param: string): ToolResult {
+  audit.record({
+    action: "safety.decision",
+    tool: toolName,
+    detail: {
+      decision: "blocked",
+      reason: "headless_surface",
+      confirmation_mode: getConfirmationMode(),
+      error_code: "SAFETY_BLOCKED",
+    },
+    success: false,
+  });
+  return fail(ErrorCode.SAFETY_BLOCKED, `${toolName} is outside the headless workspace-delete surface`, {
+    retryable: false,
+    param,
+    detail: { reason: "headless_surface" },
+    meta: { safety_protocol_version: getSafetyProtocolVersion() },
+  });
 }
 
 export function registerFileTools(server: McpServer) {
@@ -171,12 +197,7 @@ export function registerFileTools(server: McpServer) {
       const realErr = await validateRealPath(file_path, "write_file");
       if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "file_path" });
       if (isHeadlessExcludedTool("write_file")) {
-        return fail(ErrorCode.SAFETY_BLOCKED, "write_file is outside the headless workspace-delete surface", {
-          retryable: false,
-          param: "file_path",
-          detail: { reason: "headless_surface" },
-          meta: { safety_protocol_version: getSafetyProtocolVersion() },
-        });
+        return headlessSurfaceBlock("write_file", "file_path");
       }
 
       // 内容安全扫描（MCP_SECRETS_SCAN=off 跳过；超 4MB 跳过）
@@ -412,6 +433,9 @@ export function registerFileTools(server: McpServer) {
     wrapHandler("make_directory", async ({ dir_path }: MakeDirectoryInput) => {
       const pathErr = validatePath(dir_path, "make_directory");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+      if (isHeadlessExcludedTool("make_directory")) {
+        return headlessSurfaceBlock("make_directory", "dir_path");
+      }
 
       try {
         let existed = false;

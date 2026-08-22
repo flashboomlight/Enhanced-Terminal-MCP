@@ -226,10 +226,19 @@ async function collectSnapshot(targetPath: string, recursive: boolean): Promise<
   };
 }
 
+/** 清扫已过期的 preview 记录，避免长寿命进程下 Map 无界增长 */
+function sweepExpiredPreviews(): void {
+  const now = Date.now();
+  for (const [id, preview] of previews) {
+    if (now >= Date.parse(preview.expires_at)) previews.delete(id);
+  }
+}
+
 /**
  * Build and retain a short-lived preview for a delete operation.
  */
 export async function createDeletePreview(targetPath: string, recursive: boolean): Promise<DeletePreview> {
+  sweepExpiredPreviews();
   if (isHeadlessPolicyEnabled()) {
     const boundaryError = await validateHeadlessDeleteTarget(targetPath);
     if (boundaryError) throw new WorkspaceDeleteError("SAFETY_BLOCKED", boundaryError);

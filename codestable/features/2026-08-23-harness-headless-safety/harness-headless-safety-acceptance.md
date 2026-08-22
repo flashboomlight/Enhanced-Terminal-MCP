@@ -75,7 +75,7 @@ created: "2026-08-23"
 - [x] **A18** batch 整批预检契约不变：`security-corpus`（既有契约，本 feature 未改 command 入口）。
 - [x] **A19** auto 读 initialize 能力，缺失/不支持 → `ELICITATION_REQUIRED`：`src/safeguard.ts:114-122` + `E2E:249`。
 - [x] **A20** capability/health 摘要含 safety_protocol_version/safety_mode/confirmation_mode/elicitation_supported/allowed_roots/headless_surface，不泄完整 secret 或未授权路径：`E2E:215`；摘要结构 `src/headless-policy.ts:102`。
-- [x] **A21** 审计区分 authorization_source/decision/error_code 且无 secret 原文：`src/tools/manage.ts:280-290`（成功）；拒绝路径走统一 audit 记录。
+- [x] **A21** 审计区分 authorization_source/decision/error_code 且无 secret 原文：`src/tools/manage.ts:280-290`（成功，`authorization_source=headless`）。更正记录：原实现中 confirmation 层的拒绝/取消决策未写审计，本条初版表述"拒绝路径走统一 audit 记录"不准确；该缺口由 issue `2026-08-23-headless-surface-enforcement-gaps` S3 补齐——非 allow 决策统一经 `src/safeguard.ts` 的 `auditSafetyDecision` 记录 `action=safety.decision`（含 decision/reason/source/confirmation_mode/error_code），`files.ts` 内联 headless 拒绝同规格补记。
 - [x] **A22** 重启后配置解析一致、旧 preview id 全失效：preview 存储为进程内 Map（`src/workspace-delete.ts:72`），重启即清空；headless 配置由启动 env 重新解析（`src/index.ts:43`）；E2E 每用例冷启动验证。
 - [x] **A23** unset 新变量回到旧桌面 profile：`src/safeguard.ts:114` 默认 `elicitation`；`E2E:230` 兼容路径。
 - [x] **A24** headless 调排除工具（write/copy/archive/command/network/process）→ `SAFETY_BLOCKED` 无副作用、不生成 preview id：`E2E:154`、`:176`。

@@ -44,7 +44,7 @@ setup.bat
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm destructive tools), `off` (no checks; hardBlock still on) |
-| `MCP_CONFIRMATION_MODE` | `elicitation` | `elicitation` (interactive confirmation), `auto` (use Elicitation only when the client advertises form support), `headless` (workspace-delete only; requires `MCP_ALLOWED_ROOTS`) |
+| `MCP_CONFIRMATION_MODE` | `elicitation` | `elicitation` (interactive confirmation), `auto` (use Elicitation only when the client advertises form support), `headless` (workspace-delete only; requires `MCP_ALLOWED_ROOTS`). The headless surface is enforced regardless of `MCP_SAFETY_MODE`; `strict` still blocks `delete_path` itself. |
 | `MCP_ALLOWED_ROOTS` | — | Absolute path list separated by the platform delimiter; required for `MCP_CONFIRMATION_MODE=headless`. The headless surface is limited to `delete_preview` and preview-bound `delete_path`; the configured roots themselves cannot be deleted. |
 | `MCP_COMMAND_POLICY` | `blocklist` | `blocklist` (dangerous patterns + hardBlock) or `allow` (executable allowlist + hardBlock; no shell chaining) |
 | `MCP_COMMAND_ALLOW` | built-in list | Comma-separated executables/prefixes when policy is `allow` (e.g. `npm,git,node`) |
@@ -101,7 +101,7 @@ pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd k
 | `delete_preview` | Preview a file or directory deletion without changing the filesystem |
 | `delete_path` | Delete file or directory (requires recursive for non-empty dirs) |
 
-For a non-interactive harness, set `MCP_CONFIRMATION_MODE=headless` and `MCP_ALLOWED_ROOTS`. Every headless deletion must use `delete_preview` first; command, write, archive, download, and process tools are not part of this headless surface.
+For a non-interactive harness, set `MCP_CONFIRMATION_MODE=headless` and `MCP_ALLOWED_ROOTS`. Every headless deletion must use `delete_preview` first; command, write, archive, download, process, and directory-creation tools are not part of this headless surface. This surface is enforced regardless of `MCP_SAFETY_MODE`: leaving `MCP_SAFETY_MODE=off` set does not re-enable those tools (a startup warning is logged; `strict` still blocks `delete_path` itself).
 
 ### Search Tools
 | Tool | Description | Cache |

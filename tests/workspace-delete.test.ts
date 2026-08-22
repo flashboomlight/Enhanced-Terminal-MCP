@@ -265,3 +265,80 @@ describe("workspace-delete confirmation compatibility", () => {
     );
   });
 });
+
+describe("workspace-delete safety-mode surface enforcement", () => {
+  test("off mode does not dissolve the headless surface for guarded tools", async () => {
+    await withClient(async (client) => {
+      const command = await client.callTool({
+        name: "execute_command",
+        arguments: { command: "echo should-not-run" },
+      });
+      expect(command.isError).toBe(true);
+      expect(structured(command).error.code).toBe("SAFETY_BLOCKED");
+      expect(String(structured(command).error.message)).toContain("headless workspace-delete surface");
+    }, "off");
+  });
+
+  test("off mode headless rejects make_directory even inside allowed roots", async () => {
+    await withClient(async (client) => {
+      const result = await client.callTool({
+        name: "make_directory",
+        arguments: { dir_path: path.join(WORKSPACE_ROOT, "blocked-dir") },
+      });
+      expect(result.isError).toBe(true);
+      expect(structured(result).error.code).toBe("SAFETY_BLOCKED");
+      expect(structured(result).error.detail.reason).toBe("headless_surface");
+      expect(await fs.stat(path.join(WORKSPACE_ROOT, "blocked-dir")).catch(() => undefined)).toBeUndefined();
+    }, "off");
+  });
+
+  test("off mode headless still deletes with a bound preview inside allowed roots", async () => {
+    const target = path.join(WORKSPACE_ROOT, "off-delete.txt");
+    await fs.writeFile(target, "delete me", "utf8");
+
+    await withClient(async (client) => {
+      const preview = await client.callTool({
+        name: "delete_preview",
+        arguments: { target_path: target, recursive: false },
+      });
+      const previewData = structured(preview);
+      const deleted = await client.callTool({
+        name: "delete_path",
+        arguments: { target_path: target, recursive: false, preview_id: previewData.preview_id },
+      });
+      expect(deleted.isError).toBeFalsy();
+      expect(await fs.stat(target).catch(() => undefined)).toBeUndefined();
+    }, "off");
+  });
+
+  test("strict mode still blocks delete_path in headless configuration", async () => {
+    const target = path.join(WORKSPACE_ROOT, "strict.txt");
+    await fs.writeFile(target, "keep", "utf8");
+
+    await withClient(async (client) => {
+      const result = await client.callTool({
+        name: "delete_path",
+        arguments: { target_path: target, recursive: false },
+      });
+      expect(result.isError).toBe(true);
+      expect(structured(result).error.code).toBe("SAFETY_BLOCKED");
+      expect(structured(result).error.detail.reason).toBe("strict");
+      expect(await fs.stat(target).then(() => true)).toBe(true);
+    }, "strict");
+  });
+
+  test("pure off without headless keeps legacy behavior for commands", async () => {
+    await withClient(
+      async (client) => {
+        const result = await client.callTool({
+          name: "execute_command",
+          arguments: { command: "echo compat-ok" },
+        });
+        expect(result.isError).toBeFalsy();
+        expect(JSON.stringify(result)).toContain("compat-ok");
+      },
+      "off",
+      "elicitation",
+    );
+  });
+});

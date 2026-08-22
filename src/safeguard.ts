@@ -2,6 +2,7 @@
 // 三级模式 (strict/normal/off) + Elicitation 交互确认 + 关键资源硬性保护
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { audit } from "./audit.js";
 import { logger } from "./logger.js";
 import { IS_WIN } from "./platform.js";
 
@@ -123,6 +124,13 @@ export function initSafeGuard(server: McpServer): void {
     );
   }
   logger.info("safeguard", "init", `Safety mode: ${_mode}; confirmation mode: ${_confirmationMode}`);
+  if (_confirmationMode === "headless" && _mode === "off") {
+    logger.warn(
+      "safeguard",
+      "init",
+      "MCP_SAFETY_MODE=off has no effect on guarded tools in headless confirmation mode; the workspace-delete surface is enforced",
+    );
+  }
 }
 
 /**
@@ -145,12 +153,32 @@ export function isCriticalProcess(name?: string, pid?: number): boolean {
  * @returns null = 放行, string = 拒绝原因
  */
 export async function evaluateDestructiveAction(toolName: string, description: string): Promise<SafetyDecision> {
-  // off 模式：跳过安全锁（硬性底线在 security.ts 中另外检查）
-  if (_mode === "off") {
-    return { status: "allow", source: "policy" };
-  }
+  const decision = await decideDestructiveAction(toolName, description);
+  if (decision.status !== "allow") auditSafetyDecision(toolName, decision);
+  return decision;
+}
 
-  // strict 模式：受保护工具全部禁用
+/** 非 allow 决策统一写入审计（不含 secret 与操作参数原文） */
+function auditSafetyDecision(toolName: string, decision: Exclude<SafetyDecision, { status: "allow" }>): void {
+  const errorCode =
+    decision.status === "required"
+      ? "ELICITATION_REQUIRED"
+      : decision.status === "declined"
+        ? "ELICITATION_CANCELLED"
+        : "SAFETY_BLOCKED";
+  const detail: Record<string, unknown> = {
+    decision: decision.status,
+    confirmation_mode: _confirmationMode,
+    error_code: errorCode,
+  };
+  if (decision.status === "blocked") detail.reason = decision.reason;
+  if (decision.status === "declined") detail.source = decision.source;
+  if (decision.status === "required") detail.client_supports_elicitation = decision.clientSupportsElicitation;
+  audit.record({ action: "safety.decision", tool: toolName, detail, success: false });
+}
+
+async function decideDestructiveAction(toolName: string, description: string): Promise<SafetyDecision> {
+  // strict 模式：受保护工具全部禁用（strict 优先于确认通道）
   if (_mode === "strict") {
     if (GUARDED_TOOLS.has(toolName)) {
       logger.warn("safeguard", "strict-block", `${toolName}: ${description}`);
@@ -159,9 +187,15 @@ export async function evaluateDestructiveAction(toolName: string, description: s
     return { status: "allow", source: "policy" };
   }
 
+  // headless surface：由确认通道建立的授权边界，优先于 off —— off 不消解 surface
   if (_confirmationMode === "headless") {
     if (toolName === "delete_path") return { status: "allow", source: "headless" };
     return { status: "blocked", reason: "headless_surface" };
+  }
+
+  // off 模式：跳过安全锁（硬性底线在 security.ts 中另外检查）
+  if (_mode === "off") {
+    return { status: "allow", source: "policy" };
   }
 
   // normal 模式：仅对需要确认的工具通过 Elicitation 向用户确认
