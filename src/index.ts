@@ -33,6 +33,16 @@ import { registerUtilityTools } from "./tools/utility.js";
 import { VERSION } from "./version.js";
 import { getRegisteredToolCount } from "./wrap.js";
 
+/** 读取审计日志资源，兼容裸 URI 与带 limit 查询参数的 URI。 */
+async function readAuditLog(uri: URL) {
+  const requestedLimit = Number.parseInt(uri.searchParams.get("limit") || "50", 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 50;
+  const entries = await audit.recent(Math.min(limit, 1000));
+  return {
+    contents: [{ uri: uri.href, text: JSON.stringify(entries, null, 2) }],
+  };
+}
+
 async function main() {
   const server = new McpServer({
     name: "enhanced-terminal-mcp",
@@ -54,15 +64,13 @@ async function main() {
   registerArchiveTools(server);
   registerUtilityTools(server);
 
-  // 注册审计日志资源
-  server.resource("audit-log", new ResourceTemplate("audit://log", { list: undefined }), async (uri) => {
-    const url = new URL(uri.href);
-    const limit = parseInt(url.searchParams.get("limit") || "50", 10) || 50;
-    const entries = await audit.recent(Math.min(limit, 1000));
-    return {
-      contents: [{ uri: uri.href, text: JSON.stringify(entries, null, 2) }],
-    };
-  });
+  // 注册审计日志资源：固定 URI 保持兼容，URI template 支持 ?limit=N。
+  server.resource("audit-log", "audit://log", readAuditLog);
+  server.resource(
+    "audit-log-with-limit",
+    new ResourceTemplate("audit://log{?limit}", { list: undefined }),
+    readAuditLog,
+  );
 
   // 启动进程池清理定时器（惰性：不在模块加载时启动）
   processPool.startSweep();
