@@ -6,7 +6,7 @@
 import * as fs from "node:fs/promises";
 import { logger } from "./logger.js";
 import { validatePath } from "./security.js";
-import { ensureStateMigration, getLegacyStateFilePath, getStateFilePath } from "./state-dir.js";
+import { ensureStateDir, ensureStateMigration, getLegacyStateFilePath, getStateFilePath } from "./state-dir.js";
 
 /**
  * 环境变量注入黑名单 —— 持久化恢复时拒绝这些键
@@ -160,6 +160,8 @@ export class SessionStore {
 
   private async saveToDisk(): Promise<void> {
     try {
+      // session.json 是真实产生物：落盘前才确保目录存在（启动/恢复读取不创建）
+      await ensureStateDir();
       const stateFile = await getStateFilePath();
       const data = {
         cwd: this.state.cwd,

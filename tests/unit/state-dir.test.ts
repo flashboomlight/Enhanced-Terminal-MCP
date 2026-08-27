@@ -14,6 +14,7 @@ describe("state-dir", () => {
 
   beforeEach(async () => {
     originalStateDir = process.env.MCP_STATE_DIR;
+    resetStateDirCache();
     tmpProjectDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-state-dir-test-"));
   });
 
@@ -23,18 +24,29 @@ describe("state-dir", () => {
     } else {
       delete process.env.MCP_STATE_DIR;
     }
+    resetStateDirCache();
     await fs.rm(tmpProjectDir, { recursive: true, force: true });
   });
 
-  test("getStateDir uses MCP_STATE_DIR when set", async () => {
+  test("getStateDir resolves without creating; ensureStateDir creates", async () => {
     delete process.env.MCP_STATE_DIR;
+    resetStateDirCache();
     // 通过动态设置环境变量并重新加载模块来验证
     const customDir = path.join(tmpProjectDir, "custom-state");
     process.env.MCP_STATE_DIR = customDir;
 
-    const { getStateDir } = await import("../../src/state-dir.js");
+    const { getStateDir, ensureStateDir } = await import("../../src/state-dir.js");
     const dir = await getStateDir();
     expect(dir).toBe(path.resolve(customDir));
+    // 纯解析：不创建目录
+    const beforeExists = await fs
+      .access(dir)
+      .then(() => true)
+      .catch(() => false);
+    expect(beforeExists).toBe(false);
+    // 写路径专用 ensure 才创建
+    const ensured = await ensureStateDir();
+    expect(ensured).toBe(dir);
     const stat = await fs.stat(dir);
     expect(stat.isDirectory()).toBe(true);
   });
@@ -73,8 +85,8 @@ describe("state-dir", () => {
   test("mkdir failure logs warning and throws", async () => {
     process.env.MCP_STATE_DIR = path.join("\\\\invalid\\path\\for\\state");
     resetStateDirCache();
-    const { getStateDir } = await import("../../src/state-dir.js");
-    await expect(getStateDir()).rejects.toThrow("Failed to create state directory");
+    const { ensureStateDir } = await import("../../src/state-dir.js");
+    await expect(ensureStateDir()).rejects.toThrow("Failed to create state directory");
   });
 
   test("default state dir is realpath(cwd)/.etmcp", async () => {

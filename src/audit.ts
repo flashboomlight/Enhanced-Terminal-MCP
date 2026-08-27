@@ -34,19 +34,28 @@ function getAuditMode(): AuditMode {
 export class AuditLog {
   private queue: AuditEntry[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private logFilePromise: Promise<string> | null = null;
+  private logFilePathPromise: Promise<string> | null = null;
 
-  private async getLogFile(): Promise<string> {
-    if (this.logFilePromise) return this.logFilePromise;
-    this.logFilePromise = (async () => {
-      // 4.5：首次使用 audit 前完成旧目录迁移；失败向上抛（STATE_MIGRATION_FAILED）
-      await ensureStateMigration();
-      const dir = await getStateDir();
-      const logsDir = path.join(dir, "logs");
-      await fs.mkdir(logsDir, { recursive: true });
-      return path.join(logsDir, "audit.jsonl");
-    })();
-    return this.logFilePromise;
+  /** 纯解析审计日志路径：不创建任何目录（读路径与展示路径使用） */
+  private async resolveLogFilePath(): Promise<string> {
+    if (!this.logFilePathPromise) {
+      this.logFilePathPromise = (async () => {
+        // 4.5：首次使用 audit 前完成旧目录迁移；失败向上抛（STATE_MIGRATION_FAILED）
+        await ensureStateMigration();
+        const dir = await getStateDir();
+        return path.join(dir, "logs", "audit.jsonl");
+      })();
+      // 抑制无人再 await 场景的未处理拒绝噪音；错误仍由实际 await 方处理
+      this.logFilePathPromise.catch(() => {});
+    }
+    return this.logFilePathPromise;
+  }
+
+  /** 写路径专用：audit 条目即将落盘，确保 logs 目录存在后返回路径 */
+  private async ensureLogFilePath(): Promise<string> {
+    const logFile = await this.resolveLogFilePath();
+    await fs.mkdir(path.dirname(logFile), { recursive: true });
+    return logFile;
   }
 
   private shouldRecord(success: boolean): boolean {
@@ -78,7 +87,7 @@ export class AuditLog {
     const entries = this.queue.splice(0);
     if (entries.length === 0) return;
     try {
-      const logFile = await this.getLogFile();
+      const logFile = await this.ensureLogFilePath();
       const lines = `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`;
       await fs.appendFile(logFile, lines, "utf-8");
       await this.compact(logFile);
@@ -102,7 +111,7 @@ export class AuditLog {
   async recent(limit = 50): Promise<AuditEntry[]> {
     await this.flush();
     try {
-      const logFile = await this.getLogFile();
+      const logFile = await this.resolveLogFilePath();
       const raw = await fs.readFile(logFile, "utf-8");
       const lines = raw.split("\n").filter(Boolean);
       const entries = lines
@@ -118,6 +127,7 @@ export class AuditLog {
         .filter((e): e is AuditEntry => e !== null);
       return entries.slice(-limit).reverse();
     } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
       logger.warn("audit", "read-failed", String(e));
       return [];
     }
@@ -134,7 +144,7 @@ export class AuditLog {
 
   async getLogFilePath(): Promise<string | null> {
     try {
-      return await this.getLogFile();
+      return await this.resolveLogFilePath();
     } catch (err) {
       logger.debug("audit", "log-file-path-unavailable", String(err));
       return null;

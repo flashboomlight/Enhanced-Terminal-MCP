@@ -4,7 +4,7 @@ slug: enhanced-terminal
 scope: Enhanced Terminal MCP 的系统总架构、模块边界和运行时约束
 summary: 记录当前 MCP 入口、工具层、安全层、命令输出运行时和状态管理结构
 status: current
-last_reviewed: "2026-08-22"
+last_reviewed: "2026-08-28"
 tags: [mcp, typescript, terminal, security, command-output]
 depends_on: []
 implements: [everything-search-optional]
@@ -14,11 +14,11 @@ implements: [everything-search-optional]
 
 > 状态：current
 > 创建日期：2026-08-16（由 `cs-arch backfill` 按 v3.1.0 代码现状补全）
-> 最后核对：2026-08-22（M2 A+ 输出协议、M3 Everything 可选发布与 M4 最终本地收口已完成）
+> 最后核对：2026-08-28（M2 A+ 输出协议、M3 Everything 可选发布与 M4 最终本地收口已完成；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口，本次整理补齐资源 URI 与相关文档口径）
 
 ## 1. 项目简介
 
-Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server，通过 stdio 传输协议向 AI 客户端提供 **28 个工具**（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 27 个；命令执行、文件 I/O、文件管理、搜索、系统、归档、运维遥测 7 类）、1 个 `health://status` 资源、2 个 prompt（`usage-guide` / `safety-info`）。
+Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server，通过 stdio 传输协议向 AI 客户端提供 **28 个工具**（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 27 个；命令执行、文件 I/O、文件管理、搜索、系统、归档、运维遥测 7 类）、2 个逻辑资源端点（`health://status` / `audit://log`）、2 个 prompt（`usage-guide` / `safety-info`）。
 
 - 包入口：`build/index.js`（`src/index.ts` 编译产物）
 - 依赖：`@modelcontextprotocol/sdk` 1.29（精确 + overrides；postinstall 零依赖补丁脚本）、`zod` 3；项目依赖由 pnpm 11.21.0 + `pnpm-lock.yaml` 管理，多个 MCP 可复用机器配置的 content store，但各自保留 virtual store 和 `node_modules`
@@ -74,7 +74,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `src/cache.ts` | LRU 实现 + `CACHEABLE_TOOLS`（7 个只读工具）+ 工具级 TTL + 按前缀/路径失效 |
 | `src/telemetry.ts` | 指标环形历史（1000 条）+ 按工具聚合 + 全局 summary |
 | `src/session.ts` | cwd/env/history 管理，去抖持久化到 `<projectRoot>/.etmcp/session.json`；恢复消毒 |
-| `src/state-dir.ts` | 统一状态目录解析：固定 `projectRoot`（`realpath(process.cwd())`，进程级不变）、默认 `<projectRoot>/.etmcp`、`MCP_STATE_DIR` 覆盖只解析一次；旧 `.enhanced-terminal-mcp` 迁移协议 |
+| `src/state-dir.ts` | 统一状态目录解析：固定 `projectRoot`（`realpath(process.cwd())`，进程级不变）、默认 `<projectRoot>/.etmcp`、`MCP_STATE_DIR` 覆盖只解析一次；`getStateDir` 为纯解析（不创建目录），`ensureStateDir` 仅供写路径在真实产生物落盘前调用；旧 `.enhanced-terminal-mcp` 迁移协议 |
 | `src/audit.ts` | 结构化审计日志写入与读取（`<projectRoot>/.etmcp/logs/audit.jsonl`） |
 | `src/temp-manager.ts` | 临时目录懒创建、reservation、同进程 mutex、跨进程短锁、staging heartbeat/恢复、TTL + LRU 回收和资源统计 |
 | `src/paging.ts` | page cache v2：原始字节 `stdout.bin`/`stderr.bin` + `stdout.idx` 字符索引 + `meta.json`；staging 原子发布，读取只加载目标页范围 |
@@ -123,7 +123,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 ```
 
 - `projectRoot = realpath(process.cwd())`，server 启动时计算一次，进程生命周期内不变；`MCP_STATE_DIR` 相对路径只相对固定 `projectRoot` 解析一次。
-- `.etmcp` 根可由 session/audit 按需创建；`temp` 及其 page-cache 子目录不会因为 server 启动、`temp_stats` 或 cleanup 自动创建。
+- **懒创建**：`.etmcp` 目录（含 `logs/`、`temp/`）只在第一个真实产生物落盘时创建——session 持久化、audit 条目写入、temp/page-cache 资源创建、legacy 迁移产物。server 启动、session 恢复读取、`audit://log` / `health://status` 资源读取、`telemetry_report` / `temp_stats` 展示一律零创建（2026-08-26 state-dir-eager-creation issue 修复）。
 - 旧 `<projectRoot>/.enhanced-terminal-mcp` 的 `session.json` 与 `logs/audit.jsonl` 按 roadmap 4.5 迁移协议自动迁移（排他锁、同卷 staging、原子替换、回读验证、失败报 `STATE_MIGRATION_FAILED`）；旧 `temp` 与未知文件永不迁移。
 - 全局 `%TEMP%\.enhanced-terminal-mcp-session.json` 不自动导入或删除，发现时只记录不含内容/cwd/env 的提示。
 
@@ -173,14 +173,14 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 - 默认超时：execute 30s（自适应 P95×3，上限 4×）、batch 每步 30s、watch 5s、下载 120s 等，见 `adaptive.ts`。
 
 ### 测试与覆盖策略
-- 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；coverage 配置排除 `src/index.ts`、`src/**/*.test.ts` 和 `tests/**`，但没有排除 `src/tools/**`；工具行为主要由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖（vitest 无法收集子进程覆盖率）。
+- 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；coverage 配置排除 `src/index.ts`、`src/tools/**`、`src/**/*.test.ts` 和 `tests/**`，因为 Vitest/V8 无法收集子进程覆盖率；工具行为主要由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖，工具纯逻辑由 `tests/unit/tools/` 覆盖。coverage 运行跳过延迟基准文件，避免插桩开销造成假失败。
 - 当前基线在 merge-e-hardening-base 验收时刷新；e2e 延迟阈值全部达标为准入。
 
 ## 7. 规划入口（非现状）
 
 剩余未闭环工作与**明确不做**边界见规划层（勿把计划写回本节当现状）：
 
-- `codestable/roadmap/merge-e-hardening-into-d/`（当前执行中）
+- `codestable/roadmap/merge-e-hardening-into-d/`（已完成，保留为历史规划与验收记录）
 - `codestable/roadmap/remaining-hardening/remaining-hardening-roadmap.md`
 - `codestable/roadmap/remaining-hardening/remaining-hardening-items.yaml`
 - 约束决策：`compound/2026-07-12-decision-command-execution-not-sandbox.md`

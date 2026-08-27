@@ -62,15 +62,22 @@ export function resetStateDirCache(): void {
 }
 
 /**
- * 获取状态目录绝对路径。
- * 首次调用时若目录不存在会自动创建。
+ * 解析状态目录绝对路径（纯解析：不创建目录，解析结果进程级缓存）。
+ * 读路径与展示路径一律用它；只有即将落盘真实产生物的写路径才调用 ensureStateDir。
  */
 export async function getStateDir(): Promise<string> {
-  if (cachedStateDir) return cachedStateDir;
-  const dir = resolveStateDir();
+  if (!cachedStateDir) cachedStateDir = resolveStateDir();
+  return cachedStateDir;
+}
+
+/**
+ * 确保状态目录存在（写路径专用：session 持久化、audit 写入、
+ * temp/page-cache 资源创建、legacy 迁移等真实产生物落盘前调用）。
+ */
+export async function ensureStateDir(): Promise<string> {
+  const dir = await getStateDir();
   try {
     await fs.mkdir(dir, { recursive: true });
-    cachedStateDir = dir;
     return dir;
   } catch (e) {
     logger.warn("state-dir", "mkdir-failed", `${dir}: ${String(e)}`);

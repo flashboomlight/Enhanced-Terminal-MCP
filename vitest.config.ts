@@ -1,7 +1,10 @@
 import { defineConfig } from "vitest/config";
 
+const coverageRun = process.argv.some((arg) => arg === "--coverage" || arg.startsWith("--coverage."));
+
 export default defineConfig({
   test: {
+    ...(coverageRun ? { exclude: ["tests/e2e-latency.test.ts"] } : {}),
     testTimeout: 30000,
     hookTimeout: 15000,
     sequence: {
@@ -13,9 +16,10 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: [
         "src/index.ts",
+        "src/tools/**",
         "src/**/*.test.ts",
         "tests/**",
-        // tool handlers still mostly covered by e2e; pure logic under tests/unit/tools
+        // Tool handlers are exercised by subprocess E2E; V8 cannot collect child-process coverage.
       ],
       reporter: ["text", "text-summary", "json-summary"],
       reportsDirectory: "./coverage",

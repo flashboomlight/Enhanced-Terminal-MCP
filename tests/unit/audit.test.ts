@@ -67,6 +67,13 @@ describe("audit", () => {
     expect(entries[1].action).toBe("first");
   });
 
+  test("recent returns an empty list when no log exists", async () => {
+    const audit = makeAudit();
+
+    await expect(audit.recent()).resolves.toEqual([]);
+    await expect(fs.access(path.join(tmpStateDir, "logs"))).rejects.toThrow();
+  });
+
   test("off mode skips recording", async () => {
     process.env.MCP_AUDIT_MODE = "off";
     const audit = makeAudit();

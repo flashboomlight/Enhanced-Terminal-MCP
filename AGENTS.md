@@ -30,7 +30,7 @@ Enhanced Terminal MCP v3.1.0：通过 MCP 协议向 AI 客户端提供 28 个（
 ```bash
 pnpm run build          # tsc 编译到 build/
 pnpm exec tsc --noEmit  # 独立类型检查
-pnpm test               # vitest 全量（当前工作树快照 39 文件 / 543 个 test/it 用例调用）
+pnpm test               # vitest 全量
 pnpm run test:latency   # e2e 延迟基准
 pnpm run lint           # biome check src/ tests/
 pnpm run format         # biome 格式化
@@ -42,7 +42,7 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 - Node.js ≥ 20，ESM；Windows 命令执行统一走 `src/shell.ts` 解析的 shell spec（默认 pwsh 7：显式路径 → bundled `tools/pwsh` → PATH → 5.1 回退；`MCP_SHELL=cmd|powershell` 可切换，详见 design `codestable/features/2026-08-16-powershell-default-shell/`），Unix 仍 `/bin/sh -c`。解析结果进程级缓存，改环境变量/装 pwsh 后需重启。
 - 三个命令工具已接入 `src/command-output.ts` 的共享原始字节捕获、actual 计数、流式 secret matcher、staging spill、page cache v2 与公开 A+ envelope（M2 验收时阶段 C 门禁全绿）；M3 Everything 可选解析、搜索契约和 npm 发布裁剪已验收，解析顺序为 `ENHANCED_TERMINAL_ES_PATH` → state 目录 → unavailable，运行期不下载。
 - 安全双层：`src/security.ts` 硬性底线（含 PowerShell `-EncodedCommand`/`iex`/`Start-Process` 等模式）+ `src/safeguard.ts` 三级模式；`MCP_SAFETY_MODE=strict|normal|off`（默认 normal）。
-- 测试策略：工具行为主要由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖；coverage 配置当前只排除 `src/index.ts`、测试源码和 `tests/`，没有排除 `src/tools/**`。
+- 测试策略：工具行为主要由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖；coverage 配置排除 `src/index.ts`、`src/tools/**`、测试源码和 `tests/`，因为 V8 不能收集子进程覆盖率；工具纯逻辑由 `tests/unit/tools/` 覆盖。coverage 运行还跳过延迟基准文件，避免插桩开销造成假失败。
 - `src/context.ts` 只服务于 usage-guide prompt 的会话上下文注入，不参与命令执行链；`src/pool.ts` 当前仅保留 inactive stub，改动前先确认是否需要顺带处理。
 - pwsh bootstrap 只在 `setup.bat → scripts/ensure-pwsh.ps1` 联网下载（固定版本 + SHA256 + staging 原子安装）；MCP server 运行期绝不联网。`.ps1` 脚本保持纯 ASCII——中文 Windows 的 PS 5.1 会把无 BOM UTF-8 注释按 GBK 误解析。
 
@@ -64,7 +64,7 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 - 所有工具返回统一的 `ToolResult` 协议
 - 函数和变量使用 camelCase，常量使用 UPPER_SNAKE_CASE
 - 字符串优先使用双引号
-- 不使用分号（Biome 配置决定）
+- 使用分号（Biome 配置为 `semicolons: always`）
 - 每个函数上方保留简洁注释说明职责
 - 禁止在业务代码中使用 `console.log`，统一使用 `logger`
 - 空 catch 块必须补 `logger.debug` 或 `logger.warn` 并说明原因
@@ -91,7 +91,7 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 - 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；e2e 在 `tests/`
 - `postinstall` 使用 `scripts/apply-mcp-sdk-patch.mjs`（零依赖），`patch-package` 仅 devDependency
 - 命令策略：`MCP_COMMAND_POLICY=blocklist|allow`，allow 时用 `MCP_COMMAND_ALLOW` 词级白名单且禁止 shell 元字符
-- 状态目录默认是 `<projectRoot>/.etmcp`；`MCP_STATE_DIR` 覆盖时不自动迁移 legacy 状态，`.etmcp/temp` 只在真正需要临时资源时懒创建。
+- 状态目录默认是 `<projectRoot>/.etmcp`；`MCP_STATE_DIR` 覆盖时不自动迁移 legacy 状态。`.etmcp` 根与 `temp/` 都是懒创建：只在首个真实产生物（session 持久化 / audit 写入 / temp 资源 / 迁移产物）落盘时创建，启动与读路径零创建；`getStateDir` 是纯解析，写路径用 `ensureStateDir`。
 - 剩余 hardening / 产品边界规划：`codestable/roadmap/remaining-hardening/`（按 items 开工，禁止开放式“再补几条正则”）
 - 不承诺 shell 整串执行下的形式化安全：见 `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md`
 

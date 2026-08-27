@@ -2,7 +2,7 @@
 
 A powerful terminal/CLI interface for AI models via the [Model Context Protocol (MCP)](https://modelcontextprotocol.org/).
 
-Supports **28 tools** across 7 categories: command execution, file I/O, system management, search, archives, telemetry, and session management.
+Supports **28 tools** across 7 categories: command execution, file I/O, file management, system management, search, archives, and operational telemetry/session management.
 
 ## Features
 
@@ -11,6 +11,7 @@ Supports **28 tools** across 7 categories: command execution, file I/O, system m
 - **Performance Optimized** — LRU result cache (128-entry, sliding TTL, ~32MB cap), adaptive timeouts, spawn-based streaming
 - **Structured Errors** — 20 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
 - **Session Persistence** — cwd, env vars, and command history survive restarts (auto-saved to `.etmcp/session.json`)
+- **Lazy State Directory** — `.etmcp` is created only when the first real artifact is persisted (session state, audit entry, temp/page-cache resource); startup, restore, and resource reads never create it
 - **Audit Logging** — structured JSON Lines audit log at `.etmcp/logs/audit.jsonl` (mode: `off` / `errors` / `all`)
 - **Temp Resource Manager** — TTL + LRU auto-recycled temp directories; the `temp` root is created only when a temp resource is actually needed
 - **Command Output Paging** — large `execute_command` outputs spill to a byte-indexed page cache v2 under `.etmcp/temp` and can be read page-by-page via validated `cache_id` / `page` / `pageSize`; small outputs stay in memory and never touch disk
@@ -138,7 +139,8 @@ For a non-interactive harness, set `MCP_CONFIRMATION_MODE=headless` and `MCP_ALL
 
 ### Resources
 - `health://status` — JSON health check with version, metrics, cache, session, temp, and audit info
-- `audit://log?limit=N` — Recent structured audit entries
+- `audit://log` — Recent structured audit entries (default limit: 50)
+- `audit://log?limit=N` — Recent structured audit entries with a requested limit (clamped to 1–1000)
 
 ### Prompts
 - `usage-guide` — Tool overview (includes live session context)
@@ -157,7 +159,7 @@ MCP Client (stdio) → McpServer
   ├─ Session persistence (JSON file)
   ├─ ProcessPool (inactive stub; stats only — execution uses spawnStream)
   ├─ Adaptive timeouts (P95-based × 3)
-  └─ Structured errors (19 codes)
+  └─ Structured errors (20 codes)
 ```
 
 ## Development
