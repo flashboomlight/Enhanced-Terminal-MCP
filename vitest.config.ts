@@ -20,6 +20,8 @@ export default defineConfig({
         "src/**/*.test.ts",
         "tests/**",
         // Tool handlers are exercised by subprocess E2E; V8 cannot collect child-process coverage.
+        // The tools layer has its own thresholded coverage run: pnpm run test:coverage:tools
+        // (vitest.tools-coverage.config.ts) so the blind spot stays measured and floor-guarded.
       ],
       reporter: ["text", "text-summary", "json-summary"],
       reportsDirectory: "./coverage",

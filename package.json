@@ -27,6 +27,9 @@
     "patch:mcp-sdk": "node scripts/apply-mcp-sdk-patch.mjs",
     "test": "vitest run",
     "test:latency": "vitest run tests/e2e-latency.test.ts",
+    "test:coverage": "vitest run --coverage",
+    "test:coverage:tools": "vitest run --config vitest.tools-coverage.config.ts",
+    "gate": "pnpm run build && pnpm exec tsc --noEmit && pnpm run lint && pnpm test && pnpm run test:latency && pnpm run test:coverage:tools",
     "lint": "biome check src/ tests/",
     "format": "biome format --write src/ tests/",
     "lint:fix": "biome check --write src/ tests/"
