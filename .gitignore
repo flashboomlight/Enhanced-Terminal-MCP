@@ -32,6 +32,7 @@ cov-out.txt
 cov2.txt
 coverage-output.txt
 coverage/
+*.tgz
 
 # Logs
 *.log
@@ -50,6 +51,10 @@ tools/.pwsh-old
 
 # Local Serena project index
 .serena/
+
+# Local tool workspaces
+.smartfs/
+.zcode/
 
 # Runtime state (merged default .etmcp; legacy pre-migration)
 .etmcp/

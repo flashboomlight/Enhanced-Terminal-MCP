@@ -61,6 +61,9 @@ describe("temp-manager", () => {
   });
 
   test("cleanup removes oldest dirs when exceeding max", async () => {
+    // Keep this case focused on LRU; the suite-wide 100ms TTL is intentionally
+    // too short for a test that performs three filesystem writes.
+    process.env.MCP_TEMP_TTL_MS = "60000";
     const tm = new TempManager();
     const d1 = await tm.create("a");
     await new Promise((r) => setTimeout(r, 10));
