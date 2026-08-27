@@ -1,0 +1,41 @@
+refactor: structural-debt-cleanup
+created: 2026-08-28
+status: done
+
+steps:
+  - id: S1
+    action: 裁剪 adaptive.ts DEFAULT_TIMEOUTS 至 execute_command 单条
+    exit_signal: infra + upgrades-r2 单测全绿
+    status: done
+  - id: S2
+    action: core.test.ts 改引 security.isSensitivePath 并删 scan.ts 弃用再导出
+    exit_signal: core 单测全绿 + isCredentialFilePath 零残留
+    status: done
+  - id: S3
+    action: command.ts 提取 resolveCommandLimits/prepareInvocation/finishCommandEnvelope 三 helper
+    exit_signal: tools/command 单测 + build + e2e-latency 全绿
+    status: done
+  - id: S4
+    action: 新建 temp-core.ts 迁入 helpers/常量/错误/接口/AsyncMutex/ReservationImpl，temp-manager 保类体 + re-export
+    exit_signal: temp-manager 单测全绿 + tsc 零错误
+    status: done
+  - id: S5
+    action: 新建 paging/codec+index-format+paths 三模块，paging.ts 保编排 + 显式 re-export
+    exit_signal: paging 单测全绿 + tsc 零错误 + 公开符号复核
+    status: done
+  - id: S6
+    action: 收尾五门禁（build/tsc/lint/test/latency）+ 工具层覆盖门禁
+    exit_signal: 全绿
+    status: done
+
+checks:
+  - check: 行为等价——工具契约/错误码/输出 schema 零变化
+    status: passed
+  - check: paging/temp-manager 公开 API 经 facade re-export 保持，外部 import 路径零变化
+    status: passed
+  - check: codec 与 index-format 依赖单向，无循环 import
+    status: passed
+  - check: R1-R5 全部有 apply-notes 验证记录
+    status: passed
+  - check: validate-yaml 通过本 checklist 与 design
+    status: passed

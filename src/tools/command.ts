@@ -6,7 +6,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { adaptiveTimeout } from "../adaptive.js";
 import { audit } from "../audit.js";
-import { type CommandOutputRun, getCommandOutputLimits, runCommandOutput } from "../command-output.js";
+import {
+  type CommandOutputLimits,
+  type CommandOutputRun,
+  getCommandOutputLimits,
+  runCommandOutput,
+} from "../command-output.js";
 import { checkCommandPolicy, classifyPolicyReason, getCommandPolicyMode } from "../command-policy.js";
 import { type CommandGuardContext, getCommandConfirmationMode } from "../command-risk.js";
 import { logger } from "../logger.js";
@@ -83,6 +88,40 @@ async function commandSafetyGate(
     param,
     detail: { reason: decision.reason },
   });
+}
+
+/** 解析命令输出限额；配置非法时返回统一拒绝结果（param 仅 batch 路径携带） */
+function resolveCommandLimits(
+  param?: string,
+): { limits: CommandOutputLimits; reject: null } | { limits: null; reject: ToolResult } {
+  const { limits, error } = getCommandOutputLimits();
+  if (!limits) {
+    return {
+      limits: null,
+      reject: fail(ErrorCode.VALIDATION_ERROR, error ?? "Invalid command output limits configuration", {
+        retryable: false,
+        ...(param ? { param } : {}),
+      }),
+    };
+  }
+  return { limits, reject: null };
+}
+
+/** 解析 shell spec 并构建调用参数；cwd 未指定时回退会话 cwd */
+async function prepareInvocation(command: string, cwd?: string) {
+  const shellSpec = await getShellSpec();
+  const inv = buildShellInvocation(command, shellSpec);
+  return { inv, effectiveCwd: cwd || session.getCwd() };
+}
+
+/** 命令收尾统一路径：错误判定 + envelope 构建（capturedMs 以 t0 起算）；subject 仅 watch 定制错误文案 */
+function finishCommandEnvelope(result: CommandOutputRun, t0: number, subject?: string) {
+  const capturedMs = Date.now() - t0;
+  const error = commandError(result, subject);
+  const ok = error === undefined;
+  const envelope = buildCommandEnvelope(result, capturedMs, ok);
+  if (error) envelope.error = error;
+  return { capturedMs, error, ok, envelope };
 }
 
 /** batch 限流：batch=整批 1 token（默认）；per_command=按条数消费 */
@@ -348,19 +387,13 @@ export function registerCommandTools(server: McpServer) {
           suggestion: "Wait ~100ms and retry (token bucket refills 10/s)",
         });
       }
-      const { limits, error: limitsError } = getCommandOutputLimits();
-      if (!limits) {
-        return fail(ErrorCode.VALIDATION_ERROR, limitsError ?? "Invalid command output limits configuration", {
-          retryable: false,
-        });
-      }
+      const { limits, reject: limitsReject } = resolveCommandLimits();
+      if (limitsReject) return limitsReject;
       const block = await commandSafetyGate("execute_command", commandText, `执行命令: ${commandText}`, "command");
       if (block) return block;
 
       try {
-        const shellSpec = await getShellSpec();
-        const inv = buildShellInvocation(commandText, shellSpec);
-        const effectiveCwd = cwd || session.getCwd();
+        const { inv, effectiveCwd } = await prepareInvocation(commandText, cwd);
         const effectiveTimeout = timeout ?? adaptiveTimeout("execute_command");
         const result = await runCommandOutput(inv.file, inv.args, {
           timeout: effectiveTimeout,
@@ -370,11 +403,7 @@ export function registerCommandTools(server: McpServer) {
           pageSize,
         });
         session.pushHistory(commandText);
-        const capturedMs = Date.now() - t0;
-        const error = commandError(result);
-        const ok = error === undefined;
-        const envelope = buildCommandEnvelope(result, capturedMs, ok);
-        if (error) envelope.error = error;
+        const { capturedMs, error, ok, envelope } = finishCommandEnvelope(result, t0);
 
         audit.record({
           action: "command.execute",
@@ -497,13 +526,8 @@ export function registerCommandTools(server: McpServer) {
         }
       }
 
-      const { limits, error: limitsError } = getCommandOutputLimits();
-      if (!limits) {
-        return fail(ErrorCode.VALIDATION_ERROR, limitsError ?? "Invalid command output limits configuration", {
-          retryable: false,
-          param: "commands",
-        });
-      }
+      const { limits, reject: limitsReject } = resolveCommandLimits("commands");
+      if (limitsReject) return limitsReject;
 
       try {
         const shellSpec = await getShellSpec();
@@ -646,12 +670,8 @@ export function registerCommandTools(server: McpServer) {
       const blocked = precheckCommand(command, "command");
       if (blocked) return blocked;
 
-      const { limits, error: limitsError } = getCommandOutputLimits();
-      if (!limits) {
-        return fail(ErrorCode.VALIDATION_ERROR, limitsError ?? "Invalid command output limits configuration", {
-          retryable: false,
-        });
-      }
+      const { limits, reject: limitsReject } = resolveCommandLimits();
+      if (limitsReject) return limitsReject;
 
       const block = await commandSafetyGate("watch_command", command, `监控命令: ${command}`, "command", {
         durationMs: duration ?? 5000,
@@ -659,9 +679,7 @@ export function registerCommandTools(server: McpServer) {
       if (block) return block;
 
       try {
-        const shellSpec = await getShellSpec();
-        const inv = buildShellInvocation(command, shellSpec);
-        const effectiveCwd = cwd || session.getCwd();
+        const { inv, effectiveCwd } = await prepareInvocation(command, cwd);
         const effectiveDuration = duration ?? 5000;
         const result = await runCommandOutput(inv.file, inv.args, {
           timeout: effectiveDuration,
@@ -670,11 +688,7 @@ export function registerCommandTools(server: McpServer) {
           env: getSessionEnv(),
           limits,
         });
-        const capturedMs = Date.now() - t0;
-        const error = commandError(result, "Watch command");
-        const ok = error === undefined;
-        const envelope = buildCommandEnvelope(result, capturedMs, ok);
-        if (error) envelope.error = error;
+        const { capturedMs, error, ok, envelope } = finishCommandEnvelope(result, t0, "Watch command");
         audit.record({
           action: "command.execute",
           tool: "watch_command",

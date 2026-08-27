@@ -282,7 +282,8 @@ describe("SessionStore", () => {
 // ============================================================
 // scan.ts
 // ============================================================
-import { isCredentialFilePath, scanContent } from "../../src/scan.js";
+import { scanContent } from "../../src/scan.js";
+import { isSensitivePath } from "../../src/security.js";
 
 describe("scanContent", () => {
   test("detects OpenAI key", () => {
@@ -321,14 +322,14 @@ describe("scanContent", () => {
   });
 });
 
-describe("isCredentialFilePath", () => {
-  test("detects .env", () => expect(isCredentialFilePath(".env")).toBe(true));
-  test("detects .env.local", () => expect(isCredentialFilePath(".env.local")).toBe(true));
-  test("detects .pem", () => expect(isCredentialFilePath("cert.pem")).toBe(true));
-  test("detects .ssh/", () => expect(isCredentialFilePath("/home/user/.ssh/id_rsa")).toBe(true));
+describe("isSensitivePath", () => {
+  test("detects .env", () => expect(isSensitivePath(".env")).toBe(true));
+  test("detects .env.local", () => expect(isSensitivePath(".env.local")).toBe(true));
+  test("detects .pem", () => expect(isSensitivePath("cert.pem")).toBe(true));
+  test("detects .ssh/", () => expect(isSensitivePath("/home/user/.ssh/id_rsa")).toBe(true));
   test("returns false for normal paths", () => {
-    expect(isCredentialFilePath("src/index.ts")).toBe(false);
-    expect(isCredentialFilePath("README.md")).toBe(false);
+    expect(isSensitivePath("src/index.ts")).toBe(false);
+    expect(isSensitivePath("README.md")).toBe(false);
   });
 });
 

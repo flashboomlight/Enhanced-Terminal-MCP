@@ -2,6 +2,13 @@
  * 命令输出分页缓存 v2
  *
  * 使用原始字节、版本化字符索引和 staging 原子发布；读取只加载目标页范围。
+ *
+ * 结构（2026-08-28 structural-debt-cleanup R2 拆分）：
+ * - paging/codec.ts        字节编解码（UTF-8/GBK 单元、编码探测）
+ * - paging/errors.ts       PageCacheCorruptError / PageCacheReadError
+ * - paging/index-format.ts stdout.idx 二进制索引与 checkpoint 定位
+ * - paging/paths.ts        路径安全断言
+ * - paging.ts（本文件）    公开类型、writer/reader 编排与 facade re-export
  */
 
 import { randomBytes } from "node:crypto";
@@ -9,23 +16,37 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { CaptureStreamName } from "./capture.js";
 import { logger } from "./logger.js";
+import {
+  type ByteUnit,
+  decodeCompleteUnits,
+  detectEncoding,
+  expectedUnitBytes,
+  gbkDecoder,
+  type PageEncoding,
+  readUnit,
+  utf8Decoder,
+} from "./paging/codec.js";
+import { PageCacheCorruptError, PageCacheReadError } from "./paging/errors.js";
+import {
+  buildIndex,
+  encodeIndex,
+  findCheckpoint,
+  findEndByte,
+  INDEX_STRIDE_CHARS,
+  type IndexRecord,
+  readIndex,
+} from "./paging/index-format.js";
+import { assertFourFiles, assertRegularPath, isInside, isSafeNumber } from "./paging/paths.js";
 import { getStateDir } from "./state-dir.js";
 import { type TempStaging, tempManager } from "./temp-manager.js";
 
+export type { PageEncoding } from "./paging/codec.js";
+export { PageCacheCorruptError, PageCacheReadError } from "./paging/errors.js";
+
 const DEFAULT_PAGE_SIZE = 2000;
 const MAX_PAGE_SIZE = 10000;
-const INDEX_MAGIC = Buffer.from("ETMCPIDX", "ascii");
-const INDEX_VERSION = 1;
-const INDEX_HEADER_BYTES = 16;
-const INDEX_RECORD_BYTES = 16;
-const INDEX_STRIDE_CHARS = 1024;
 const IO_CHUNK_BYTES = 64 * 1024;
 const CACHE_ID_PATTERN = /^page-cache-[0-9]{13}-[0-9a-f]{32}$/;
-const ALLOWED_CACHE_FILES = new Set(["stdout.bin", "stderr.bin", "stdout.idx", "meta.json"]);
-const utf8Decoder = new TextDecoder("utf-8");
-const gbkDecoder = new TextDecoder("gbk");
-
-export type PageEncoding = "utf8" | "gbk";
 
 export interface PageCacheError {
   code: string;
@@ -34,17 +55,6 @@ export interface PageCacheError {
   suggestion?: string;
   param?: string;
   detail?: unknown;
-}
-
-interface ByteUnit {
-  text: string;
-  next: number;
-  valid: boolean;
-}
-
-interface IndexRecord {
-  charOffset: bigint;
-  byteOffset: bigint;
 }
 
 interface PageMeta {
@@ -144,316 +154,14 @@ export interface PageResult {
   error?: PageCacheError;
 }
 
-export class PageCacheCorruptError extends Error {
-  readonly code = "cache_corrupt";
-
-  constructor(message: string) {
-    super(message);
-    this.name = "PageCacheCorruptError";
-  }
-}
-
-export class PageCacheReadError extends Error {
-  readonly code: "cache_not_found" | "cache_page_out_of_range" | "cache_invalid_id";
-  readonly retryable: boolean;
-  readonly detail?: unknown;
-
-  constructor(
-    code: "cache_not_found" | "cache_page_out_of_range" | "cache_invalid_id",
-    message: string,
-    options: { retryable?: boolean; detail?: unknown } = {},
-  ) {
-    super(message);
-    this.name = "PageCacheReadError";
-    this.code = code;
-    this.retryable = options.retryable ?? false;
-    this.detail = options.detail;
-  }
-}
-
 interface LoadedEntry extends PageCacheEntry {
   records: IndexRecord[];
-}
-
-/** 子路径是否仍位于固定父目录内 */
-function isInside(parent: string, child: string): boolean {
-  const rel = path.relative(parent, child);
-  return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
-}
-
-/** 不可信输入是否为安全的有限整数 */
-function isSafeNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 /** 将 pageSize 限制在公开契约范围内 */
 function clampPageSize(pageSize: number | undefined): number {
   if (pageSize === undefined) return DEFAULT_PAGE_SIZE;
   return Math.max(1, Math.min(MAX_PAGE_SIZE, Math.trunc(pageSize)));
-}
-
-/** 解析一个 UTF-8 单元，同时标记是否为合法序列 */
-function readUtf8Unit(data: Buffer, offset: number): ByteUnit {
-  const first = data[offset];
-  if (first <= 0x7f) return { text: String.fromCharCode(first), next: offset + 1, valid: true };
-  const second = data[offset + 1];
-  const third = data[offset + 2];
-  const fourth = data[offset + 3];
-  if (first >= 0xc2 && first <= 0xdf && second >= 0x80 && second <= 0xbf) {
-    const codePoint = ((first & 0x1f) << 6) | (second & 0x3f);
-    return { text: String.fromCodePoint(codePoint), next: offset + 2, valid: true };
-  }
-  if (first >= 0xe0 && first <= 0xef && second >= 0x80 && second <= 0xbf && third >= 0x80 && third <= 0xbf) {
-    const canonical = first !== 0xe0 || second >= 0xa0;
-    const nonSurrogate = first !== 0xed || second <= 0x9f;
-    if (canonical && nonSurrogate) {
-      const codePoint = ((first & 0x0f) << 12) | ((second & 0x3f) << 6) | (third & 0x3f);
-      return { text: String.fromCodePoint(codePoint), next: offset + 3, valid: true };
-    }
-  }
-  if (
-    first >= 0xf0 &&
-    first <= 0xf4 &&
-    second >= 0x80 &&
-    second <= 0xbf &&
-    third >= 0x80 &&
-    third <= 0xbf &&
-    fourth >= 0x80 &&
-    fourth <= 0xbf
-  ) {
-    const canonical = first !== 0xf0 || second >= 0x90;
-    const inRange = first !== 0xf4 || second <= 0x8f;
-    if (canonical && inRange) {
-      const codePoint = ((first & 0x07) << 18) | ((second & 0x3f) << 12) | ((third & 0x3f) << 6) | (fourth & 0x3f);
-      return { text: String.fromCodePoint(codePoint), next: offset + 4, valid: true };
-    }
-  }
-  return { text: "�", next: offset + 1, valid: false };
-}
-
-/** 解析一个 GBK 单元，非法字节按 replacement character 计数 */
-function readGbkUnit(data: Buffer, offset: number): ByteUnit {
-  const first = data[offset];
-  if (first <= 0x7f) return { text: String.fromCharCode(first), next: offset + 1, valid: true };
-  const second = data[offset + 1];
-  if (first >= 0x81 && first <= 0xfe && second >= 0x40 && second <= 0xfe && second !== 0x7f) {
-    const text = gbkDecoder.decode(data.subarray(offset, offset + 2)) || "�";
-    return { text, next: offset + 2, valid: text !== "�" };
-  }
-  const text = gbkDecoder.decode(data.subarray(offset, offset + 1)) || "�";
-  return { text, next: offset + 1, valid: text !== "�" };
-}
-
-/** 按最终编码解析一个字节单元 */
-function readUnit(data: Buffer, offset: number, encoding: PageEncoding): ByteUnit {
-  return encoding === "utf8" ? readUtf8Unit(data, offset) : readGbkUnit(data, offset);
-}
-
-/** 判断完整字节串是否为严格合法 UTF-8 */
-function isValidUtf8(data: Buffer): boolean {
-  let offset = 0;
-  while (offset < data.length) {
-    const unit = readUtf8Unit(data, offset);
-    if (!unit.valid) return false;
-    offset = unit.next;
-  }
-  return true;
-}
-
-/** 按平台规则判定编码并返回正文起始字节 */
-function detectEncoding(data: Buffer): { encoding: PageEncoding; dataStart: number } {
-  const hasBom = data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf;
-  if (hasBom) return { encoding: "utf8", dataStart: 3 };
-  if (process.platform === "win32" && !isValidUtf8(data)) return { encoding: "gbk", dataStart: 0 };
-  return { encoding: "utf8", dataStart: 0 };
-}
-
-/** 扫描正文并生成 code point 到 byte 的检查点 */
-function buildIndex(
-  data: Buffer,
-  encoding: PageEncoding,
-  dataStart: number,
-): { records: IndexRecord[]; totalChars: number } {
-  const records: IndexRecord[] = [{ charOffset: 0n, byteOffset: BigInt(dataStart) }];
-  let offset = dataStart;
-  let totalChars = 0;
-  while (offset < data.length) {
-    const unit = readUnit(data, offset, encoding);
-    const count = Array.from(unit.text).length;
-    for (let i = 0; i < count; i++) {
-      totalChars++;
-      if (totalChars % INDEX_STRIDE_CHARS === 0) {
-        records.push({ charOffset: BigInt(totalChars), byteOffset: BigInt(unit.next) });
-      }
-    }
-    offset = unit.next;
-  }
-  if (totalChars > 0 && records[records.length - 1].charOffset !== BigInt(totalChars)) {
-    records.push({ charOffset: BigInt(totalChars), byteOffset: BigInt(data.length) });
-  }
-  return { records, totalChars };
-}
-
-/** 将检查点编码为固定 16 字节记录的二进制索引 */
-function encodeIndex(encoding: PageEncoding, records: IndexRecord[]): Buffer {
-  const output = Buffer.alloc(INDEX_HEADER_BYTES + records.length * INDEX_RECORD_BYTES);
-  INDEX_MAGIC.copy(output, 0);
-  output.writeUInt16LE(INDEX_VERSION, 8);
-  output.writeUInt8(encoding === "utf8" ? 1 : 2, 10);
-  output.writeUInt8(0, 11);
-  output.writeUInt32LE(INDEX_STRIDE_CHARS, 12);
-  records.forEach((record, index) => {
-    const offset = INDEX_HEADER_BYTES + index * INDEX_RECORD_BYTES;
-    output.writeBigUInt64LE(record.charOffset, offset);
-    output.writeBigUInt64LE(record.byteOffset, offset + 8);
-  });
-  return output;
-}
-
-/** 解码完整字节单元，保留 chunk 末尾尚未完整到达的多字节序列 */
-function decodeCompleteUnits(data: Buffer, encoding: PageEncoding): { text: string; consumed: number } {
-  let offset = 0;
-  const parts: string[] = [];
-  while (offset < data.length) {
-    const first = data[offset];
-    if (encoding === "utf8") {
-      const expected =
-        first <= 0x7f
-          ? 1
-          : first >= 0xc2 && first <= 0xdf
-            ? 2
-            : first >= 0xe0 && first <= 0xef
-              ? 3
-              : first >= 0xf0 && first <= 0xf4
-                ? 4
-                : 1;
-      if (data.length - offset < expected) break;
-    } else if (first >= 0x81 && first <= 0xfe && data.length - offset < 2) {
-      break;
-    }
-    const unit = readUnit(data, offset, encoding);
-    parts.push(unit.text);
-    offset = unit.next;
-  }
-  return { text: parts.join(""), consumed: offset };
-}
-
-/** 读取并校验版本化 stdout 索引 */
-async function readIndex(
-  file: string,
-  expectedEncoding: PageEncoding,
-  expectedBytes: number,
-  expectedDataStart: number,
-  expectedChars: number,
-): Promise<IndexRecord[]> {
-  let raw: Buffer;
-  try {
-    raw = await fs.readFile(file);
-  } catch (error) {
-    throw new PageCacheCorruptError(`Cannot read stdout.idx: ${String(error)}`);
-  }
-  if (raw.length < INDEX_HEADER_BYTES || !raw.subarray(0, 8).equals(INDEX_MAGIC)) {
-    throw new PageCacheCorruptError("Invalid stdout.idx header");
-  }
-  if (raw.readUInt16LE(8) !== INDEX_VERSION || raw.readUInt8(11) !== 0 || raw.readUInt32LE(12) !== INDEX_STRIDE_CHARS) {
-    throw new PageCacheCorruptError("Unsupported stdout.idx version or flags");
-  }
-  const indexEncoding = raw.readUInt8(10) === 1 ? "utf8" : raw.readUInt8(10) === 2 ? "gbk" : null;
-  if (indexEncoding !== expectedEncoding || (raw.length - INDEX_HEADER_BYTES) % INDEX_RECORD_BYTES !== 0) {
-    throw new PageCacheCorruptError("stdout.idx encoding or record size mismatch");
-  }
-  const records: IndexRecord[] = [];
-  for (let offset = INDEX_HEADER_BYTES; offset < raw.length; offset += INDEX_RECORD_BYTES) {
-    const charOffset = raw.readBigUInt64LE(offset);
-    const byteOffset = raw.readBigUInt64LE(offset + 8);
-    if (charOffset > BigInt(Number.MAX_SAFE_INTEGER) || byteOffset > BigInt(Number.MAX_SAFE_INTEGER)) {
-      throw new PageCacheCorruptError("stdout.idx offset exceeds safe integer range");
-    }
-    records.push({ charOffset, byteOffset });
-  }
-  if (records.length === 0 || records[0].charOffset !== 0n || records[0].byteOffset < 0n) {
-    throw new PageCacheCorruptError("stdout.idx is missing its first checkpoint");
-  }
-  let previousChar = -1n;
-  let previousByte = -1n;
-  for (const record of records) {
-    if (
-      record.charOffset < previousChar ||
-      record.byteOffset < previousByte ||
-      record.byteOffset > BigInt(expectedBytes)
-    ) {
-      throw new PageCacheCorruptError("stdout.idx offsets are not monotonic");
-    }
-    previousChar = record.charOffset;
-    previousByte = record.byteOffset;
-  }
-  const first = records[0];
-  const last = records[records.length - 1];
-  if (
-    first.byteOffset !== BigInt(expectedDataStart) ||
-    last.charOffset !== BigInt(expectedChars) ||
-    last.byteOffset !== BigInt(expectedBytes)
-  ) {
-    throw new PageCacheCorruptError("stdout.idx sentinel does not match meta.json");
-  }
-  if (expectedChars === 0 && records.length !== 1) {
-    throw new PageCacheCorruptError("Empty stdout must have one index record");
-  }
-  return records;
-}
-
-/** 验证路径指向 root 内的普通目录或文件，拒绝 symlink/reparse 入口 */
-async function assertRegularPath(file: string, kind: "file" | "directory"): Promise<import("node:fs").Stats> {
-  let stat: import("node:fs").Stats;
-  try {
-    stat = await fs.lstat(file);
-  } catch (error) {
-    throw new PageCacheCorruptError(`Missing cache ${kind}: ${String(error)}`);
-  }
-  if (stat.isSymbolicLink() || (kind === "file" ? !stat.isFile() : !stat.isDirectory())) {
-    throw new PageCacheCorruptError(`Cache ${kind} is not a regular path: ${file}`);
-  }
-  return stat;
-}
-
-/** 读取固定四文件目录的真实文件名集合 */
-async function assertFourFiles(dir: string): Promise<void> {
-  let entries: Array<import("node:fs").Dirent<string>>;
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    throw new PageCacheCorruptError(`Cannot enumerate cache directory: ${String(error)}`);
-  }
-  if (
-    entries.length !== ALLOWED_CACHE_FILES.size ||
-    entries.some((entry) => !entry.isFile() || !ALLOWED_CACHE_FILES.has(entry.name))
-  ) {
-    throw new PageCacheCorruptError("Cache directory must contain exactly four published files");
-  }
-}
-
-/** 从检查点中二分查找不超过目标字符位置的最近记录 */
-function findCheckpoint(records: IndexRecord[], target: number): IndexRecord {
-  let low = 0;
-  let high = records.length - 1;
-  let best = records[0];
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const record = records[middle];
-    if (record.charOffset <= BigInt(target)) {
-      best = record;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return best;
-}
-
-/** 从检查点中定位目标页结束位置 */
-function findEndByte(records: IndexRecord[], target: number, fallback: number): number {
-  const next = records.find((record) => record.charOffset >= BigInt(target));
-  return Number(next?.byteOffset ?? BigInt(fallback));
 }
 
 /** 将一个已计算的原始文件写入 staging 并同步 reservation 记账 */
@@ -636,17 +344,6 @@ async function appendStagedFile(
   await reservation.reserve(data.length);
   await fs.appendFile(path.join(dir, name), data);
   reservation.markWritten(data.length);
-}
-
-/** 返回指定编码下一个字节单元的理论长度，用于跨 chunk 保留尾部。 */
-function expectedUnitBytes(data: Buffer, offset: number, encoding: PageEncoding): number {
-  const first = data[offset];
-  if (encoding === "gbk") return first >= 0x81 && first <= 0xfe ? 2 : 1;
-  if (first <= 0x7f) return 1;
-  if (first >= 0xc2 && first <= 0xdf) return 2;
-  if (first >= 0xe0 && first <= 0xef) return 3;
-  if (first >= 0xf0 && first <= 0xf4) return 4;
-  return 1;
 }
 
 /** 按固定 chunk 读取文件并逐单元回调，不把完整 stdout 载入内存。 */

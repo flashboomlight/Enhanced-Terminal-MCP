@@ -3,17 +3,9 @@
  */
 import { telemetry } from "./telemetry.js";
 
+// 仅收录实际走 adaptiveTimeout 的调用点；其它工具的超时由各自 handler 显式给定
 const DEFAULT_TIMEOUTS: Record<string, number> = {
   execute_command: 30000,
-  batch_execute: 60000,
-  watch_command: 5000,
-  get_system_info: 30000,
-  process_list: 12000,
-  search_files: 5000,
-  grep_content: 5000,
-  compress_archive: 60000,
-  extract_archive: 60000,
-  download_file: 120000,
 };
 
 /**

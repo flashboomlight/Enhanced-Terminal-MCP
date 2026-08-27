@@ -64,9 +64,3 @@ export function scanContent(content: string): ScanResult {
   }
   return { safe: findings.length === 0, findings };
 }
-
-/**
- * 扫描文件路径是否敏感（委托给 security.ts 的统一实现）
- * @deprecated 使用 isSensitivePath from security.ts
- */
-export { isSensitivePath as isCredentialFilePath } from "./security.js";
