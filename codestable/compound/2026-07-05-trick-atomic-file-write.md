@@ -1,8 +1,11 @@
 ---
-name: atomic-file-write
+doc_type: trick
+type: pattern
+date: "2026-07-05"
+slug: atomic-file-write
+status: active
+tags: [filesystem, atomic-write, session]
 description: 写关键状态文件时先写 .tmp 再 rename，避免过程中断导致文件损坏
-metadata:
-  type: trick
 ---
 
 # Trick: 原子文件写入

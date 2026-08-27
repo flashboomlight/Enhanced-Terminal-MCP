@@ -5,7 +5,7 @@ pitch: Windows 上有 Everything 时加速搜索，没有时也能正常搜索�
 status: current
 last_reviewed: "2026-08-22"
 implemented_by:
-  - enhanced-terminal
+  - 2026-08-21-publish-es-optional
 tags: [windows, search, everything, supply-chain, fallback]
 ---
 

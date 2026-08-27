@@ -15,19 +15,19 @@ tags: [cache, ratelimit, security, correctness]
 
 **现象 2.1 — 缓存键序敏感且可能缓存敏感内容**
 
-`wrapHandler`([src/wrap.ts:21](src/wrap.ts#L21))与 `LRUCache.key`([src/cache.ts:18](src/cache.ts#L18))用 `${toolName}:${JSON.stringify(args)}` 作缓存键。问题:
+`wrapHandler`([src/wrap.ts:21](../../../src/wrap.ts#L21))与 `LRUCache.key`([src/cache.ts:18](../../../src/cache.ts#L18))用 `${toolName}:${JSON.stringify(args)}` 作缓存键。问题:
 - 对象键顺序不同会 miss:`{a:1,b:2}` vs `{b:2,a:1}` 序列化结果不同,MCP 客户端不保证参数键序
-- `read_file` 在 `CACHEABLE_TOOLS`([src/cache.ts:112](src/cache.ts#L112))中,缓存了文件内容。若 LLM 读取含密钥的文件(如 `.env` 被路径校验放行的非黑名单文件),内容以 `CallToolResult` 形式停留在 LRU 缓存 30s,`cache_stats` 不暴露但实体在内存
+- `read_file` 在 `CACHEABLE_TOOLS`([src/cache.ts:112](../../../src/cache.ts#L112))中,缓存了文件内容。若 LLM 读取含密钥的文件(如 `.env` 被路径校验放行的非黑名单文件),内容以 `CallToolResult` 形式停留在 LRU 缓存 30s,`cache_stats` 不暴露但实体在内存
 
 **现象 2.2 — batch_execute 绕过限流**
 
-`execute_command` 单条路径在 [command.ts:126](src/tools/command.ts#L126) 调 `checkRateLimit(commandRateLimit, "execute_command")`,但 `batch_execute`([command.ts:305-390](src/tools/command.ts#L305))全程**未调 `checkRateLimit`**。并行模式下一次性 spawn 4 个命令,可绕过 10 req/s 的令牌桶限流。LLM 用 batch 可瞬时刷爆系统。
+`execute_command` 单条路径在 [command.ts:126](../../../src/tools/command.ts#L126) 调 `checkRateLimit(commandRateLimit, "execute_command")`,但 `batch_execute`([command.ts:305-390](../../../src/tools/command.ts#L305))全程**未调 `checkRateLimit`**。并行模式下一次性 spawn 4 个命令,可绕过 10 req/s 的令牌桶限流。LLM 用 batch 可瞬时刷爆系统。
 
-且 [command.ts:128](src/tools/command.ts#L128) 限流错误提示"Wait 200ms and retry"与实际 token bucket(burst=20, refill 10/s)语义不符。
+且 [command.ts:128](../../../src/tools/command.ts#L128) 限流错误提示"Wait 200ms and retry"与实际 token bucket(burst=20, refill 10/s)语义不符。
 
 **现象 2.3 — wrapHandler 缓存无防御断言**
 
-`wrapHandler`([src/wrap.ts:49](src/wrap.ts#L49))`if (cacheKey && result.ok)` 写缓存,正确性完全依赖 `CACHEABLE_TOOLS` 名单手工维护正确。`write_file`/`make_directory` 的 `idempotentHint` 标注为 true,一旦有人误把它们加进 `CACHEABLE_TOOLS`,`write_file` append 模式会返回旧缓存结果。缺少防御性断言或注释约束。
+`wrapHandler`([src/wrap.ts:49](../../../src/wrap.ts#L49))`if (cacheKey && result.ok)` 写缓存,正确性完全依赖 `CACHEABLE_TOOLS` 名单手工维护正确。`write_file`/`make_directory` 的 `idempotentHint` 标注为 true,一旦有人误把它们加进 `CACHEABLE_TOOLS`,`write_file` append 模式会返回旧缓存结果。缺少防御性断言或注释约束。
 
 ## 2. 复现步骤
 

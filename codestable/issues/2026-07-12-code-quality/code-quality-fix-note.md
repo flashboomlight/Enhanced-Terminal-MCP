@@ -2,6 +2,7 @@
 doc_type: issue-fix
 issue: 2026-07-12-code-quality
 path: standard
+status: resolved
 fix_date: 2026-07-12
 related: [code-quality-analysis.md]
 tags: [test-coverage, dead-code, maintainability]

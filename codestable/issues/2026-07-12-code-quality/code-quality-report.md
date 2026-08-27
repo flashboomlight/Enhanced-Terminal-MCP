@@ -19,21 +19,21 @@ codegraph 的 blast-radius 报告标注多个核心模块 `⚠️ no covering te
 - `temp-manager.ts` 的 `scan` 方法(私有,但被 init 调用)
 - `validate_yaml_file`(codestable/tools/validate-yaml.py,非 src 但属项目)
 
-实际审查发现 `src/temp-manager.ts` 的 LRU 淘汰边界([:133-141](src/temp-manager.ts#L133))、`.meta.json` 损坏恢复、`dirSize` 递归统计大目录的性能均无针对性测试。`pool.ts` 的 acquire/release 也无测试(因无人调用,见 4.2)。
+实际审查发现 `src/temp-manager.ts` 的 LRU 淘汰边界([:133-141](../../../src/temp-manager.ts#L133))、`.meta.json` 损坏恢复、`dirSize` 递归统计大目录的性能均无针对性测试。`pool.ts` 的 acquire/release 也无测试(因无人调用,见 4.2)。
 
 **现象 4.2 — processPool 预热复用为 dead code**
 
-`ProcessPool`([src/pool.ts](src/pool.ts))实现 shell 预热池(`acquire`/`release` 复用预热 shell)。但 grep 确认:**`acquire()`/`release()` 在 pool.ts 之外无任何调用点**。command.ts 用 `spawnStream`([command.ts:21](src/tools/command.ts#L21) `getShell()` + spawnStream)每次新 spawn,不取池里的预热 shell。
+`ProcessPool`([src/pool.ts](../../../src/pool.ts))实现 shell 预热池(`acquire`/`release` 复用预热 shell)。但 grep 确认:**`acquire()`/`release()` 在 pool.ts 之外无任何调用点**。command.ts 用 `spawnStream`([command.ts:21](../../../src/tools/command.ts#L21) `getShell()` + spawnStream)每次新 spawn,不取池里的预热 shell。
 
 processPool 的部分功能仍被用:
-- `processPool.stats` 被 `pool_stats` 工具读([utility.ts:346](src/tools/utility.ts#L346))
+- `processPool.stats` 被 `pool_stats` 工具读([utility.ts:346](../../../src/tools/utility.ts#L346))
 - `startSweep()`/`destroy()` 在 index.ts 生命周期调用
 
 所以不是整个 processPool 是 dead code,而是其**核心价值(预热 shell 复用)未激活**——池里永远没有预热 shell,stats 永远报空池。
 
 **现象 4.3 — env 解析重复无缓存**
 
-`getTempTtlMs`/`getMaxTempDirs`/`getCleanupIntervalMs`([temp-manager.ts:10-19](src/temp-manager.ts#L10))、`getMaxAuditEntries`/`getAuditMode`([audit.ts:22-31](src/audit.ts#L22))、`getCommandMaxOutputBytes`([command.ts:25-31](src/tools/command.ts#L25))每次调用都 `parseInt(process.env.X || "default")`。频繁路径上多一次 env 查找 + parseInt + 代码重复。
+`getTempTtlMs`/`getMaxTempDirs`/`getCleanupIntervalMs`([temp-manager.ts:10-19](../../../src/temp-manager.ts#L10))、`getMaxAuditEntries`/`getAuditMode`([audit.ts:22-31](../../../src/audit.ts#L22))、`getCommandMaxOutputBytes`([command.ts:25-31](../../../src/tools/command.ts#L25))每次调用都 `parseInt(process.env.X || "default")`。频繁路径上多一次 env 查找 + parseInt + 代码重复。
 
 ## 2. 复现步骤
 

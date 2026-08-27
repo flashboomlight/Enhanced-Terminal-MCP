@@ -1,11 +1,15 @@
 ---
-name: state-persistence-and-upgrades
+doc_type: roadmap
+slug: state-persistence-and-upgrades
 created: 2026-07-05
 updated: 2026-07-12
 status: completed
+tags: [legacy, state, audit, temp]
 ---
 
 # Enhanced Terminal MCP 综合升级 Roadmap
+
+> 历史 roadmap（2026-07-05）。本文保留当时的规划与验收记录；当前状态目录口径已收口为 `<projectRoot>/.etmcp`，详见 `codestable/architecture/ARCHITECTURE.md`。
 
 ## 背景
 

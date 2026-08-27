@@ -1,15 +1,18 @@
 ---
 doc_type: explore
 type: module-overview
-status: active
-summary: "Enhanced Terminal MCP v3.1.0 的当前项目结构、运行主线、测试状态和未收口边界"
+status: outdated
+summary: "2026-08-22 的 Enhanced Terminal MCP 项目结构与未收口项探索快照"
 tags: [typescript, mcp, terminal, security, project-overview]
 created: "2026-08-22"
 last_reviewed: "2026-08-22"
+updated: "2026-08-28"
 confidence: high
 ---
 
 # Enhanced Terminal MCP 项目总览
+
+> 这是 2026-08-22 的历史探索快照，不作为当前状态依据。当前模块边界、版本、工具数量和验证口径以 `README.md`、`AGENTS.md` 与 `codestable/architecture/ARCHITECTURE.md` 为准。
 
 ## 速答
 

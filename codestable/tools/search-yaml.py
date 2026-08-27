@@ -240,7 +240,10 @@ def print_json(results: list[dict], full: bool) -> None:
         if not full and len(body) > 400:
             body = body[:400] + "…"
         output.append({"file": doc["file"], "meta": doc["meta"], "body": body})
-    print(json.dumps(output, ensure_ascii=False, indent=2))
+    # PyYAML parses ISO date scalars as datetime.date, which the JSON encoder
+    # does not support natively. Keep JSON mode usable without changing text
+    # and filter behavior by serializing such scalar values as ISO strings.
+    print(json.dumps(output, ensure_ascii=False, indent=2, default=str))
 
 
 # ---------------------------------------------------------------------------

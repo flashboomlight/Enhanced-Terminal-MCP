@@ -5,6 +5,7 @@ date: 2026-08-19
 slug: mcp-sdk-outputschema-single-object
 component: src/result.ts(工具响应协议层)
 severity: high
+status: active
 tags: [mcp-sdk, outputschema, zod, structuredcontent, sdk-upgrade]
 ---
 

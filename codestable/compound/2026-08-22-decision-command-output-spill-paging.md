@@ -6,7 +6,7 @@ slug: command-output-spill-paging
 status: active
 area: command-output
 tags: [command-output, paging, cache, temp-manager]
-supersedes: decision-paging-cache-on-demand.md
+supersedes: 2026-07-05-decision-paging-cache-on-demand.md
 ---
 
 # Decision: 命令输出按内存阈值溢写并分页
@@ -41,4 +41,4 @@ M2 的命令输出运行时已经替换了旧的“超过 pageSize 就落盘”�
 
 - `codestable/requirements/command-output-runtime.md`
 - `codestable/features/2026-08-20-command-output-spill-paging/command-output-spill-paging-acceptance.md`
-- `codestable/compound/decision-temp-manager-reuse.md`
+- `codestable/compound/2026-07-05-decision-temp-manager-reuse.md`

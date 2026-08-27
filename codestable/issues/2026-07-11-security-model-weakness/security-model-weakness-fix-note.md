@@ -2,6 +2,7 @@
 doc_type: issue-fix
 issue: 2026-07-11-security-model-weakness
 path: standard
+status: resolved
 fix_date: 2026-07-11
 related: [security-model-weakness-analysis.md]
 tags: [security, safeguard, command-execution, injection, redos]

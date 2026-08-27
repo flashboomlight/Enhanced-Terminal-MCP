@@ -2,6 +2,7 @@
 doc_type: issue-fix
 issue: 2026-07-12-execution-reliability
 path: standard
+status: resolved
 fix_date: 2026-07-12
 related: [execution-reliability-analysis.md]
 tags: [reliability, session, concurrency, output-truncation, shutdown]

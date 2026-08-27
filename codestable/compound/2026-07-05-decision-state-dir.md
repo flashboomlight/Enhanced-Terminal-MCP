@@ -1,10 +1,12 @@
 ---
-name: state-dir-centralization
-description: 把会话状态、审计日志、临时资源集中到一个可配置的状态目录，避免散落在系统临时目录
-metadata:
-  type: decision
+doc_type: decision
+category: architecture
+date: "2026-07-05"
+slug: state-dir-centralization
 status: active
-updated: 2026-08-21
+updated: "2026-08-28"
+tags: [state-dir, session, audit, temp]
+description: 把会话状态、审计日志、临时资源集中到一个可配置的状态目录，避免散落在系统临时目录
 ---
 
 # Decision: 统一状态目录

@@ -2,6 +2,7 @@
 doc_type: issue-fix
 issue: 2026-07-12-cache-and-ratelimit
 path: standard
+status: resolved
 fix_date: 2026-07-12
 related: [cache-and-ratelimit-analysis.md]
 tags: [cache, ratelimit, security, correctness]

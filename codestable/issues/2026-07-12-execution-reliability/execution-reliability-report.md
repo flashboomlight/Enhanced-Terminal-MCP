@@ -15,25 +15,25 @@ tags: [reliability, session, concurrency, output-truncation, shutdown]
 
 **现象 3.1 — session 异步加载竞态**
 
-`SessionStore` 构造函数([src/session.ts:26-28](src/session.ts#L26))调 `this.loadFromDisk()`,后者走 `loadNewFile().catch(() => loadLegacyFile())` 的异步链([session.ts:127-155](src/session.ts#L127)),**整个加载在 `new SessionStore()` 返回后才完成**。`main()` 里 [index.ts:66](src/index.ts#L66) `await tempManager.init()` 是异步等待的,但 session 是模块顶层 `export const session = new SessionStore()`([session.ts:170](src/session.ts#L170))立即实例化——`server.connect` 后若立即有工具调用,`session.getCwd()` 可能返回 `process.cwd()` 而非磁盘恢复的 cwd。
+`SessionStore` 构造函数([src/session.ts:26-28](../../../src/session.ts#L26))调 `this.loadFromDisk()`,后者走 `loadNewFile().catch(() => loadLegacyFile())` 的异步链([session.ts:127-155](../../../src/session.ts#L127)),**整个加载在 `new SessionStore()` 返回后才完成**。`main()` 里 [index.ts:66](../../../src/index.ts#L66) `await tempManager.init()` 是异步等待的,但 session 是模块顶层 `export const session = new SessionStore()`([session.ts:170](../../../src/session.ts#L170))立即实例化——`server.connect` 后若立即有工具调用,`session.getCwd()` 可能返回 `process.cwd()` 而非磁盘恢复的 cwd。
 
 实测:全量 `npm test`(28 文件并发)时 `src/session.test.ts` 有 3 个用例失败(history 持久化条数、cwd 恢复、env 恢复),但单独跑 `npx vitest run src/session.test.ts` 全过(10/10)。说明竞态在高并发压力下复现。
 
 **现象 3.2 — scanContent 误报阻断合法写入**
 
-`scanContent`([src/scan.ts:9-23](src/scan.ts#L9))的 `Generic API Key` 正则 `api[_-]?key...{16,}` 和 `Connection String` 正则误报面大。实测构造:
+`scanContent`([src/scan.ts:9-23](../../../src/scan.ts#L9))的 `Generic API Key` 正则 `api[_-]?key...{16,}` 和 `Connection String` 正则误报面大。实测构造:
 - `api_key=1234567890123456`(16 字符纯数字,合法短 key)→ 被误拦
 - 文档/示例文本含 `mongodb://user:pass@host` → 被误拦
 
-`write_file`([src/files.ts:142-150](src/files/files.ts#L142))对 `!scan.safe` 硬性 `return fail`,用户无法 override。AI 写测试文件、写文档示例时被误阻断。
+`write_file`([src/tools/files.ts:142-150](../../../src/tools/files.ts#L142))对 `!scan.safe` 硬性 `return fail`,用户无法 override。AI 写测试文件、写文档示例时被误阻断。
 
 **现象 3.3 — spawnStream 截断丢数据且判硬失败**
 
-`spawnStream`([src/stream.ts:66-76](src/stream.ts#L66))stdout 超 `maxOut` 后 `truncated=true` 并 kill,但 `stdoutChunks.push(chunk)` 只在未超限时入栈——超限后数据全丢。调用方 [command.ts:160-177](src/tools/command.ts#L160) 对 `truncated` 返回硬错误。大输出命令(如 `npm run build` 日志)被整条判失败,LLM 拿不到任何输出诊断。stderr 1MB 上限([stream.ts:49](src/stream.ts#L49))静默丢弃无标志。
+`spawnStream`([src/stream.ts:66-76](../../../src/stream.ts#L66))stdout 超 `maxOut` 后 `truncated=true` 并 kill,但 `stdoutChunks.push(chunk)` 只在未超限时入栈——超限后数据全丢。调用方 [command.ts:160-177](../../../src/tools/command.ts#L160) 对 `truncated` 返回硬错误。大输出命令(如 `npm run build` 日志)被整条判失败,LLM 拿不到任何输出诊断。stderr 1MB 上限([stream.ts:49](../../../src/stream.ts#L49))静默丢弃无标志。
 
 **现象 3.4 — 优雅退出 500ms 过短**
 
-`index.ts:82` `setTimeout(() => process.exit(0), 500).unref()`。`session.flush` 有 5s 去抖、`audit.flush` 有 1s 去抖([session.ts:95](src/session.ts#L95)、[audit.ts:67](src/audit.ts#L67)),500ms 内写盘可能来不及,尤其 Windows 下大文件 append。
+`index.ts:82` `setTimeout(() => process.exit(0), 500).unref()`。`session.flush` 有 5s 去抖、`audit.flush` 有 1s 去抖([session.ts:95](../../../src/session.ts#L95)、[audit.ts:67](../../../src/audit.ts#L67)),500ms 内写盘可能来不及,尤其 Windows 下大文件 append。
 
 ## 2. 复现步骤
 

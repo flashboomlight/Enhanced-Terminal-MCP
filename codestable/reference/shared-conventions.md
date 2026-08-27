@@ -71,6 +71,10 @@ codestable/
 
 改 `cs-onboard/reference/shared-conventions.md` 模板，新项目 onboarding 时带上新版本；已有项目手动同步 `codestable/reference/shared-conventions.md`。
 
+### 历史产物兼容
+
+onboarding 前已经存在的 feature / roadmap / compound 文档可以保留当时的文件名、字段和正文，作为历史证据，不把它们当作当前阶段的执行入口。新建或更新的当前文档必须遵循本节的目录、命名和 frontmatter 规则；如果历史文档的旧口径容易与当前实现混淆，应在文档顶部或相邻的当前架构文档中明确标注历史边界。
+
 ---
 
 ## 1. 共享元数据口径

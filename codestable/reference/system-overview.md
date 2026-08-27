@@ -44,7 +44,7 @@ CodeStable 把这几类场景各配一套子技能，产物放进统一的目录
 
 ## 场景路由
 
-仓库里还没有 `codestable/` 目录,先用 `cs-onboard` 搭骨架。
+如果仓库里还没有 `codestable/` 目录，先用 `cs-onboard` 搭骨架；本仓库已经完成 onboarding，可直接按现有目录继续维护。
 
 | 场景 | 子技能 |
 |---|---|

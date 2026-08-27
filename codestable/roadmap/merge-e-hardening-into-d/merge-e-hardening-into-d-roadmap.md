@@ -1,9 +1,9 @@
 ---
 doc_type: roadmap
 slug: merge-e-hardening-into-d
-status: active
+status: completed
 created: 2026-08-19
-last_reviewed: 2026-08-22
+last_reviewed: 2026-08-28
 tags: [merge, hardening, command-output, powershell, supply-chain]
 related_requirements: [powershell-default-shell]
 related_architecture: [ARCHITECTURE]
@@ -1250,3 +1250,4 @@ M4 按以下规则同步：
 - 2026-08-22：M3 `publish-es-optional` 验收通过；S3–S5、12 项 checks、build/tsc/lint/543 tests/latency/package dry-run/零下载核对/diff --check 全部通过，items.yaml 改为 `done`。另修正既有 temp-manager TTL 测试时间余量，未改变生产行为；M4 保留为最终整体文档与发布收口。
 - 2026-08-22：M4 最终本地收口完成；`build/` 增加 clean-before-build，项目内 `.etmcp/test-tmp` 验证通过，MCP smoke（27 tools、temp_stats、命令正常/错误、无/有 Everything 搜索路径）通过，npm pack 不含测试产物、`middleware` 或 `es.exe`；M4 item 改为 `done`。
 - 2026-08-22：M4 收尾维护完成；将 `tests/unit/utils.extended.test.ts` 的 `vi.unmock()` 移到模块顶层，针对性测试与全量测试无 warning 通过。
+- 2026-08-28：所有 items 已处于终态（`done` / `dropped`），将 roadmap 状态收口为 `completed`；后续维护以独立 feature / issue 为入口。

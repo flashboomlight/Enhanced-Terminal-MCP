@@ -1,8 +1,11 @@
 ---
-name: instantiable-singletons-for-tests
+doc_type: trick
+type: pattern
+date: "2026-07-05"
+slug: instantiable-singletons-for-tests
+status: active
+tags: [testing, state, singleton, isolation]
 description: 对持有全局状态（state dir, audit, temp）的模块同时提供可实例化类和默认单例，便于测试隔离
-metadata:
-  type: trick
 ---
 
 # Trick: 可实例化类 + 默认单例

@@ -73,7 +73,7 @@ tags: [security, safeguard, command-execution, injection, redos]
 
 - **影响范围**:1.1 影响所有命令工具(execute_command/batch_execute/watch_command);1.2 影响 off 模式下全部 GUARDED_TOOLS;1.3 影响 Windows 下 grep_content;1.4 影响 grep_content + search_files(pattern 参数)
 - **潜在受害模块**:
-  - `batch_execute`([command.ts:310](src/tools/command.ts#L310))和 `watch_command` 复用同一个 `hasDangerousPattern`,1.1 修复需同步覆盖
+  - `batch_execute`([command.ts:310](../../../src/tools/command.ts#L310))和 `watch_command` 复用同一个 `hasDangerousPattern`,1.1 修复需同步覆盖
   - `download_file`/`compress_archive`/`extract_archive` 的路径校验走 `validatePath`,不受 1.2 影响(已说明),但 off 模式下它们的 `guardDestructiveAction` 也被放行——需确认是否也要加硬底线
   - 1.4 的 ReDoS 修复若改为更严格的检测,可能误拦合法正则(如 `(a+)+` 在小输入下无害),需权衡误报
 - **数据完整性风险**:有。1.1+1.2 组合下用户数据可被破坏性命令删除,不可逆

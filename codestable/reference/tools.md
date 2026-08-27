@@ -4,6 +4,8 @@
 
 `codestable/tools/` 下共享脚本的完整用法参考。子技能里只写本技能特有的 1-2 行典型查询；完整语法和示例看这里。
 
+批量校验应针对由 YAML frontmatter 管理的 spec 目录（例如 `features/2026-08-16-powershell-default-shell`、`issues`、`compound`、`requirements` 或单个 roadmap 文档）。`reference/` 说明文档以及 onboarding 前保留的 legacy feature 文档可以没有 frontmatter，不应把整个 `codestable/` 根目录作为同一批次校验目标。
+
 ---
 
 ## 1. search-yaml.py

@@ -19,7 +19,7 @@ tags: [security, safeguard, safety-mode, defense-in-depth, command-execution]
 
 ## 根因
 
-`guardDestructiveAction`([src/safeguard.ts](../../../src/safeguard.ts))的 off 分支注释写"硬性底线在 security.ts 中另外检查",但这个声称是空的:
+`guardDestructiveAction`([src/safeguard.ts](../../src/safeguard.ts))的 off 分支注释写"硬性底线在 security.ts 中另外检查",但这个声称是空的:
 
 - `security.ts` 的 `validatePath` 只在**文件类工具**(`read_file`/`write_file`/`copy_move` 等)的入口调用
 - **命令类工具**(`execute_command`/`batch_execute`/`watch_command`)的入口只调 `hasDangerousPattern`(正则黑名单),根本不经过 `validatePath`
@@ -34,7 +34,7 @@ tags: [security, safeguard, safety-mode, defense-in-depth, command-execution]
 
 ## 最终解法
 
-新增 `hardBlock(command)` 函数([src/security.ts](../../../src/security.ts)),内含一份**不可关闭**的最低限度黑名单,只覆盖极少数真正灾难性模式(`rm -rf /`/`mkfs`/`dd of=/dev/`/fork bomb/format/关机/chmod 777 全盘)。在三个命令工具中**所有安全模式下**(含 off)调用——放在 `hasDangerousPattern` 之后、`guardDestructiveAction` 之前。
+新增 `hardBlock(command)` 函数([src/security.ts](../../src/security.ts)),内含一份**不可关闭**的最低限度黑名单,只覆盖极少数真正灾难性模式(`rm -rf /`/`mkfs`/`dd of=/dev/`/fork bomb/format/关机/chmod 777 全盘)。在三个命令工具中**所有安全模式下**(含 off)调用——放在 `hasDangerousPattern` 之后、`guardDestructiveAction` 之前。
 
 关键设计:hardBlock 不追求完备(高阶绕过仍可能),只确保"明面上的灾难性命令在 off 模式不能无阻碍执行"。它是独立于模式开关的第四层防线,不随 off 级联关闭。
 

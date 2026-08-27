@@ -1,8 +1,11 @@
 ---
-name: audit-log-mode
+doc_type: decision
+category: operations
+date: "2026-07-05"
+slug: audit-log-mode
+status: active
+tags: [audit, observability, performance]
 description: 审计日志默认 errors 模式，只记录失败和拦截，降低正常运行时的 I/O 开销
-metadata:
-  type: decision
 ---
 
 # Decision: 审计日志默认 errors 模式
