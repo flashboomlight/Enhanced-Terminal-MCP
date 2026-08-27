@@ -17,4 +17,4 @@ Regression samples for `checkCommandPolicy` / hardBlock.
 2. Run `npx vitest run tests/unit/security-corpus.test.ts`.
 3. Prefer **must_block** for catastrophic cases; do not put common dev commands in must_block.
 
-See roadmap: `codestable/roadmap/remaining-hardening` item `cmd-hardblock-regression-corpus`.
+See roadmap: `codestable/roadmap/2026-07-12-remaining-hardening` item `cmd-hardblock-regression-corpus`.

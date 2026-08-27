@@ -139,7 +139,7 @@ created: "2026-08-19"
 
 方案 frontmatter `roadmap: merge-e-hardening-into-d` / `roadmap_item: merge-e-hardening-base`，两字段有值，已执行实际回写：
 
-- [x] `codestable/roadmap/merge-e-hardening-into-d/merge-e-hardening-into-d-items.yaml`：M1 条目核对（回写前 `status: in-progress` + `feature: 2026-08-19-merge-e-hardening-base`，与协议一致）→ 已改 `status: done`；notes 修正两处事实：backup ref = `dee6771`（原文笔误 `990f988`）、补记"E 未携带 4.5 迁移实现，由 M1 在 D 侧新实现"；yaml 校验通过
+- [x] `codestable/roadmap/2026-08-19-merge-e-hardening-into-d/merge-e-hardening-into-d-items.yaml`：M1 条目核对（回写前 `status: in-progress` + `feature: 2026-08-19-merge-e-hardening-base`，与协议一致）→ 已改 `status: done`；notes 修正两处事实：backup ref = `dee6771`（原文笔误 `990f988`）、补记"E 未携带 4.5 迁移实现，由 M1 在 D 侧新实现"；yaml 校验通过
 - [x] 主文档 `merge-e-hardening-into-d-roadmap.md` 第 5.1 节：状态 `planned` → `done（2026-08-19 验收通过）`、对应 feature 回填；第 10 节变更日志追加 M1 验收与执行期修正记录（含 backup 锚点、4.5 前提纠正、withErrorSchema 过渡形态、shell.test.ts 归位）
 
 ## 8. AGENTS.md / CLAUDE.md 候选盘点

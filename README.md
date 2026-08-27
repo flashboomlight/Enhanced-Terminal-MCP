@@ -65,6 +65,7 @@ setup.bat
 | `MCP_COMMAND_MAX_STDERR_BYTES` | `1048576` | Max stderr bytes retained per command |
 | `MCP_TEMP_MAX_TOTAL_BYTES` | `1073741824` | Max total temp bytes before LRU eviction kicks in |
 | `ENHANCED_TERMINAL_ES_PATH` | — | Explicit path to a fixed-SHA-256 Everything CLI (`es.exe`). Takes priority over `<state-dir>/tools/es.exe`; an invalid explicit path fails closed. `search_files` falls back only when the implicit state binary is unavailable; `everything_search` returns structured installation detail. |
+| `ENHANCED_TERMINAL_DISABLE_FILE_INFO` | — | Set to `1` to disable the `file_info` tool; the tool surface drops from 27 to 26 tools. |
 
 ### Windows Default Shell (pwsh 7)
 
@@ -184,7 +185,7 @@ Development uses pnpm `11.21.0`. pnpm can reuse a machine-configured shared cont
 | SDK pin | `@modelcontextprotocol/sdk` locked to `1.29.0` (no caret) + `overrides` so the patch target stays stable. |
 | Zod | Stays on **v3** until roadmap spike `deps-zod-v4-spike` goes go (see `codestable/compound/2026-07-12-decision-zod-v3-remain.md`). |
 
-Security policy is **defense in depth, not a sandbox** when using full shell strings — see `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md` and remaining work in `codestable/roadmap/remaining-hardening/`.
+Security policy is **defense in depth, not a sandbox** when using full shell strings — see `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md` and remaining work in `codestable/roadmap/2026-07-12-remaining-hardening/`.
 
 ## License
 

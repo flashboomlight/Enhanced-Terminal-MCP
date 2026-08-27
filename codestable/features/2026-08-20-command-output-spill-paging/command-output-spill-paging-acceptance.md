@@ -149,8 +149,8 @@ created: "2026-08-21"
 
 方案 frontmatter `roadmap: merge-e-hardening-into-d` + `roadmap_item: command-output-spill-paging`，已实际回写：
 
-- [x] `codestable/roadmap/merge-e-hardening-into-d/merge-e-hardening-into-d-items.yaml`：`command-output-spill-paging` 条目 `status: in-progress` → `done`，notes 更新为验收通过事实；yaml 校验通过。
-- [x] `codestable/roadmap/merge-e-hardening-into-d/merge-e-hardening-into-d-roadmap.md` 第 5.2 节：状态改为 `done（2026-08-21 验收通过）`，三段进度合并为「已完成」清单；第 10 节变更日志追加 M2 验收记录。
+- [x] `codestable/roadmap/2026-08-19-merge-e-hardening-into-d/merge-e-hardening-into-d-items.yaml`：`command-output-spill-paging` 条目 `status: in-progress` → `done`，notes 更新为验收通过事实；yaml 校验通过。
+- [x] `codestable/roadmap/2026-08-19-merge-e-hardening-into-d/merge-e-hardening-into-d-roadmap.md` 第 5.2 节：状态改为 `done（2026-08-21 验收通过）`，三段进度合并为「已完成」清单；第 10 节变更日志追加 M2 验收记录。
 
 ## 8. AGENTS.md / CLAUDE.md 候选盘点
 

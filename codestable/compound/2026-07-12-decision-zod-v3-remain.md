@@ -36,5 +36,5 @@ tags: [zod, mcp-sdk, dependencies, migration]
 
 ## 相关文档
 
-- `codestable/roadmap/remaining-hardening/remaining-hardening-roadmap.md` § 子 feature `deps-zod-v4-spike`
+- `codestable/roadmap/2026-07-12-remaining-hardening/remaining-hardening-roadmap.md` § 子 feature `deps-zod-v4-spike`
 - `package.json` dependencies

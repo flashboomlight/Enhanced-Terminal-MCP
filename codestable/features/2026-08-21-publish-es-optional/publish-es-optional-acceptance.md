@@ -121,7 +121,7 @@ created: "2026-08-22"
 
 ## 7. roadmap 回写
 
-- [x] `codestable/roadmap/merge-e-hardening-into-d/merge-e-hardening-into-d-items.yaml` 中 `publish-es-optional` 已从 `in-progress` 改为 `done`。
+- [x] `codestable/roadmap/2026-08-19-merge-e-hardening-into-d/merge-e-hardening-into-d-items.yaml` 中 `publish-es-optional` 已从 `in-progress` 改为 `done`。
 - [x] roadmap 主文档第 5.3 节已同步为 2026-08-22 验收通过。
 - [x] roadmap 变更日志已记录 M3 验收、12 项 checks、全量门禁和测试稳定性修复。
 - [x] items YAML 和 roadmap YAML 校验通过。

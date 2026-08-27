@@ -77,8 +77,8 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `src/session.ts` | cwd/env/history 管理，去抖持久化到 `<projectRoot>/.etmcp/session.json`；恢复消毒 |
 | `src/state-dir.ts` | 统一状态目录解析：固定 `projectRoot`（`realpath(process.cwd())`，进程级不变）、默认 `<projectRoot>/.etmcp`、`MCP_STATE_DIR` 覆盖只解析一次；`getStateDir` 为纯解析（不创建目录），`ensureStateDir` 仅供写路径在真实产生物落盘前调用；旧 `.enhanced-terminal-mcp` 迁移协议 |
 | `src/audit.ts` | 结构化审计日志写入与读取（`<projectRoot>/.etmcp/logs/audit.jsonl`） |
-| `src/temp-manager.ts` | 临时目录懒创建、reservation、同进程 mutex、跨进程短锁、staging heartbeat/恢复、TTL + LRU 回收和资源统计 |
-| `src/paging.ts` | page cache v2：原始字节 `stdout.bin`/`stderr.bin` + `stdout.idx` 字符索引 + `meta.json`；staging 原子发布，读取只加载目标页范围 |
+| `src/temp-manager.ts` | TempManager 执行器（懒创建、reservation、跨进程短锁、staging heartbeat/恢复、TTL + LRU 回收）；基础设施层拆至 `src/temp-core.ts`（helpers/环境读取器/错误/接口/AsyncMutex/ReservationImpl），公开 API 经 re-export 保持不变 |
+| `src/paging.ts` | page cache v2 编排与公开 API（原始字节 `stdout.bin`/`stderr.bin` + `stdout.idx` 字符索引 + `meta.json`；staging 原子发布，读取只加载目标页范围）；子模块 `src/paging/`：`codec.ts` 字节编解码、`index-format.ts` 索引格式、`paths.ts` 路径断言、`errors.ts` 错误类型 |
 | `src/capture.ts` | child lifecycle、stdout/stderr 原始 Buffer chunk、actual 字节计数、backpressure、drain、timeout 和消费失败处理 |
 | `src/command-output.ts` | 三个命令工具共享的输出编排：limits 校验、流式 matcher、quarantine/fallback、双流抑制、staging spill 与 finalize、envelope 组装（M2 已落地） |
 | `src/secret-registry.ts` / `src/secret-stream.ts` | whole-string registry 与流式 matcher 的单一 pattern 来源；固定 8192-byte quarantine 和 65536-byte fallback preview |
@@ -172,17 +172,19 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 - 命令限流 10 req/s（burst 20）；`MCP_BATCH_RATE_MODE=batch|per_command`。
 - 临时资源 TTL / 数量上限 / 清理间隔由 `MCP_TEMP_TTL_MS` / `MCP_MAX_TEMP_DIRS` / `MCP_TEMP_CLEANUP_INTERVAL_MS` 控制。
 - 审计日志最大保留条目数由 `MCP_AUDIT_MAX_ENTRIES` 控制；命令历史保留 50 条，持久化时保留 20 条。
-- 默认超时：execute 30s（自适应 P95×3，上限 4×）、batch 每步 30s、watch 5s、下载 120s 等，见 `adaptive.ts`。
+- 默认超时：execute 30s（自适应 P95×3，上限 4×；`adaptive.ts` 的 DEFAULT_TIMEOUTS 仅登记 execute_command，其余工具超时由各自 handler 显式给定：batch 每步 30s、watch 5s、下载 120s）。
 
 ### 测试与覆盖策略
-- 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；coverage 配置排除 `src/index.ts`、`src/tools/**`、`src/**/*.test.ts` 和 `tests/**`，因为 Vitest/V8 无法收集子进程覆盖率；工具行为主要由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖，工具纯逻辑由 `tests/unit/tools/` 覆盖。coverage 运行跳过延迟基准文件，避免插桩开销造成假失败。
+- 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；主 coverage 配置排除 `src/index.ts`、`src/tools/**`、`src/**/*.test.ts` 和 `tests/**`，因为 Vitest/V8 无法收集子进程覆盖率；工具行为主要由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖，工具纯逻辑由 `tests/unit/tools/` 覆盖（files/manage/system/archive 有专属单测）。coverage 运行跳过延迟基准文件，避免插桩开销造成假失败。
+- 工具层有专属覆盖率门禁 `pnpm run test:coverage:tools`（`vitest.tools-coverage.config.ts`，底线 statements/lines 55、functions 60、branches 45），使被主配置排除的工具层保持可度量、防回归；完整本地门禁一键跑 `pnpm run gate`。
+- CI（`.github/workflows/ci.yml`）：ubuntu 跑 lint + 类型检查；windows runner（Node 22/24 矩阵）跑 build、tsc、全量测试、工具层覆盖门禁；latency 基准在 CI 上 `continue-on-error`（阈值按开发机校准，共享 runner 噪声大）。
 - 当前基线在 merge-e-hardening-base 验收时刷新；e2e 延迟阈值全部达标为准入。
 
 ## 7. 规划入口（非现状）
 
 剩余未闭环工作与**明确不做**边界见规划层（勿把计划写回本节当现状）：
 
-- `codestable/roadmap/merge-e-hardening-into-d/`（已完成，保留为历史规划与验收记录）
-- `codestable/roadmap/remaining-hardening/remaining-hardening-roadmap.md`
-- `codestable/roadmap/remaining-hardening/remaining-hardening-items.yaml`
+- `codestable/roadmap/2026-08-19-merge-e-hardening-into-d/`（已完成，保留为历史规划与验收记录）
+- `codestable/roadmap/2026-07-12-remaining-hardening/remaining-hardening-roadmap.md`
+- `codestable/roadmap/2026-07-12-remaining-hardening/remaining-hardening-items.yaml`
 - 约束决策：`compound/2026-07-12-decision-command-execution-not-sandbox.md`

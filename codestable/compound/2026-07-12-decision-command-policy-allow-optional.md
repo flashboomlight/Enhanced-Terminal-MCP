@@ -45,5 +45,5 @@ tags: [command-policy, allowlist, MCP_COMMAND_POLICY, hardBlock]
 ## 相关文档
 
 - `src/command-policy.ts`
-- `codestable/roadmap/remaining-hardening/remaining-hardening-roadmap.md` §4.1
+- `codestable/roadmap/2026-07-12-remaining-hardening/remaining-hardening-roadmap.md` §4.1
 - `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md`

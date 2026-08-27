@@ -3,6 +3,7 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { audit } from "../../../src/audit.js";
 import { resetCommandOutputLimitsCache } from "../../../src/command-output.js";
@@ -26,6 +27,7 @@ const ENV_KEYS = [
   "MCP_TEMP_MAX_TOTAL_BYTES",
 ] as const;
 const ORIGINAL_ENV = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+const TMP_DIR = fileURLToPath(new URL("../../../.etmcp/test-tmp/", import.meta.url));
 const tools = new Map<string, ToolHandler>();
 const fakeServer = {
   registerTool(name: string, _spec: unknown, handler: ToolHandler) {
@@ -53,7 +55,9 @@ async function writeScript(name: string, source: string): Promise<string> {
 }
 
 function scriptCommand(file: string): string {
-  return `node ${file}`;
+  // 项目路径含空格且 cmd 链路无法安全携带引号路径：
+  // 命令串只放 basename，配合 cwd: scriptDir 解析（见各调用点）
+  return `node ${path.basename(file)}`;
 }
 
 function setCommandShell(shell: "cmd" | "powershell" | "pwsh"): void {
@@ -74,8 +78,9 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  stateDir = await fs.mkdtemp(path.join("E:/Codex_Temp", "mcp-command-tools-state-"));
-  scriptDir = await fs.mkdtemp(path.join("E:/Codex_Temp", "mcp-command-tools-scripts-"));
+  await fs.mkdir(TMP_DIR, { recursive: true });
+  stateDir = await fs.mkdtemp(path.join(TMP_DIR, "mcp-command-tools-state-"));
+  scriptDir = await fs.mkdtemp(path.join(TMP_DIR, "mcp-command-tools-scripts-"));
   process.env.MCP_STATE_DIR = stateDir;
   process.env.MCP_COMMAND_MEMORY_OUTPUT_BYTES = "1048576";
   process.env.MCP_COMMAND_MAX_OUTPUT_BYTES = "52428800";
@@ -123,14 +128,14 @@ describe("execute_command contract", () => {
     expect(commandPage.isError).toBe(true);
     expect(commandPage.structuredContent.error.code).toBe("VALIDATION_ERROR");
 
-    const cacheCwd = await call("execute_command", { cache_id: "page-cache-invalid", cwd: "E:/Codex_Temp" });
+    const cacheCwd = await call("execute_command", { cache_id: "page-cache-invalid", cwd: TMP_DIR });
     expect(cacheCwd.isError).toBe(true);
     expect(cacheCwd.structuredContent.error.code).toBe("VALIDATION_ERROR");
   });
 
   test("returns over-2000-character output in memory without creating a cache", async () => {
     const script = await writeScript("small.js", "process.stdout.write('x'.repeat(4000))");
-    const result = await call("execute_command", { command: scriptCommand(script), pageSize: 2000 });
+    const result = await call("execute_command", { command: scriptCommand(script), cwd: scriptDir, pageSize: 2000 });
     const envelope = structured(result);
 
     expect(result.isError).toBeFalsy();
@@ -148,7 +153,7 @@ describe("execute_command contract", () => {
       "large.js",
       "process.stdout.write('A'.repeat(700000)); process.stdout.write('B'.repeat(500000))",
     );
-    const result = await call("execute_command", { command: scriptCommand(script), pageSize: 2000 });
+    const result = await call("execute_command", { command: scriptCommand(script), cwd: scriptDir, pageSize: 2000 });
     const first = structured(result);
 
     expect(result.isError).toBeFalsy();
@@ -174,7 +179,7 @@ describe("execute_command contract", () => {
 
   test("reads a failed command cache successfully while preserving its original error envelope", async () => {
     const script = await writeScript("failed.js", "process.stdout.write('f'.repeat(1100000)); process.exitCode = 2");
-    const failed = await call("execute_command", { command: scriptCommand(script), pageSize: 2000 });
+    const failed = await call("execute_command", { command: scriptCommand(script), cwd: scriptDir, pageSize: 2000 });
     const failedEnvelope = structured(failed);
 
     expect(failed.isError).toBe(true);
@@ -198,6 +203,7 @@ describe("batch and watch contracts", () => {
     const failScript = await writeScript("batch-fail.js", "process.exitCode = 3");
     const result = await call("batch_execute", {
       commands: [scriptCommand(failScript), "echo should-not-run"],
+      cwd: scriptDir,
       stop_on_error: true,
       parallel: false,
     });
@@ -221,7 +227,7 @@ describe("batch and watch contracts", () => {
 
   test("watch duration is a normal capture window, not a timeout", async () => {
     const script = await writeScript("watch.js", "setTimeout(() => {}, 5000)");
-    const result = await call("watch_command", { command: scriptCommand(script), duration: 100 });
+    const result = await call("watch_command", { command: scriptCommand(script), cwd: scriptDir, duration: 100 });
     const output = structured(result);
 
     expect(result.isError).toBeFalsy();
@@ -236,7 +242,7 @@ describe("secret and shell output contracts", () => {
     process.env.MCP_SECRETS_SCAN = "strict";
     resetCommandOutputLimitsCache();
     const script = await writeScript("secret.js", "process.stdout.write('sk-' + 'x'.repeat(32))");
-    const result = await call("execute_command", { command: scriptCommand(script) });
+    const result = await call("execute_command", { command: scriptCommand(script), cwd: scriptDir });
     const output = structured(result);
 
     expect(result.isError).toBe(true);
@@ -267,7 +273,7 @@ describe("command.output.read audit", () => {
   test("records only cache/page/read metrics", async () => {
     process.env.MCP_AUDIT_MODE = "all";
     const script = await writeScript("audited.js", "process.stdout.write('a'.repeat(1100000))");
-    const first = await call("execute_command", { command: scriptCommand(script), pageSize: 2000 });
+    const first = await call("execute_command", { command: scriptCommand(script), cwd: scriptDir, pageSize: 2000 });
     const cacheId = structured(first).cache_id as string;
     await call("execute_command", { cache_id: cacheId, page: 2 });
     await audit.flush();

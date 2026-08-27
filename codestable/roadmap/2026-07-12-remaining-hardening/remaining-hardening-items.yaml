@@ -57,7 +57,7 @@ items:
     status: dropped
     feature: null
     minimal_loop: false
-    notes: moved/superseded by merge-e-hardening-into-d/command-output-spill-paging（M2，当前 in-progress）；不得再作为 remaining-hardening 独立 feature 启动
+    notes: moved/superseded by merge-e-hardening-into-d/command-output-spill-paging（M2，2026-08-21 已验收）；不得再作为 remaining-hardening 独立 feature 启动
 
   - slug: publish-sbom-hash-doc
     description: 发布面文档固定节（es 哈希、补丁脚本、锁定依赖说明）
@@ -73,7 +73,7 @@ items:
     status: dropped
     feature: null
     minimal_loop: false
-    notes: moved/superseded by merge-e-hardening-into-d/publish-es-optional（M3，当前 in-progress）；不得再作为 remaining-hardening 独立 feature 启动
+    notes: moved/superseded by merge-e-hardening-into-d/publish-es-optional（M3，2026-08-21 已验收）；不得再作为 remaining-hardening 独立 feature 启动
 
   - slug: deps-zod-v4-spike
     description: zod v4 迁移 spike 与 go/no-go，不默认 merge 生产

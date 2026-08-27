@@ -4,6 +4,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { ES_EXE_ENV, resetEsIntegrityCache } from "../../../src/es-integrity.js";
 import { resetStateDirCache } from "../../../src/state-dir.js";
@@ -11,6 +12,7 @@ import { globToRegex, registerSearchTools } from "../../../src/tools/search.js";
 
 const ENV_KEYS = ["MCP_STATE_DIR", ES_EXE_ENV] as const;
 const originalEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+const TMP_DIR = fileURLToPath(new URL("../../../.etmcp/test-tmp/", import.meta.url));
 
 function registerTools() {
   const tools = new Map<string, { handler: (args: Record<string, unknown>) => Promise<any> }>();
@@ -28,8 +30,9 @@ describe("search tools pure logic", () => {
   let searchDir: string;
 
   beforeEach(async () => {
-    stateDir = await fs.mkdtemp(path.join("E:/Codex_Temp", "mcp-search-state-"));
-    searchDir = await fs.mkdtemp(path.join("E:/Codex_Temp", "mcp-search-files-"));
+    await fs.mkdir(TMP_DIR, { recursive: true });
+    stateDir = await fs.mkdtemp(path.join(TMP_DIR, "mcp-search-state-"));
+    searchDir = await fs.mkdtemp(path.join(TMP_DIR, "mcp-search-files-"));
     process.env.MCP_STATE_DIR = stateDir;
     delete process.env[ES_EXE_ENV];
     resetStateDirCache();
@@ -67,7 +70,7 @@ describe("search tools pure logic", () => {
   });
 
   test("grep_content returns multiple matching lines up to max_results", async () => {
-    const tmpDir = await fs.mkdtemp(path.join("E:/Codex_Temp", "mcp-grep-test-"));
+    const tmpDir = await fs.mkdtemp(path.join(TMP_DIR, "mcp-grep-test-"));
     try {
       await fs.writeFile(path.join(tmpDir, "matches.txt"), "needle one\nskip\nneedle two\nneedle three\n", "utf-8");
       const tools = registerTools();

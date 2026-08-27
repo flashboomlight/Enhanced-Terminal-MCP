@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- CI workflow (`.github/workflows/ci.yml`): lint + type-check on ubuntu, build/test/tools-coverage gate on a Windows runner (Node 22/24); the latency benchmark runs non-blocking (thresholds are calibrated on dev hardware).
+- `pnpm run gate`: one-shot local gate (build + tsc + lint + test + latency + tools-coverage).
+- Tools-layer coverage gate `pnpm run test:coverage:tools` (`vitest.tools-coverage.config.ts`, floors: statements/lines 55, functions 60, branches 45) so the layer excluded from global coverage stays measured and regression-guarded; new unit suites for `files` / `manage` / `system` / `archive` tools (27 cases).
+- `postinstall` MCP SDK patch is now fail-closed: a changed SDK layout (no `dist/esm` or `dist/cjs` `server/mcp.js`) fails the install instead of silently skipping the `required: []` compatibility patch; pattern mismatches warn loudly. Behavior covered by `tests/unit/sdk-patch.test.ts`.
+
+### Changed
+
+- `src/paging.ts` split into `src/paging/{codec,index-format,paths,errors}.ts` with the public API re-exported unchanged (1141-line file reduced to orchestration + facade).
+- `src/temp-manager.ts` infrastructure (helpers, env readers, errors, interfaces, `AsyncMutex`, `ReservationImpl`) extracted to `src/temp-core.ts`; public API unchanged.
+- `command.ts`: execute/watch shared preamble extracted (`resolveCommandLimits` / `prepareInvocation` / `finishCommandEnvelope`); no behavior change.
+- `adaptive.ts` `DEFAULT_TIMEOUTS` now only registers `execute_command` (the single call site); other entries were unreachable config.
+- Tests use project-internal `.etmcp/test-tmp` instead of the machine-specific `E:/Codex_Temp`; codestable roadmap directories normalized to `YYYY-MM-DD-<slug>` naming with all path references updated.
+
 ## [4.0.0] — 2026-08-28
 
 ### Breaking Changes

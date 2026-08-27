@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-and-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm exec tsc --noEmit
+
+  test:
+    # 项目为 Windows-first（pwsh/cmd 执行链、语料与 e2e 均按 Windows 语义编写），
+    # 测试门禁在 Windows runner 上执行；lint/类型检查平台无关故单列 ubuntu。
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        # postinstall 应用 MCP SDK required:[] 兼容补丁；SDK 布局变化时 fail-closed
+      - run: pnpm run build
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm test
+      - run: pnpm run test:coverage:tools
+      - name: latency benchmark (non-blocking)
+        run: pnpm run test:latency
+        continue-on-error: true

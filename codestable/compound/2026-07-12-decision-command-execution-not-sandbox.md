@@ -54,7 +54,7 @@ Enhanced Terminal MCP 的核心价值之一是让 AI 客户端通过 `execute_co
 
 ## 相关文档
 
-- `codestable/roadmap/remaining-hardening/remaining-hardening-roadmap.md`
+- `codestable/roadmap/2026-07-12-remaining-hardening/remaining-hardening-roadmap.md`
 - `codestable/compound/2026-07-11-decision-hardblock-uncloseable-baseline.md`
 - `codestable/compound/2026-07-12-decision-zod-v3-remain.md`
 - `AGENTS.md` 安全核心红线

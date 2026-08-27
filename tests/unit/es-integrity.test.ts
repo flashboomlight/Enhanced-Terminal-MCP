@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   ES_EXE_ENV,
@@ -11,6 +12,8 @@ import {
 } from "../../src/es-integrity.js";
 import { resetStateDirCache } from "../../src/state-dir.js";
 
+const TMP_DIR = fileURLToPath(new URL("../../.etmcp/test-tmp/", import.meta.url));
+
 describe("es-integrity", () => {
   let originalStateDir: string | undefined;
   let originalEsPath: string | undefined;
@@ -19,7 +22,8 @@ describe("es-integrity", () => {
   beforeEach(async () => {
     originalStateDir = process.env.MCP_STATE_DIR;
     originalEsPath = process.env[ES_EXE_ENV];
-    tempStateDir = await fs.mkdtemp(path.join("E:/Codex_Temp", "mcp-es-integrity-test-"));
+    await fs.mkdir(TMP_DIR, { recursive: true });
+    tempStateDir = await fs.mkdtemp(path.join(TMP_DIR, "mcp-es-integrity-test-"));
     process.env.MCP_STATE_DIR = tempStateDir;
     delete process.env[ES_EXE_ENV];
     resetStateDirCache();
