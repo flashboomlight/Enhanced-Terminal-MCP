@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] — 2026-08-28
+
+### Breaking Changes
+
+- **Removed the headless workspace-delete surface** (supersedes the 2026-08-23 headless feature; DEC-002 — aligned with the official MCP philosophy: Roots deprecated by SEP-2577, filesystem boundaries belong to the host sandbox, risky operations go through per-action Elicitation):
+  - `delete_preview` tool removed — the tool surface is now **27 tools** (26 when `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1`).
+  - `MCP_CONFIRMATION_MODE` and `MCP_ALLOWED_ROOTS` environment variables removed; stale values in existing configs are inert (no longer parsed, no warnings, no blocking).
+  - `delete_path` no longer accepts `preview_id`; it is protected by Elicitation confirmation (normal mode) and the unchanged hard security floor.
+  - `health://status` no longer reports `confirmation_mode`, `allowed_roots`, or `headless_surface`.
+- **Added `MCP_COMMAND_CONFIRMATION=all|risk-gated`** (default `all` = previous behavior): in `risk-gated`, ordinary commands execute without confirmation while heavy commands (batch >5, destructive residue, performance words, `watch_command` duration >60s) require one Elicitation confirmation carrying the risk reason. With `MCP_SAFETY_MODE=off`, only ordinary is exempted — heavy commands still confirm. Recommended personal-agent profile: `MCP_SAFETY_MODE=off` + `MCP_COMMAND_CONFIRMATION=risk-gated`.
+- Safety decision order is now strict → (risk-gated grading) → off → normal; heavy decisions are audited as `safety.decision` with `risk_level`/`risk_category` (no command originals). The heavy rule table is corpus-governed (`tests/fixtures/command-risk-corpus.json`).
+
 ### Added
 
 - Command policy: `MCP_COMMAND_POLICY=allow` with `MCP_COMMAND_ALLOW`, shell metacharacter rejection, hardBlock first.

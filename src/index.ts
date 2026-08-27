@@ -16,7 +16,6 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { audit } from "./audit.js";
-import { initHeadlessPolicy } from "./headless-policy.js";
 import { logger } from "./logger.js";
 import { processPool } from "./pool.js";
 import { initSafeGuard } from "./safeguard.js";
@@ -48,9 +47,6 @@ async function main() {
     name: "enhanced-terminal-mcp",
     version: VERSION,
   });
-
-  // Validate trusted workspace roots before accepting a headless delete request.
-  await initHeadlessPolicy();
 
   // 初始化安全引擎
   initSafeGuard(server);

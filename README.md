@@ -1,12 +1,13 @@
-# Enhanced Terminal MCP Server v3.1
+# Enhanced Terminal MCP Server v4.0
 
 A powerful terminal/CLI interface for AI models via the [Model Context Protocol (MCP)](https://modelcontextprotocol.org/).
 
-Supports **28 tools** across 7 categories: command execution, file I/O, file management, system management, search, archives, and operational telemetry/session management.
+Supports **27 tools** across 7 categories: command execution, file I/O, file management, system management, search, archives, and operational telemetry/session management.
 
 ## Features
 
 - **3-Level Safety System** — strict/normal/off via `MCP_SAFETY_MODE`, hardBlock baseline always on; optional `MCP_COMMAND_POLICY=allow`
+- **Risk-Gated Command Confirmation** — set `MCP_COMMAND_CONFIRMATION=risk-gated` so ordinary commands run without confirmation while heavy commands (batch >5, destructive residue, performance words, long watch) ask once with the reason via MCP Elicitation
 - **Path & URL Security** — traversal detection, forbidden paths, sensitive file patterns, secret scanning
 - **Performance Optimized** — LRU result cache (128-entry, sliding TTL, ~32MB cap), adaptive timeouts, spawn-based streaming
 - **Structured Errors** — 20 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
@@ -45,8 +46,7 @@ setup.bat
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_SAFETY_MODE` | `normal` | `strict` (all destructive blocked), `normal` (confirm destructive tools), `off` (no checks; hardBlock still on) |
-| `MCP_CONFIRMATION_MODE` | `elicitation` | `elicitation` (interactive confirmation), `auto` (use Elicitation only when the client advertises form support), `headless` (workspace-delete only; requires `MCP_ALLOWED_ROOTS`). The headless surface is enforced regardless of `MCP_SAFETY_MODE`; `strict` still blocks `delete_path` itself. |
-| `MCP_ALLOWED_ROOTS` | — | Absolute path list separated by the platform delimiter; required for `MCP_CONFIRMATION_MODE=headless`. The headless surface is limited to `delete_preview` and preview-bound `delete_path`; the configured roots themselves cannot be deleted. |
+| `MCP_COMMAND_CONFIRMATION` | `all` | `all` (confirm every command tool call in normal mode — default, unchanged behavior) or `risk-gated` (ordinary commands run without confirmation; heavy commands — batch >5, destructive residue, performance words, watch >60s — require one Elicitation confirmation carrying the risk reason; works in `off` too, only ordinary is exempted). Invalid values fall back to `all` with a startup warning. `strict` still blocks command tools regardless. |
 | `MCP_COMMAND_POLICY` | `blocklist` | `blocklist` (dangerous patterns + hardBlock) or `allow` (executable allowlist + hardBlock; no shell chaining) |
 | `MCP_COMMAND_ALLOW` | built-in list | Comma-separated executables/prefixes when policy is `allow` (e.g. `npm,git,node`) |
 | `MCP_BATCH_RATE_MODE` | `batch` | `batch` (1 token per batch_execute) or `per_command` (1 token per command in batch) |
@@ -99,10 +99,9 @@ pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd k
 | Tool | Description |
 |------|-------------|
 | `copy_move` | Copy or move files/directories; protected by safety confirmation |
-| `delete_preview` | Preview a file or directory deletion without changing the filesystem |
 | `delete_path` | Delete file or directory (requires recursive for non-empty dirs) |
 
-For a non-interactive harness, set `MCP_CONFIRMATION_MODE=headless` and `MCP_ALLOWED_ROOTS`. Every headless deletion must use `delete_preview` first; command, write, archive, download, process, and directory-creation tools are not part of this headless surface. This surface is enforced regardless of `MCP_SAFETY_MODE`: leaving `MCP_SAFETY_MODE=off` set does not re-enable those tools (a startup warning is logged; `strict` still blocks `delete_path` itself).
+For interactive personal-agent use, the recommended profile is `MCP_SAFETY_MODE=off` + `MCP_COMMAND_CONFIRMATION=risk-gated`: ordinary commands execute fluently while heavy commands stop once with the risk reason. Filesystem-boundary enforcement belongs to the host sandbox per the MCP specification; this server deliberately keeps no directory allowlist (the previous `MCP_CONFIRMATION_MODE=headless` / `MCP_ALLOWED_ROOTS` mechanism was removed in v4.0.0).
 
 ### Search Tools
 | Tool | Description | Cache |

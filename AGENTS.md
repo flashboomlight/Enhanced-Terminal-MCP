@@ -41,7 +41,7 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 
 - Node.js ≥ 20，ESM；Windows 命令执行统一走 `src/shell.ts` 解析的 shell spec（默认 pwsh 7：显式路径 → bundled `tools/pwsh` → PATH → 5.1 回退；`MCP_SHELL=cmd|powershell` 可切换，详见 design `codestable/features/2026-08-16-powershell-default-shell/`），Unix 仍 `/bin/sh -c`。解析结果进程级缓存，改环境变量/装 pwsh 后需重启。
 - 三个命令工具已接入 `src/command-output.ts` 的共享原始字节捕获、actual 计数、流式 secret matcher、staging spill、page cache v2 与公开 A+ envelope（M2 验收时阶段 C 门禁全绿）；M3 Everything 可选解析、搜索契约和 npm 发布裁剪已验收，解析顺序为 `ENHANCED_TERMINAL_ES_PATH` → state 目录 → unavailable，运行期不下载。
-- 安全双层：`src/security.ts` 硬性底线（含 PowerShell `-EncodedCommand`/`iex`/`Start-Process` 等模式）+ `src/safeguard.ts` 三级模式；`MCP_SAFETY_MODE=strict|normal|off`（默认 normal）。
+- 安全双层：`src/security.ts` 硬性底线（含 PowerShell `-EncodedCommand`/`iex`/`Start-Process` 等模式）+ `src/safeguard.ts` 三级模式；`MCP_SAFETY_MODE=strict|normal|off`（默认 normal）。命令确认另有 `MCP_COMMAND_CONFIRMATION=all|risk-gated`（默认 all=全确认；risk-gated 下普通命令免确认、heavy 命令带原因 Elicitation 确认，off 只豁免 ordinary），规则表改动必须过 `tests/fixtures/command-risk-corpus.json` 语料；v4.0.0 已拆除 headless surface（DEC-002）。
 - 测试策略：工具行为主要由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖；coverage 配置排除 `src/index.ts`、`src/tools/**`、测试源码和 `tests/`，因为 V8 不能收集子进程覆盖率；工具纯逻辑由 `tests/unit/tools/` 覆盖。coverage 运行还跳过延迟基准文件，避免插桩开销造成假失败。
 - `src/context.ts` 只服务于 usage-guide prompt 的会话上下文注入，不参与命令执行链；`src/pool.ts` 当前仅保留 inactive stub，改动前先确认是否需要顺带处理。
 - pwsh bootstrap 只在 `setup.bat → scripts/ensure-pwsh.ps1` 联网下载（固定版本 + SHA256 + staging 原子安装）；MCP server 运行期绝不联网。`.ps1` 脚本保持纯 ASCII——中文 Windows 的 PS 5.1 会把无 BOM UTF-8 注释按 GBK 误解析。

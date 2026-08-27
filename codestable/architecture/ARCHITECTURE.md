@@ -32,7 +32,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 | wrapHandler | 统一 handler 包装器：自动 telemetry 采集 + LRU 缓存命中/写入 |
 | ToolResult | 统一结果协议 `{ok, content, structured, meta}` 或 `{ok:false, error}` |
 | StructuredError | 20 个错误码 + `retryable` / `suggestion` / `param` / `detail` 提示（含 M2 已落地的 `SECRET_DETECTED`） |
-| SafeGuard | 三级安全策略引擎（strict / normal / off）+ `MCP_CONFIRMATION_MODE`；normal 默认走 MCP Elicitation，headless 仅提供 workspace-delete |
+| SafeGuard | 三级安全策略引擎（strict / normal / off）+ `MCP_COMMAND_CONFIRMATION` 命令风险分级；normal 默认走 MCP Elicitation 逐次确认 |
 | hardBlock | 不可关闭的灾难性命令硬底线（所有安全模式含 off 均生效） |
 | 硬性底线 | `security.ts` 的路径/命令/URL 校验，任何安全模式下都生效 |
 | CommandSpec | 跨平台命令规格 `{file, args, useShell?}`，供 `execFile` 参数化执行 |
@@ -53,10 +53,10 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 
 | 模块 | 职责 |
 |------|------|
-| `src/index.ts` | 入口：创建 McpServer → 校验 headless policy → initSafeGuard → 注册业务工具 + 运维工具 → 注册资源/prompts → 连接 stdio → 优雅退出 |
+| `src/index.ts` | 入口：创建 McpServer → initSafeGuard → 注册业务工具 + 运维工具 → 注册资源/prompts → 连接 stdio → 优雅退出 |
 | `src/tools/command.ts` | `execute_command` / `batch_execute` / `watch_command`。Windows 消费 `shell.ts` 统一解析的 shell spec（默认 pwsh 7，详见 ADR-7/14），Unix 用 `/bin/sh -c`；命令 policy + 危险模式检查 + 限流 + SafeGuard + audit 后调用共享 `runCommandOutput`。公开输入输出已是 M2 A+ envelope（分页/secret/容量字段） |
 | `src/tools/files.ts` | `read_file`（分页/编码）/ `write_file`（秘密扫描 + 覆写确认）/ `list_directory`（符号链接循环保护）/ `file_info`（可被 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 禁用）/ `make_directory` |
-| `src/tools/manage.ts` | `copy_move` / `delete_preview` / `delete_path`（headless delete_path 必须使用 preview；递归删除需 `recursive=true`） |
+| `src/tools/manage.ts` | `copy_move` / `delete_path`（Elicitation 确认保护；递归删除需 `recursive=true`） |
 | `src/tools/search.ts` | `search_files`（Windows 优先使用经 resolver 校验的 Everything；隐式 state binary 不可用时原生递归兜底；显式配置错误直接结构化失败）/ `everything_search`（仅 Windows；binary 不可用时返回带安装信息的结构化失败）/ `grep_content`（解析为 pwsh/powershell flavor 时走统一 spec 的 Select-String → Unix grep → 原生三级降级；参数单引号内联转义） |
 | `src/tools/system.ts` | `get_system_info` / `process_list` / `kill_process`（关键进程保护）/ `network_info` / `environment_vars`（敏感键打码） |
 | `src/tools/archive.ts` | `compress_archive` / `extract_archive`（Windows 走 PowerShell Compress/Expand-Archive）/ `download_file`（HTTP/HTTPS 白名单 + 指数退避重试） |
@@ -68,7 +68,8 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 |------|------|
 | `src/security.ts` | 路径穿越（含 URL 多重编码绕过）、系统目录黑名单、敏感文件/目录模式、危险命令正则（D 的 PowerShell `-EncodedCommand`/`iex`/`Start-Process`/`Stop-Computer`/`Set-ExecutionPolicy`/盘符根递归删除 + E 的间接执行/解释器/管道绕过规则的并集）、URL 协议白名单、主机名校验、进程名消毒 |
 | `src/command-policy.ts` | 命令策略统一入口：`blocklist`（默认）/ `allow`（词级白名单 + 禁止 shell 元字符/管道/嵌套 shell）；hardBlock 永远先执行 |
-| `src/safeguard.ts` | strict 禁用受保护工具；normal 默认走 Elicitation；headless 只允许 delete_path 决策，关键进程黑名单全模式生效 |
+| `src/safeguard.ts` | strict 禁用受保护工具；normal 默认走 Elicitation；risk-gated 下命令工具经 `guardCommandByRisk` 分级（ordinary 放行 / heavy 带原因确认），关键进程黑名单全模式生效 |
+| `src/command-risk.ts` | 命令风险纯分类层：`MCP_COMMAND_CONFIRMATION` 解析（非法回退 all）、`classifyCommandRisk`/`classifyBatchRisk`（batch>5 / 破坏类残余 / 性能词表 / watch duration>60s），规则表数据化、语料治理（tests/fixtures/command-risk-corpus.json） |
 | `src/result.ts` | ToolResult 协议、20 错误码、`fail`/`success` 工厂、MCP `CallToolResult` 转换；命令类 A+ envelope 与 `SECRET_DETECTED` 已落地 |
 | `src/wrap.ts` | handler 包装：telemetry 记录 + 缓存命中/回填 |
 | `src/cache.ts` | LRU 实现 + `CACHEABLE_TOOLS`（7 个只读工具）+ 工具级 TTL + 按前缀/路径失效 |
@@ -133,7 +134,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 - **ADR-2 全部工具带类型化 schema**：Zod `inputSchema` + `outputSchema` + `annotations`（readOnly/destructive/idempotent hints），输出同时给人类文本和 `structuredContent`。
 - **ADR-3 统一结果协议**：所有 handler 返回 `ToolResult`，错误统一 20 个错误码并携带 LLM 可决策的 `retryable/suggestion/param`；命令类 `SECRET_DETECTED` 与完整 A+ envelope 已随 M2 落地。
 - **ADR-4 中间件化横切**：`wrapHandler` 统一做 telemetry 和缓存，handler 本体不感知。
-- **ADR-5 安全双层**：`security.ts` 硬性底线（任何模式生效）+ `safeguard.ts` 策略层（strict/normal/off + confirmation mode）；normal 默认 Elicitation，headless 仅提供 preview-bound workspace-delete；决策顺序 strict → headless surface → off，off 不消解 headless surface（`make_directory` 同属面外；2026-08-23 headless-surface-enforcement-gaps issue 修复）；危险命令正则、关键进程保护属于硬底线。hardBlock 全模式（含 off）不可关闭；非 allow 安全决策统一以 `action=safety.decision` 写入审计。
+- **ADR-5 安全双层**：`security.ts` 硬性底线（任何模式生效）+ `safeguard.ts` 策略层（strict/normal/off + 命令分级确认）；normal 默认 Elicitation 逐次确认；决策顺序 strict →（risk-gated：ordinary 放行 / heavy 带原因确认）→ off → normal；危险命令正则、关键进程保护属于硬底线。hardBlock 全模式（含 off）不可关闭；非 allow 安全决策统一以 `action=safety.decision` 写入审计（heavy 决策含 `risk_level`/`risk_category`）。原 headless surface（`MCP_CONFIRMATION_MODE`/`MCP_ALLOWED_ROOTS`/`delete_preview`）已于 v4.0.0 整体拆除（DEC-002：对齐官方 MCP——Roots 已废弃、目录限制归宿主沙箱）。
 - **ADR-6 跨平台 CommandSpec**：能参数化的系统命令一律 `execFile(file, args)`；需要 shell 特性的才走 shell，并限制在上游已校验的输入。
 - **ADR-7 Windows 默认 PowerShell（2026-08-16 powershell-default-shell 起取代旧 cmd 方案）**：命令工具与平台 spec 统一消费 `shell.ts` 解析的 shell spec。默认 `MCP_SHELL=pwsh`，按「`MCP_POWERSHELL_PATH` 显式路径（fail closed）→ 项目便携 pwsh 7（`tools/pwsh`）→ PATH pwsh → Windows PowerShell 5.1 回退」一次解析、进程级缓存（成败皆缓存，改配置/装 pwsh 需重启）；`MCP_SHELL=cmd|powershell` 为兼容档（cmd 档下 PS 类平台 spec 回退 powershell.exe 保持 v3.1 行为）；Unix 不进入该流程仍 `/bin/sh`。中文 Windows 实测 pwsh 7 管道输出同为 GBK，故 invocation 层对 pwsh 7 与 5.1 统一加 UTF-8 preamble。
 - **ADR-8 流式执行**：既有 `safeExec` / `quickExec` 继续使用 `spawnStream`（输出超上限截断并终止；超时先 SIGTERM，2s 后 SIGKILL）；`execute_command` / `batch_execute` / `watch_command` 已切换到 `capture.ts` 共享捕获与 `command-output.ts` 编排；输出超限停止 retention 并继续 drain，公开成功/错误 envelope 已随 M2 收口。
@@ -146,6 +147,7 @@ Enhanced Terminal MCP v3.1.0 是一个基于 TypeScript / Node.js 的 MCP server
 - **ADR-15 状态根固定 projectRoot**：默认状态目录 `<projectRoot>/.etmcp`，不随 `session_state set_cwd` 或单条命令 cwd 漂移；npm 包安装目录、源码目录、`build/` 目录不得作为默认状态根。
 - **ADR-16 命令 policy**：`MCP_COMMAND_POLICY=blocklist`（默认）/ `allow`；allow 用词级可执行白名单并禁止 shell 元字符/管道/嵌套 shell，仍叠加 hardBlock；`batch_execute` 执行前全量预检，任一失败整批不部分执行。
 - **ADR-17 M2 A+ 输出协议（2026-08-21 验收通过）**：三个命令工具共享 `runCommandOutput` 的原始字节捕获、内存 scanner、staging spill、page cache v2、`SECRET_DETECTED` 与 batch/watch/cache read A+ envelope；阶段 C 门禁在该次 M2 验收时通过。当前分页触发规则见 `codestable/compound/2026-08-22-decision-command-output-spill-paging.md`。M3 Everything 可选解析与发布裁剪已验收；M4 仍负责整体文档和发布口径最终复核。
+- **ADR-18 确认模型收敛（v4.0.0，DEC-002）**：拆除 headless surface（`MCP_CONFIRMATION_MODE`/`MCP_ALLOWED_ROOTS`/`delete_preview`/`workspace-delete.ts`/`headless-policy.ts`），新增 `MCP_COMMAND_CONFIRMATION=all|risk-gated` 命令分级确认（ordinary 免确认 / heavy 经 Elicitation 带风险原因一次确认；off 只豁免 ordinary）；对齐官方 MCP 设计哲学——Roots 已废弃（SEP-2577）、文件系统限制归宿主沙箱、危险操作逐次确认 + step-up 提权；推荐配置 `MCP_SAFETY_MODE=off` + `MCP_COMMAND_CONFIRMATION=risk-gated`。heavy 规则表改动必须过入库语料。
 
 ## 6. 已知约束 / 硬边界
 

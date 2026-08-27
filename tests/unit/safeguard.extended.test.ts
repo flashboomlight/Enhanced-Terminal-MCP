@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // 保存原始环境变量
 const originalSafetyMode = process.env.MCP_SAFETY_MODE;
-const originalConfirmationMode = process.env.MCP_CONFIRMATION_MODE;
 
 describe("initSafeGuard", () => {
   beforeEach(() => {
@@ -194,7 +193,7 @@ describe("guardDestructiveAction", () => {
   });
 });
 
-describe("headless surface 优先级与审计", () => {
+describe("risk-gated 分级与审计", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.doMock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
@@ -204,81 +203,149 @@ describe("headless surface 优先级与审计", () => {
   });
 
   afterEach(() => {
-    for (const [key, value] of [
-      ["MCP_SAFETY_MODE", originalSafetyMode],
-      ["MCP_CONFIRMATION_MODE", originalConfirmationMode],
-    ] as const) {
-      if (value) process.env[key] = value;
-      else delete process.env[key];
+    if (originalSafetyMode) {
+      process.env.MCP_SAFETY_MODE = originalSafetyMode;
+    } else {
+      delete process.env.MCP_SAFETY_MODE;
     }
+    delete process.env.MCP_COMMAND_CONFIRMATION;
   });
 
-  test("off+headless 下非 delete 受保护工具被 headless surface 拦截", async () => {
+  test("off 下 ordinary 命令免确认放行且不调用 elicitInput（A2/A12）", async () => {
     process.env.MCP_SAFETY_MODE = "off";
-    process.env.MCP_CONFIRMATION_MODE = "headless";
-    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
-    initSafeGuard({ server: { elicitInput: vi.fn() } } as any);
+    const { initSafeGuard, guardCommandByRisk } = await import("../../src/safeguard.js");
+    const elicitInput = vi.fn();
+    initSafeGuard({ server: { elicitInput } } as any);
 
-    for (const tool of ["execute_command", "batch_execute", "watch_command", "copy_move", "kill_process"]) {
-      expect(await guardDestructiveAction(tool, "test")).toContain("headless workspace-delete surface");
-    }
+    const { decision } = await guardCommandByRisk("execute_command", "echo hello", { tool: "execute_command" });
+    expect(decision.status).toBe("allow");
+    expect(elicitInput).not.toHaveBeenCalled();
   });
 
-  test("off+headless 下 delete_path 仍放行（headless allow，边界由 preview 流约束）", async () => {
+  test("off 下 heavy 命令仍需确认：无能力时返回 required（A9/A12）", async () => {
     process.env.MCP_SAFETY_MODE = "off";
-    process.env.MCP_CONFIRMATION_MODE = "headless";
-    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
-    initSafeGuard({ server: { elicitInput: vi.fn() } } as any);
+    const { initSafeGuard, guardCommandByRisk } = await import("../../src/safeguard.js");
+    // getClientCapabilities 返回空对象 → 声明不支持 form Elicitation
+    initSafeGuard({
+      server: { elicitInput: vi.fn(), getClientCapabilities: () => ({}) },
+    } as any);
 
-    expect(await guardDestructiveAction("delete_path", "test delete")).toBeNull();
+    const { decision, risk } = await guardCommandByRisk("execute_command", "rm -rf ./node_modules/.cache", {
+      tool: "execute_command",
+    });
+    expect(decision).toMatchObject({ status: "required", reason: "elicitation", clientSupportsElicitation: false });
+    expect(risk).toMatchObject({ level: "heavy", category: "destructive" });
   });
 
-  test("strict+headless 下 delete_path 被 strict 拦截（strict 优先于确认通道）", async () => {
+  test("heavy 确认消息包含风险原因（A6）", async () => {
+    process.env.MCP_SAFETY_MODE = "off";
+    const { initSafeGuard, guardCommandByRisk } = await import("../../src/safeguard.js");
+    const elicitInput = vi.fn().mockResolvedValue({ action: "accept", content: { confirm: true } });
+    initSafeGuard({ server: { elicitInput } } as any);
+
+    await guardCommandByRisk("execute_command", "rm -rf ./node_modules/.cache", { tool: "execute_command" });
+    const message = elicitInput.mock.calls[0][0].message as string;
+    expect(message).toContain("破坏类操作");
+    expect(message).toContain("rm -rf ./node_modules/.cache");
+  });
+
+  test("heavy 用户确认 → allow 且审计含 risk 字段（A10）", async () => {
+    const recordSpy = vi.fn();
+    vi.doMock("../../src/audit.js", () => ({ audit: { record: recordSpy } }));
+    process.env.MCP_SAFETY_MODE = "off";
+    const { initSafeGuard, guardCommandByRisk } = await import("../../src/safeguard.js");
+    initSafeGuard({
+      server: { elicitInput: vi.fn().mockResolvedValue({ action: "accept", content: { confirm: true } }) },
+    } as any);
+
+    const { decision } = await guardCommandByRisk("execute_command", "rm -rf ./x", { tool: "execute_command" });
+    expect(decision.status).toBe("allow");
+
+    const entry = recordSpy.mock.calls[0][0] as Record<string, any>;
+    expect(entry.action).toBe("safety.decision");
+    expect(entry.success).toBe(true);
+    expect(entry.detail).toMatchObject({ decision: "allow", risk_level: "heavy", risk_category: "destructive" });
+    expect(JSON.stringify(entry.detail)).not.toContain("rm -rf ./x");
+  });
+
+  test("heavy 用户取消 → declined 且审计 ELICITATION_CANCELLED（A10）", async () => {
+    const recordSpy = vi.fn();
+    vi.doMock("../../src/audit.js", () => ({ audit: { record: recordSpy } }));
+    process.env.MCP_SAFETY_MODE = "off";
+    const { initSafeGuard, guardCommandByRisk } = await import("../../src/safeguard.js");
+    initSafeGuard({
+      server: { elicitInput: vi.fn().mockResolvedValue({ action: "accept", content: { confirm: false } }) },
+    } as any);
+
+    const { decision } = await guardCommandByRisk("execute_command", "pnpm install", { tool: "execute_command" });
+    expect(decision.status).toBe("declined");
+
+    const entry = recordSpy.mock.calls[0][0] as Record<string, any>;
+    expect(entry.detail).toMatchObject({
+      decision: "decline",
+      risk_level: "heavy",
+      risk_category: "performance",
+      error_code: "ELICITATION_CANCELLED",
+    });
+  });
+
+  test("batch 6 条整批一次确认且分类为 batch（A5）", async () => {
+    process.env.MCP_SAFETY_MODE = "off";
+    const { initSafeGuard, guardCommandByRisk } = await import("../../src/safeguard.js");
+    const elicitInput = vi.fn().mockResolvedValue({ action: "accept", content: { confirm: true } });
+    initSafeGuard({ server: { elicitInput } } as any);
+
+    const commands = ["echo 1", "echo 2", "echo 3", "echo 4", "echo 5", "echo 6"];
+    const { decision, risk } = await guardCommandByRisk("batch_execute", "", {
+      tool: "batch_execute",
+      batchCommands: commands,
+    });
+    expect(decision.status).toBe("allow");
+    expect(risk).toMatchObject({ level: "heavy", category: "batch" });
+    expect(elicitInput).toHaveBeenCalledOnce();
+    const message = elicitInput.mock.calls[0][0].message as string;
+    expect(message).toContain("批量 6 条");
+  });
+
+  test("strict 优先于分级：heavy 命令被 strict 拦截（A11）", async () => {
     process.env.MCP_SAFETY_MODE = "strict";
-    process.env.MCP_CONFIRMATION_MODE = "headless";
-    const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
-    initSafeGuard({ server: { elicitInput: vi.fn() } } as any);
+    const { initSafeGuard, guardCommandByRisk } = await import("../../src/safeguard.js");
+    const elicitInput = vi.fn();
+    initSafeGuard({ server: { elicitInput } } as any);
 
-    expect(await guardDestructiveAction("delete_path", "test delete")).toContain("strict safety mode");
+    const { decision } = await guardCommandByRisk("execute_command", "rm -rf ./x", { tool: "execute_command" });
+    expect(decision).toMatchObject({ status: "blocked", reason: "strict" });
+    expect(elicitInput).not.toHaveBeenCalled();
   });
 
-  test("纯 off（未设确认通道）下命令工具仍直接放行", async () => {
+  test("纯 off（risk-gated 未开）下 guardDestructiveAction 仍直接放行（A1/R3）", async () => {
     process.env.MCP_SAFETY_MODE = "off";
-    delete process.env.MCP_CONFIRMATION_MODE;
+    delete process.env.MCP_COMMAND_CONFIRMATION;
     const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     initSafeGuard({ server: { elicitInput: vi.fn() } } as any);
 
     expect(await guardDestructiveAction("execute_command", "test command")).toBeNull();
   });
 
-  test("非 allow 决策统一写入 safety.decision 审计", async () => {
+  test("strict 阻断写入 safety.decision 审计（非 allow 决策统一审计）", async () => {
     const recordSpy = vi.fn();
     vi.doMock("../../src/audit.js", () => ({ audit: { record: recordSpy } }));
-    process.env.MCP_SAFETY_MODE = "normal";
-    process.env.MCP_CONFIRMATION_MODE = "headless";
+    process.env.MCP_SAFETY_MODE = "strict";
     const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     initSafeGuard({ server: { elicitInput: vi.fn() } } as any);
 
     await guardDestructiveAction("execute_command", "test command");
 
-    expect(recordSpy).toHaveBeenCalledOnce();
     const entry = recordSpy.mock.calls[0][0] as Record<string, any>;
     expect(entry.action).toBe("safety.decision");
-    expect(entry.tool).toBe("execute_command");
     expect(entry.success).toBe(false);
-    expect(entry.detail).toMatchObject({
-      decision: "blocked",
-      reason: "headless_surface",
-      confirmation_mode: "headless",
-      error_code: "SAFETY_BLOCKED",
-    });
+    expect(entry.detail).toMatchObject({ decision: "blocked", reason: "strict", error_code: "SAFETY_BLOCKED" });
   });
 
   test("用户取消（declined）审计记录 ELICITATION_CANCELLED", async () => {
     const recordSpy = vi.fn();
     vi.doMock("../../src/audit.js", () => ({ audit: { record: recordSpy } }));
     process.env.MCP_SAFETY_MODE = "normal";
-    delete process.env.MCP_CONFIRMATION_MODE;
     const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     initSafeGuard({
       server: { elicitInput: vi.fn().mockResolvedValue({ action: "accept", content: { confirm: false } }) },
@@ -298,7 +365,6 @@ describe("headless surface 优先级与审计", () => {
     const recordSpy = vi.fn();
     vi.doMock("../../src/audit.js", () => ({ audit: { record: recordSpy } }));
     process.env.MCP_SAFETY_MODE = "off";
-    delete process.env.MCP_CONFIRMATION_MODE;
     const { initSafeGuard, guardDestructiveAction } = await import("../../src/safeguard.js");
     initSafeGuard({ server: { elicitInput: vi.fn() } } as any);
 

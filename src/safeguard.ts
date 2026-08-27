@@ -1,20 +1,26 @@
 // src/safeguard.ts — 集中式安全策略引擎
-// 三级模式 (strict/normal/off) + Elicitation 交互确认 + 关键资源硬性保护
+// 三级模式 (strict/normal/off) + Elicitation 交互确认 + 命令风险分级确认 + 关键资源硬性保护
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { audit } from "./audit.js";
+import {
+  type CommandGuardContext,
+  type CommandRisk,
+  classifyBatchRisk,
+  classifyCommandRisk,
+  getCommandConfirmationMode,
+} from "./command-risk.js";
 import { logger } from "./logger.js";
 import { IS_WIN } from "./platform.js";
 
 // ===== 类型 =====
 export type SafetyMode = "strict" | "normal" | "off";
-export type ConfirmationMode = "elicitation" | "headless" | "auto";
 
 export type SafetyDecision =
-  | { status: "allow"; source: "policy" | "elicitation" | "headless" }
+  | { status: "allow"; source: "policy" | "elicitation" }
   | { status: "required"; reason: "elicitation"; clientSupportsElicitation: boolean }
   | { status: "declined"; source: "elicitation" }
-  | { status: "blocked"; reason: "strict" | "path" | "policy" | "hard_block" | "headless_surface" };
+  | { status: "blocked"; reason: "strict" | "path" | "policy" | "hard_block" };
 
 // ===== 受保护的工具名单（strict 模式下全部禁用） =====
 const GUARDED_TOOLS = new Set([
@@ -52,7 +58,6 @@ const CRITICAL_PROCESSES_UNIX = new Set(["init", "systemd", "launchd", "kernel",
 // ===== 内部状态 =====
 let _server: McpServer | null = null;
 let _mode: SafetyMode = "normal";
-let _confirmationMode: ConfirmationMode = "elicitation";
 
 const SAFETY_PROTOCOL_VERSION = 2 as const;
 
@@ -64,31 +69,10 @@ export function getSafetyMode(): SafetyMode {
 }
 
 /**
- * 读取确认通道模式；未设置时保持旧的 Elicitation 行为。
- */
-export function getConfirmationMode(): ConfirmationMode {
-  return _confirmationMode;
-}
-
-/**
  * 返回当前安全协议版本。
  */
 export function getSafetyProtocolVersion(): typeof SAFETY_PROTOCOL_VERSION {
   return SAFETY_PROTOCOL_VERSION;
-}
-
-/**
- * 当前 headless surface 只允许 workspace-delete。
- */
-export function isHeadlessWorkspaceDeleteTool(toolName: string): boolean {
-  return _confirmationMode === "headless" && toolName === "delete_path";
-}
-
-/**
- * headless 下排除未纳入本 feature 的副作用工具。
- */
-export function isHeadlessExcludedTool(toolName: string): boolean {
-  return _confirmationMode === "headless" && toolName !== "delete_path";
 }
 
 /**
@@ -112,23 +96,12 @@ export function initSafeGuard(server: McpServer): void {
     _mode = "normal";
     logger.warn("safeguard", "init", `Unknown MCP_SAFETY_MODE="${env}", falling back to "normal"`);
   }
-  const confirmationEnv = (process.env.MCP_CONFIRMATION_MODE || "elicitation").toLowerCase().trim();
-  if (confirmationEnv === "elicitation" || confirmationEnv === "headless" || confirmationEnv === "auto") {
-    _confirmationMode = confirmationEnv;
-  } else {
-    _confirmationMode = "elicitation";
-    logger.warn(
+  logger.info("safeguard", "init", `Safety mode: ${_mode}; command confirmation: ${getCommandConfirmationMode()}`);
+  if (_mode === "off" && getCommandConfirmationMode() === "risk-gated") {
+    logger.info(
       "safeguard",
       "init",
-      `Unknown MCP_CONFIRMATION_MODE="${confirmationEnv}", falling back to "elicitation"`,
-    );
-  }
-  logger.info("safeguard", "init", `Safety mode: ${_mode}; confirmation mode: ${_confirmationMode}`);
-  if (_confirmationMode === "headless" && _mode === "off") {
-    logger.warn(
-      "safeguard",
-      "init",
-      "MCP_SAFETY_MODE=off has no effect on guarded tools in headless confirmation mode; the workspace-delete surface is enforced",
+      "MCP_COMMAND_CONFIRMATION=risk-gated with MCP_SAFETY_MODE=off: ordinary commands run without confirmation; heavy commands still require user confirmation",
     );
   }
 }
@@ -168,7 +141,6 @@ function auditSafetyDecision(toolName: string, decision: Exclude<SafetyDecision,
         : "SAFETY_BLOCKED";
   const detail: Record<string, unknown> = {
     decision: decision.status,
-    confirmation_mode: _confirmationMode,
     error_code: errorCode,
   };
   if (decision.status === "blocked") detail.reason = decision.reason;
@@ -187,12 +159,6 @@ async function decideDestructiveAction(toolName: string, description: string): P
     return { status: "allow", source: "policy" };
   }
 
-  // headless surface：由确认通道建立的授权边界，优先于 off —— off 不消解 surface
-  if (_confirmationMode === "headless") {
-    if (toolName === "delete_path") return { status: "allow", source: "headless" };
-    return { status: "blocked", reason: "headless_surface" };
-  }
-
   // off 模式：跳过安全锁（硬性底线在 security.ts 中另外检查）
   if (_mode === "off") {
     return { status: "allow", source: "policy" };
@@ -204,9 +170,6 @@ async function decideDestructiveAction(toolName: string, description: string): P
   }
 
   const clientSupportsElicitation = supportsFormElicitation();
-  if (_confirmationMode === "auto" && !clientSupportsElicitation) {
-    return { status: "required", reason: "elicitation", clientSupportsElicitation: false };
-  }
   if (!_server || !clientSupportsElicitation) {
     return { status: "required", reason: "elicitation", clientSupportsElicitation };
   }
@@ -277,9 +240,104 @@ export function describeSafetyDecision(decision: SafetyDecision, toolName: strin
           `Tool "${toolName}" is marked as destructive and cannot be executed.`
         );
       }
-      if (decision.reason === "headless_surface") {
-        return `[SAFETY] Operation blocked: tool "${toolName}" is outside the headless workspace-delete surface.`;
-      }
       return `[SAFETY] Operation blocked by ${decision.reason}: ${toolName}`;
+  }
+}
+
+// ===== 命令风险分级确认（risk-gated 模式专用） =====
+
+/** heavy 决策统一写入审计（含 accept；不写命令原文，DEC-002/设计跨层纪律） */
+function auditRiskDecision(toolName: string, risk: CommandRisk, outcome: "accept" | "decline" | "required"): void {
+  const detail: Record<string, unknown> = {
+    decision: outcome === "accept" ? "allow" : outcome,
+    risk_level: risk.level,
+    risk_category: risk.category,
+    error_code:
+      outcome === "required" ? "ELICITATION_REQUIRED" : outcome === "decline" ? "ELICITATION_CANCELLED" : undefined,
+  };
+  audit.record({ action: "safety.decision", tool: toolName, detail, success: outcome === "accept" });
+}
+
+/** heavy 确认消息：必须携带风险原因（design §0"说明原因"）；batch 附逐条摘要 */
+function buildRiskMessage(toolName: string, risk: CommandRisk, command: string, context: CommandGuardContext): string {
+  const lines: string[] = [`⚠️ 命令风险确认 — ${toolName}`, ``, `原因: ${risk.reason ?? "命中 heavy 规则"}`];
+  if (context.batchCommands) {
+    const summaries = context.batchCommands.map((c) => {
+      const r = classifyCommandRisk(c, { tool: "batch_execute" });
+      return `  - ${c}${r.level === "heavy" ? `（${r.reason}）` : ""}`;
+    });
+    const shown = summaries.slice(0, 10);
+    if (summaries.length > 10) shown.push(`  - …共 ${summaries.length} 条`);
+    lines.push(`批量 ${context.batchCommands.length} 条:`, ...shown);
+  } else {
+    const preview = command.length > 500 ? `${command.slice(0, 500)}…` : command;
+    lines.push(`命令: ${preview}`);
+  }
+  lines.push(``, `确认要执行吗？`);
+  return lines.join("\n");
+}
+
+/**
+ * risk-gated 模式的命令决策入口（先于 off/normal：ordinary 放行、heavy 确认）。
+ * strict 优先于分级；返回 decision + risk，由调用方映射 ELICITATION_REQUIRED/CANCELLED。
+ */
+export interface CommandRiskDecision {
+  decision: SafetyDecision;
+  risk: CommandRisk;
+}
+
+export async function guardCommandByRisk(
+  toolName: string,
+  command: string,
+  context: CommandGuardContext = {},
+): Promise<CommandRiskDecision> {
+  if (_mode === "strict" && GUARDED_TOOLS.has(toolName)) {
+    logger.warn("safeguard", "strict-block", `${toolName}: ${command}`);
+    return { decision: { status: "blocked", reason: "strict" }, risk: { level: "ordinary" } };
+  }
+
+  const risk: CommandRisk = context.batchCommands
+    ? classifyBatchRisk(context.batchCommands)
+    : classifyCommandRisk(command, { tool: toolName, batchSize: context.batchSize, durationMs: context.durationMs });
+  if (risk.level === "ordinary") {
+    return { decision: { status: "allow", source: "policy" }, risk };
+  }
+
+  const clientSupportsElicitation = supportsFormElicitation();
+  if (!_server || !clientSupportsElicitation) {
+    auditRiskDecision(toolName, risk, "required");
+    return { decision: { status: "required", reason: "elicitation", clientSupportsElicitation }, risk };
+  }
+
+  try {
+    const result = await _server.server.elicitInput({
+      message: buildRiskMessage(toolName, risk, command, context),
+      requestedSchema: {
+        type: "object" as const,
+        properties: {
+          confirm: {
+            type: "boolean" as const,
+            title: "确认执行",
+            description: "选择 true 确认执行，false 取消操作",
+          },
+        },
+        required: ["confirm"],
+      },
+    });
+
+    if (result.action === "accept" && result.content?.confirm === true) {
+      logger.info("safeguard", "risk-confirmed", `${toolName}: user confirmed heavy command`);
+      auditRiskDecision(toolName, risk, "accept");
+      return { decision: { status: "allow", source: "elicitation" }, risk };
+    }
+
+    logger.info("safeguard", "risk-declined", `${toolName}: user declined heavy command`);
+    auditRiskDecision(toolName, risk, "decline");
+    return { decision: { status: "declined", source: "elicitation" }, risk };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logger.warn("safeguard", "risk-elicitation-unavailable", `${toolName}: ${msg}`);
+    auditRiskDecision(toolName, risk, "required");
+    return { decision: { status: "required", reason: "elicitation", clientSupportsElicitation: false }, risk };
   }
 }

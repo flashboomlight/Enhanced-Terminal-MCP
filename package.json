@@ -1,6 +1,6 @@
 {
   "name": "enhanced-terminal-mcp",
-  "version": "3.1.0",
+  "version": "4.0.0",
   "type": "module",
   "packageManager": "pnpm@11.21.0",
   "description": "Enhanced Terminal MCP Server - A powerful command-line interface for AI models with extended capabilities",

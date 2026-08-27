@@ -8,6 +8,7 @@ import { adaptiveTimeout } from "../adaptive.js";
 import { audit } from "../audit.js";
 import { type CommandOutputRun, getCommandOutputLimits, runCommandOutput } from "../command-output.js";
 import { checkCommandPolicy, classifyPolicyReason, getCommandPolicyMode } from "../command-policy.js";
+import { type CommandGuardContext, getCommandConfirmationMode } from "../command-risk.js";
 import { logger } from "../logger.js";
 import { PageCacheCorruptError, PageCacheReadError, pageCache } from "../paging.js";
 import { checkRateLimit, commandRateLimit } from "../ratelimit.js";
@@ -25,7 +26,7 @@ import {
   type ToolResult,
   withErrorSchema,
 } from "../result.js";
-import { guardDestructiveAction } from "../safeguard.js";
+import { describeSafetyDecision, guardCommandByRisk, guardDestructiveAction } from "../safeguard.js";
 import { session } from "../session.js";
 import { buildShellInvocation, getShellSpec, shellResolutionFail } from "../shell.js";
 import { wrapHandler } from "../wrap.js";
@@ -44,6 +45,44 @@ function precheckCommand(command: string, param: string): ToolResult | null {
     error: reason,
   });
   return Errors.commandBlocked(command, reason, param);
+}
+
+/**
+ * 命令安全闸：risk-gated 走 guardCommandByRisk 分级确认（拒绝体附风险原因），all 走工具级确认（现状）。
+ * 返回 null = 放行；否则为已构造好的拒绝 ToolResult。
+ */
+async function commandSafetyGate(
+  toolName: "execute_command" | "batch_execute" | "watch_command",
+  command: string,
+  description: string,
+  param: "command" | "commands",
+  context: CommandGuardContext = {},
+): Promise<ToolResult | null> {
+  if (getCommandConfirmationMode() !== "risk-gated") {
+    const block = await guardDestructiveAction(toolName, description);
+    return block ? fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param }) : null;
+  }
+  const { decision, risk } = await guardCommandByRisk(toolName, command, context);
+  if (decision.status === "allow") return null;
+  const reasonNote = risk.level === "heavy" && risk.reason ? `\n风险原因: ${risk.reason}` : "";
+  if (decision.status === "required") {
+    return fail(ErrorCode.ELICITATION_REQUIRED, describeSafetyDecision(decision, toolName, description) + reasonNote, {
+      retryable: false,
+      param,
+      detail: { client_supports_elicitation: decision.clientSupportsElicitation },
+    });
+  }
+  if (decision.status === "declined") {
+    return fail(ErrorCode.ELICITATION_CANCELLED, describeSafetyDecision(decision, toolName, description) + reasonNote, {
+      retryable: false,
+      param,
+    });
+  }
+  return fail(ErrorCode.SAFETY_BLOCKED, describeSafetyDecision(decision, toolName, description) + reasonNote, {
+    retryable: false,
+    param,
+    detail: { reason: decision.reason },
+  });
 }
 
 /** batch 限流：batch=整批 1 token（默认）；per_command=按条数消费 */
@@ -315,8 +354,8 @@ export function registerCommandTools(server: McpServer) {
           retryable: false,
         });
       }
-      const block = await guardDestructiveAction("execute_command", `执行命令: ${commandText}`);
-      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
+      const block = await commandSafetyGate("execute_command", commandText, `执行命令: ${commandText}`, "command");
+      if (block) return block;
 
       try {
         const shellSpec = await getShellSpec();
@@ -429,8 +468,10 @@ export function registerCommandTools(server: McpServer) {
         if (blocked) return blocked;
       }
 
-      const block = await guardDestructiveAction("batch_execute", `批量执行 ${commands.length} 条命令`);
-      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "commands" });
+      const block = await commandSafetyGate("batch_execute", "", `批量执行 ${commands.length} 条命令`, "commands", {
+        batchCommands: commands,
+      });
+      if (block) return block;
 
       // 默认整批 1 token；MCP_BATCH_RATE_MODE=per_command 时按条消费
       const batchMode = getBatchRateMode();
@@ -612,8 +653,10 @@ export function registerCommandTools(server: McpServer) {
         });
       }
 
-      const block = await guardDestructiveAction("watch_command", `监控命令: ${command}`);
-      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "command" });
+      const block = await commandSafetyGate("watch_command", command, `监控命令: ${command}`, "command", {
+        durationMs: duration ?? 5000,
+      });
+      if (block) return block;
 
       try {
         const shellSpec = await getShellSpec();

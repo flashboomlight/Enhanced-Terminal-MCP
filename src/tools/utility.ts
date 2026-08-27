@@ -8,11 +8,10 @@ import * as z from "zod";
 import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { injectContext } from "../context.js";
-import { getHeadlessPolicySummary } from "../headless-policy.js";
 import { logger } from "../logger.js";
 import { processPool } from "../pool.js";
 import { ErrorCode, fail, success, type ToolResult, withErrorSchema } from "../result.js";
-import { getConfirmationMode, getSafetyMode, getSafetyProtocolVersion, supportsFormElicitation } from "../safeguard.js";
+import { getSafetyMode, getSafetyProtocolVersion, supportsFormElicitation } from "../safeguard.js";
 import { validatePath } from "../security.js";
 import { session } from "../session.js";
 import { getStateDirSync } from "../state-dir.js";
@@ -454,13 +453,7 @@ export function registerUtilityTools(server: McpServer) {
               timestamp: new Date().toISOString(),
               safety_protocol_version: getSafetyProtocolVersion(),
               safety_mode: getSafetyMode(),
-              confirmation_mode: getConfirmationMode(),
               elicitation_supported: supportsFormElicitation(),
-              allowed_roots: {
-                configured: getHeadlessPolicySummary().configured,
-                count: getHeadlessPolicySummary().rootCount,
-              },
-              headless_surface: getHeadlessPolicySummary().surface,
               state_dir: stateDir,
               metrics: {
                 uptime_minutes: s.uptime_minutes,
@@ -519,9 +512,7 @@ NEW in v3.1:
               version: VERSION,
               safety_protocol_version: getSafetyProtocolVersion(),
               safety: getSafetyMode(),
-              confirmation_mode: getConfirmationMode(),
               elicitation_supported: supportsFormElicitation(),
-              headless_surface: getHeadlessPolicySummary().surface,
               tools: getRegisteredToolCount(),
               cache: toolCache.stats,
             },

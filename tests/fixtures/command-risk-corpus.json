@@ -1,0 +1,26 @@
+{
+  "comment": "risk-gated 分级验收语料（design §3/P1/P3）。改动规则表必须让本语料保持分组不变。",
+  "ordinary": [
+    "echo hello",
+    "git status",
+    "node -v",
+    "pnpm run build",
+    "ls -la",
+    "git diff --check",
+    "Get-Content file.txt -Encoding utf8",
+    "echo install",
+    "echo Stop-Computer"
+  ],
+  "heavyDestructive": [
+    "rm -rf ./node_modules/.cache",
+    "rm -rf D:\\proj\\cache",
+    "Remove-Item -Recurse -Force .\\temp",
+    "rd /s /q temp",
+    "git clean -fdx",
+    "git reset --hard"
+  ],
+  "heavyPerformance": ["pnpm install", "npm ci", "pnpm run ci", "vitest run", "npm publish", "pnpm test"],
+  "policyRejected": ["rm -rf /", "Remove-Item -Recurse -Force D:\\x", "echo iex"],
+  "batchThreshold": 5,
+  "watchThresholdMs": 60000
+}
