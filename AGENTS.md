@@ -1,14 +1,15 @@
 # AGENTS.md — 项目与 AI 协作指引
 
-Enhanced Terminal MCP v3.1.0：通过 MCP 协议向 AI 客户端提供 28 个（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 27 个）终端/文件/系统工具的 TypeScript 服务端。
+Enhanced Terminal MCP v4.0.0：通过 MCP 协议向 AI 客户端提供 27 个（默认；`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时 26 个）终端/文件/系统工具的 TypeScript 服务端。
 
 本文件是 AI 协作的项目级硬约束入口（继承 E hardening 线的约束），所有 CodeStable 子工作流默认遵守本文件的所有规则。
 
 ## 工作前必读
 
-1. `README.md` — 工具清单、环境变量、快速开始
-2. `codestable/architecture/ARCHITECTURE.md` — 架构总入口与关键决定
-3. `codestable/reference/` — CodeStable 规范：
+1. `STATUS.md` — **总体任务与进度快照**（正在做什么/进行到哪/下一步/关键坑；每个 feature 收口后必须同步更新）
+2. `README.md` — 工具清单、环境变量、快速开始
+3. `codestable/architecture/ARCHITECTURE.md` — 架构总入口与关键决定
+4. `codestable/reference/` — CodeStable 规范：
    - `shared-conventions.md`：目录结构、frontmatter、checklist 生命周期、收尾 commit 规则
    - `code-dimensions.md`：写代码前先定维度档位
    - `tools.md`：`search-yaml.py` / `validate-yaml.py` 用法
