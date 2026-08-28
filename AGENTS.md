@@ -7,16 +7,17 @@ Enhanced Terminal MCP v4.0.0：通过 MCP 协议向 AI 客户端提供 27 个（
 ## 工作前必读
 
 1. `STATUS.md` — **总体任务与进度快照**（正在做什么/进行到哪/下一步/关键坑；每个 feature 收口后必须同步更新）
-2. `README.md` — 工具清单、环境变量、快速开始
-3. `codestable/architecture/ARCHITECTURE.md` — 架构总入口与关键决定
-4. `codestable/reference/` — CodeStable 规范：
+2. `CS-AUTOMATION.md` — **CodeStable 流程自动执行授权**（用户已将 cs 全流程委托给 agent 代为执行，含批准/验收/commit 决策细则与例外边界）
+3. `README.md` — 工具清单、环境变量、快速开始
+4. `codestable/architecture/ARCHITECTURE.md` — 架构总入口与关键决定
+5. `codestable/reference/` — CodeStable 规范：
    - `shared-conventions.md`：目录结构、frontmatter、checklist 生命周期、收尾 commit 规则
    - `code-dimensions.md`：写代码前先定维度档位
    - `tools.md`：`search-yaml.py` / `validate-yaml.py` 用法
 
 ## CodeStable 工作流
 
-- 新功能走 `codestable/features/YYYY-MM-DD-{slug}/`：design → checklist → implement → acceptance，阶段不可跳；design 未经用户批准不写代码。
+- 新功能走 `codestable/features/YYYY-MM-DD-{slug}/`：design → checklist → implement → acceptance，阶段不可跳；design 未经用户批准不写代码（本仓库经 `CS-AUTOMATION.md` 授权：agent 多轮审计定稿即视为批准）。
 - 修 bug / 重构 / 沉淀分别走 `issues/`、`refactors/`、`compound/` 的对应约定。
 - 任何 feature/issue 动手前，先搜已有归档，避免重复或与既有 decision 冲突：
   ```bash
@@ -24,7 +25,7 @@ Enhanced Terminal MCP v4.0.0：通过 MCP 协议向 AI 客户端提供 27 个（
   python codestable/tools/search-yaml.py --dir codestable/compound --filter doc_type=decision --filter status=active
   ```
 - 写代码时遇到"大文件继续加职责 / 函数超一屏 / 第 4+ 个参数 / copy-paste / 万能工具类"等信号，停下来与用户对齐，不偷偷重构。
-- 未经用户明确同意，不执行 `git commit`；commit 范围只含本次工作相关改动。
+- 未经用户明确同意，不执行 `git commit`；commit 范围只含本次工作相关改动（本仓库经 `CS-AUTOMATION.md` 授权：commit 决策由 agent 代行，仍限 scoped commit）。
 
 ## 常用命令
 

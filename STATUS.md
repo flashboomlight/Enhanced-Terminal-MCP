@@ -39,6 +39,8 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 
 用户已将**整个 CodeStable 流程委托给 agent 代为执行**：design → 多轮审计（自行审计并修正，直到新一轮审计无新问题才定稿）→ checklist → 实现 → 门禁 → 验收（含反向审计）→ 五处文档回写（roadmap/items/audit explore/ARCHITECTURE/CHANGELOG+README）→ commit。**commit 决策也由代理决定**（scoped commit：只含本次工作相关改动）。仅重大产品决策需上报用户。
 
+完整授权文本（原话要点、各阶段细则、"重大决策"判定标准、授权不覆盖的硬约束、与 AGENTS.md 条款的关系）见 **`CS-AUTOMATION.md`**——它是本节的权威来源，冲突时以其为准。
+
 ## 5. 下一步（按序）
 
 1. **#10 `search-and-adaptive-correctness`**（依赖 #3+#9 已满足，可立即开工）：`everything_search` 错误/超时/maxBuffer 处理、native fallback 的 partial-result 契约（§5.10）、目录边界与 Unix process filter 修复、adaptive timeout 真实 P95 或明确改名 average heuristic。
@@ -62,6 +64,7 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 | 文档 | 用途 |
 |---|---|
 | `AGENTS.md` | 项目级硬约束入口（工作前必读） |
+| `CS-AUTOMATION.md` | CodeStable 流程自动执行授权（用户委托的权威文本） |
 | `codestable/roadmap/2026-08-28-production-hardening/production-hardening-roadmap.md` + `production-hardening-items.yaml` | 总任务定义、§5 接口契约（硬约束）、13 条状态 |
 | `codestable/compound/2026-08-28-explore-production-readiness-audit.md` | 审计证据、问题编号、§6 各条目实施状态 |
 | `codestable/architecture/ARCHITECTURE.md` | 架构现状与变更日志 |
