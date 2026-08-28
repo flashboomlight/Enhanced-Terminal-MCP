@@ -1,0 +1,116 @@
+roadmap: production-hardening
+created: 2026-08-28
+
+items:
+  - slug: hardening-contract-and-profiles
+    description: 定义统一 RequestContext、CapabilityPolicy、ExecutionRequest、InputBudget、ExecutionLimits、BudgetAccount、部署 profile 和结构化错误兼容契约
+    depends_on: []
+    status: done
+    feature: 2026-08-28-hardening-contract-and-profiles
+    minimal_loop: false
+    notes: 已完成并通过 acceptance；所有后续 feature-design 的硬约束输入；finite/bounded schema、byte-count、parent budget、action schema、capability 和错误码兼容必须先定
+
+  - slug: process-supervisor-and-cancellation
+    description: 建立覆盖全部生产 child process 的 active registry、timeout、AbortSignal、pending capture queue、process tree 终止和 shutdown drain
+    depends_on: [hardening-contract-and-profiles]
+    status: done
+    feature: 2026-08-28-process-supervisor-and-cancellation
+    minimal_loop: false
+    notes: 已完成并通过 acceptance；全部生产 spawn/execFile/probe 经 supervisor registry 纳管，Windows PID-only taskkill /T /F、Unix 进程组信号，capture pending 有界，RequestContext cancellation 贯穿 command/search/system/archive，shutdown 先 drain 再 flush。验收期间修复 registry cleanup 竞态（close 与 termination promise 完成顺序不确定导致 activeCount 残留）、lint 与 cancel 测试 bounded 等待边界。后代进程/descendant budget 按 roadmap 归属 bounded-command-execution；Unix 真实树终止 smoke 归属后续 conformance gate
+
+  - slug: bounded-command-execution
+    description: 为三个命令工具接入 finite 输入、batch parent/watch/并发/输出/响应/queue 预算和统一限流，形成可取消的最小命令闭环
+    depends_on: [process-supervisor-and-cancellation]
+    status: planned
+    feature: null
+    minimal_loop: true
+    notes: 最小闭环；完成后 local-trusted-shell 可执行普通命令并在 timeout/cancel/超限时有界结束；parallel 子任务不得重置 parent budget
+
+  - slug: kill-process-identity
+    description: 将 kill_process 收敛为唯一 pid 或精确进程身份 proof，拒绝 wildcard、PID reuse、重名和危险批量终止
+    depends_on: [hardening-contract-and-profiles]
+    status: done
+    feature: 2026-08-28-kill-process-identity
+    minimal_loop: false
+    notes: 已完成并通过 acceptance；使用 Windows Process handle/start time、Linux /proc start time、macOS ps recheck；需要后续 supervisor 接管全局 process tree/lifecycle
+
+  - slug: path-policy-no-follow
+    description: 统一 realpath、parent path、no-follow、symlink/reparse 和 TOCTOU 防护并覆盖文件、session、state、temp、page-cache 和归档操作
+    depends_on: [hardening-contract-and-profiles]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 不替代宿主 sandbox；目标不存在时必须校验 parent，写入使用 staging/exclusive/atomic 语义，读取定义 snapshot/identity 语义
+
+  - slug: secret-redaction-and-state-protection
+    description: 建立 streaming secret scan、命令/日志/error/result/prompt redaction、大小写不敏感 env policy 和安全 session/cache 持久化
+    depends_on: [hardening-contract-and-profiles, path-policy-no-follow]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 默认不持久化 env value 和原始命令；strict profile 下扫描不完整不得视为 safe；logger 控制字符必须转义，environment_vars 默认不缓存任意值
+
+  - slug: network-and-archive-safety
+    description: 为 download、redirect、network_info、compress 和 extract 增加 SSRF/DNS/proxy 防护、byte budget、archive manifest 和 zip bomb/Zip Slip/link-entry 防护
+    depends_on: [hardening-contract-and-profiles, path-policy-no-follow]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: redirect 每跳重新校验；DNS 每次连接校验或绑定；下载和解压必须使用 staging、总 deadline、实际 expanded bytes 和成员预算
+
+  - slug: audit-health-and-state-writer
+    description: 修复 session/audit/temp/cache 的并发、失败恢复、轮换、权限、bounded queue 和 truthful health 状态
+    depends_on: [secret-redaction-and-state-protection, process-supervisor-and-cancellation]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 包括 session revision writer、带 lease/fencing 的 migration/temp lock、跨进程 temp quota、audit serialized writer/durable spool/bounded queue 和 oversized cache entry
+
+  - slug: tool-wrapper-and-surface-contract
+    description: 统一 wrapHandler 异常兜底、MCP request context/cancellation、action schema、structured result/response budget 和真实启用工具数量
+    depends_on: [hardening-contract-and-profiles]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: handler throw 必须映射 INTERNAL_ERROR；27/26 tools、health、prompt 和 tools/list 必须一致；不能因 action 缺参静默 no-op
+
+  - slug: search-and-adaptive-correctness
+    description: 修复 everything_search 错误吞掉、native search partial-result/预算/取消、目录边界、Unix process filter 和 adaptive timeout 语义不一致
+    depends_on: [bounded-command-execution, tool-wrapper-and-surface-contract]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 真实 P95 或统一改为 average heuristic；Everything no-match、CLI failure、permission partial 必须区分并显式返回 complete/warnings
+
+  - slug: dependency-and-bootstrap-release
+    description: 升级或覆盖生产依赖、修复 SDK patch 链、分离 source/npm bootstrap 并让 package、sourcemap、executable integrity 与 clean consumer 可验证
+    depends_on: [hardening-contract-and-profiles]
+    status: done
+    feature: 2026-08-28-dependency-and-bootstrap-release
+    minimal_loop: false
+    notes: P0 发布项；pnpm audit --prod、pnpm pack --dry-run、clean install、SBOM、checksum、provenance、patch fail-closed 和 postinstall 写入边界必须纳入证据
+
+  - slug: security-and-mcp-conformance-gates
+    description: 将 hostile-input、MCP conformance、跨平台支持矩阵、主覆盖率、依赖审计、package 验证和供应链策略纳入唯一阻断 CI gate
+    depends_on:
+      - bounded-command-execution
+      - kill-process-identity
+      - path-policy-no-follow
+      - secret-redaction-and-state-protection
+      - network-and-archive-safety
+      - audit-health-and-state-writer
+      - tool-wrapper-and-surface-contract
+      - search-and-adaptive-correctness
+      - dependency-and-bootstrap-release
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 修复 100ms TTL/Windows rename flaky；主 test:coverage 不能只配置不执行；workflow 必须调用 canonical gate、固定 action SHA 并声明最小权限
+
+  - slug: docs-and-architecture-closeout
+    description: 以最终代码、package manifest、profile matrix 和 gate evidence 统一 v4.0.0/27/26 tools、bootstrap、sandbox 边界、CHANGELOG、usage-guide、维护入口和现状文档
+    depends_on: [security-and-mcp-conformance-gates, dependency-and-bootstrap-release]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: 只回写已经落地的现状；不把 roadmap 计划提前写进 architecture/requirements

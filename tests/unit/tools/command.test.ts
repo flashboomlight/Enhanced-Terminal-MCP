@@ -4,9 +4,10 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { audit } from "../../../src/audit.js";
 import { resetCommandOutputLimitsCache } from "../../../src/command-output.js";
+import { processSupervisor } from "../../../src/process-supervisor.js";
 import { initSafeGuard } from "../../../src/safeguard.js";
 import { session } from "../../../src/session.js";
 import { resetShellSpecCache } from "../../../src/shell.js";
@@ -46,6 +47,14 @@ function handler(name: string): ToolHandler {
 
 async function call(name: string, args: Record<string, unknown>): Promise<any> {
   return handler(name)(args);
+}
+
+async function callWithExtra(
+  name: string,
+  args: Record<string, unknown>,
+  extra: { requestId: string; signal: AbortSignal },
+): Promise<any> {
+  return handler(name)(args, extra);
 }
 
 async function writeScript(name: string, source: string): Promise<string> {
@@ -132,6 +141,29 @@ describe("execute_command contract", () => {
     expect(cacheCwd.isError).toBe(true);
     expect(cacheCwd.structuredContent.error.code).toBe("VALIDATION_ERROR");
   });
+
+  test("cancels a running command through MCP RequestContext signal", async () => {
+    const script = await writeScript("cancel.js", "setTimeout(() => {}, 5000)");
+    const controller = new AbortController();
+    const pending = callWithExtra(
+      "execute_command",
+      { command: scriptCommand(script), cwd: scriptDir },
+      { requestId: "cancel-test", signal: controller.signal },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    controller.abort();
+    const result = await pending;
+    const output = structured(result);
+
+    expect(result.isError).toBe(true);
+    expect(output.error.code).toBe("CANCELLED");
+    expect(output.cancelled).toBe(true);
+    // taskkill 控制进程按 design 纳管在 registry 中，属于瞬态 child；等待其自然退出后再断言无泄漏。
+    await vi.waitFor(() => expect(processSupervisor.getActiveSnapshots()).toEqual([]), {
+      timeout: 5000,
+      interval: 25,
+    });
+  }, 10000);
 
   test("returns over-2000-character output in memory without creating a cache", async () => {
     const script = await writeScript("small.js", "process.stdout.write('x'.repeat(4000))");

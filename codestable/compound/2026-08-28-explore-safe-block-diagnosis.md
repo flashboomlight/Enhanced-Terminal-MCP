@@ -6,11 +6,15 @@ slug: safe-block-diagnosis
 topic: 调查 safe_block 机制为何拦截普通项目指令
 scope: src/safeguard.ts、src/command-policy.ts、src/security.ts、src/tools/command.ts、运行时环境与 .etmcp 审计日志
 keywords: [safe_block, safeguard, headless, command-policy, hardBlock, false-positive]
-status: active
+status: outdated
+updated: "2026-08-28"
+superseded-by: 2026-08-28-explore-production-readiness-audit.md
 confidence: high
 ---
 
 # safe_block 机制诊断
+
+> **[已过期]** 本文记录的是 2026-08-28 早期运行环境中仍存在的 headless surface。v4.0.0 已移除 `MCP_CONFIRMATION_MODE=headless`、`MCP_ALLOWED_ROOTS` 和 `delete_preview`；当前项目状态与生产硬化方案以 `2026-08-28-explore-production-readiness-audit.md` 为准。
 
 ## 问题与范围
 

@@ -5,20 +5,52 @@
  * 非法 host 校验。会真实 spawn 的 get_system_info / process_list /
  * network_info 成功路径由 e2e 覆盖。
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import type { ProcessIdentity, ProcessIdentityProvider } from "../../../src/process-identity.js";
+import { Errors } from "../../../src/result.js";
+import { initSafeGuard } from "../../../src/safeguard.js";
 import { registerSystemTools } from "../../../src/tools/system.js";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<any>;
 
-function registerTools() {
+function registerTools(dependencies: { processIdentityProvider?: ProcessIdentityProvider } = {}) {
   const tools = new Map<string, ToolHandler>();
   const server = {
     registerTool(name: string, _spec: unknown, handler: ToolHandler) {
       tools.set(name, { handler });
     },
   };
-  registerSystemTools(server as any);
+  registerSystemTools(server as any, dependencies);
   return tools;
+}
+
+const fakeIdentity: ProcessIdentity = {
+  pid: 99_999,
+  name: "worker",
+  startedAt: 100,
+  token: "fake:100",
+  ownedByCurrentWorker: false,
+};
+
+function fakeProvider(overrides: Partial<ProcessIdentityProvider> = {}): ProcessIdentityProvider {
+  return {
+    findByExactName: vi.fn(async () => [fakeIdentity]),
+    inspectPid: vi.fn(async () => fakeIdentity),
+    terminate: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
+async function withSafetyOff<T>(callback: () => Promise<T>): Promise<T> {
+  const previous = process.env.MCP_SAFETY_MODE;
+  process.env.MCP_SAFETY_MODE = "off";
+  initSafeGuard({} as any);
+  try {
+    return await callback();
+  } finally {
+    if (previous === undefined) delete process.env.MCP_SAFETY_MODE;
+    else process.env.MCP_SAFETY_MODE = previous;
+  }
 }
 
 describe("system tools decision paths (unit)", () => {
@@ -80,6 +112,66 @@ describe("system tools decision paths (unit)", () => {
 
     expect(result?.isError).toBe(true);
     expect(result?.structuredContent.error).toMatchObject({ code: "PROCESS_PROTECTED" });
+  });
+
+  test("kill_process rejects wildcard and dual targets before provider side effects", async () => {
+    const provider = fakeProvider();
+    const result = await registerTools({ processIdentityProvider: provider }).get("kill_process")?.handler({
+      pid: 99999,
+      name: "worker*",
+    });
+
+    expect(result?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(provider.findByExactName).not.toHaveBeenCalled();
+    expect(provider.inspectPid).not.toHaveBeenCalled();
+    expect(provider.terminate).not.toHaveBeenCalled();
+  });
+
+  test("kill_process refuses ambiguous exact name without terminating", async () => {
+    const provider = fakeProvider({ findByExactName: async () => [fakeIdentity, { ...fakeIdentity, pid: 100_000 }] });
+    const result = await withSafetyOff(() =>
+      registerTools({ processIdentityProvider: provider })
+        .get("kill_process")
+        ?.handler({ name: "worker", force: true }),
+    );
+
+    expect(result?.structuredContent.error).toMatchObject({ code: "PROCESS_IDENTITY_AMBIGUOUS" });
+    expect(provider.terminate).not.toHaveBeenCalled();
+  });
+
+  test("kill_process binds unique identity before termination and reports tree mode", async () => {
+    const terminate = vi.fn(async () => undefined);
+    const provider = fakeProvider({ terminate });
+    const result = await withSafetyOff(() =>
+      registerTools({ processIdentityProvider: provider })
+        .get("kill_process")
+        ?.handler({ name: "worker", force: true }),
+    );
+
+    expect(result?.isError).toBeFalsy();
+    expect(result?.structuredContent).toMatchObject({ killed: true, pid: fakeIdentity.pid, tree: true });
+    expect(terminate).toHaveBeenCalledWith(fakeIdentity, true, true);
+  });
+
+  test("kill_process propagates identity mismatch and never reports success", async () => {
+    const provider = fakeProvider({ inspectPid: async () => Errors.processIdentityAmbiguous("PID reuse") });
+    const result = await withSafetyOff(() =>
+      registerTools({ processIdentityProvider: provider }).get("kill_process")?.handler({ pid: 99999 }),
+    );
+
+    expect(result?.structuredContent.error).toMatchObject({ code: "PROCESS_IDENTITY_AMBIGUOUS" });
+    expect(provider.terminate).not.toHaveBeenCalled();
+  });
+
+  test("kill_process protects the current server pid before provider inspection", async () => {
+    const provider = fakeProvider();
+    const result = await registerTools({ processIdentityProvider: provider }).get("kill_process")?.handler({
+      pid: process.pid,
+    });
+
+    expect(result?.structuredContent.error).toMatchObject({ code: "PROCESS_PROTECTED" });
+    expect(provider.inspectPid).not.toHaveBeenCalled();
+    expect(provider.terminate).not.toHaveBeenCalled();
   });
 
   test("network_info rejects invalid ping targets without spawning", async () => {

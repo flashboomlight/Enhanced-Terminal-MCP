@@ -70,32 +70,26 @@ export function getProcessListSpec(filter: string | undefined, top: number, shel
 }
 
 /**
- * 获取 kill 命令（返回 CommandSpec）
- * @throws 当 pid 和 name 都为空时
+ * 获取 verified PID 的 kill 命令（返回 CommandSpec）。
+ *
+ * name 不属于此兼容入口；进程名称必须先经过 ProcessIdentityProvider 唯一枚举，
+ * 由 provider 绑定 identity 后决定实际终止方式。
  */
-export function getKillSpec(pid?: number, name?: string, force?: boolean): CommandSpec {
-  if (pid == null && !name) {
-    throw new Error("getKillSpec requires at least pid or name");
+export function getKillSpec(pid: number, force = false, tree = false): CommandSpec {
+  if (!Number.isSafeInteger(pid) || pid < 1 || pid > 2_147_483_647) {
+    throw new Error("getKillSpec requires a verified positive pid");
+  }
+  if (typeof force !== "boolean" || typeof tree !== "boolean") {
+    throw new Error("getKillSpec force and tree must be boolean");
   }
   if (IS_WIN) {
-    const args: string[] = [];
-    if (pid != null) {
-      args.push("/PID", String(pid));
-    } else if (name) {
-      args.push("/IM", name);
-    }
+    const args = ["/PID", String(pid)];
+    if (tree) args.push("/T");
     if (force) args.push("/F");
     return { file: "taskkill", args };
   }
   const sig = force ? "-9" : "-15";
-  if (pid != null) {
-    return { file: "kill", args: [sig, String(pid)] };
-  }
-  // pkill 需要精确名（已在上游 sanitize 去掉通配）
-  if (!name) {
-    throw new Error("getKillSpec requires name when pid is not provided");
-  }
-  return { file: "pkill", args: [sig, name] };
+  return tree ? { file: "kill", args: [sig, "--", `-${pid}`] } : { file: "kill", args: [sig, String(pid)] };
 }
 
 /**

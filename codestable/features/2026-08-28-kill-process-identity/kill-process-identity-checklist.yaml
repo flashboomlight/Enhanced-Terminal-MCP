@@ -1,0 +1,51 @@
+feature: 2026-08-28-kill-process-identity
+created: 2026-08-28
+
+steps:
+  - action: "契约和输入节点：定义 ProcessIdentity、ProcessIdentityProvider、KillTarget 与严格 XOR/保护/错误语义"
+    exit_signal: "PID/name 互斥、wildcard/非法 PID/空目标均在 provider 前确定性拒绝；既有错误码字符串保持兼容"
+    status: done
+  - action: "平台 proof 节点：实现 Windows/Linux/macOS 精确枚举、identity token/start-time probe 和 PID-only/tree termination adapter"
+    exit_signal: "唯一候选与 PID 都能取得可重验 proof；不会生成 /IM 或 pkill；平台能力不足时 fail-closed"
+    status: done
+  - action: "handler 编排节点：将 kill_process 接入 provider、critical/self/parent protection、SafeGuard 和有界成功确认"
+    exit_signal: "重名、PID reuse、保护进程、终止失败和目标仍存活均返回结构化错误；成功只在 identity 消失后返回"
+    status: done
+  - action: "兼容 surface 节点：收敛 getKillSpec 为 verified PID-only，并同步现有 platform tests"
+    exit_signal: "平台 spec 只包含已验证 PID 和 force/tree 语义；name 不再进入 taskkill /IM 或 Unix pkill"
+    status: done
+  - action: "验证节点：补 fake provider/executor、平台解析、无副作用和跨平台决策回归测试"
+    exit_signal: "design 第 3 节场景都有类型/单测/静态或手工证据；build、tsc、lint、test、latency、coverage 通过"
+    status: done
+
+checks:
+  - item: "KillTarget 的 pid/name 严格互斥，缺参和同时传入均 VALIDATION_ERROR"
+    source: 5.8 进程身份契约 / 验收场景 S1-S2
+    status: passed
+  - item: "PID 使用 finite safe integer 与平台边界，name 使用有界 reject-style validator，不静默 sanitize"
+    source: 输入契约 / 验收场景 S3-S4
+    status: passed
+  - item: "精确名称只允许唯一候选，零候选和多候选不调用 terminate"
+    source: 5.8 进程身份契约 / 验收场景 S5-S6
+    status: passed
+  - item: "PID/name 唯一候选都取得可重验 identity token/start time"
+    source: identity proof / 验收场景 S7-S8
+    status: passed
+  - item: "Windows 不生成 /IM，Unix 不生成 pkill，终止凭据绑定 verified PID/handle/group"
+    source: D2-D4 / 验收场景 S9-S10
+    status: passed
+  - item: "critical/self/parent/protected process 在副作用前拒绝，既有 SafeGuard 不被绕过"
+    source: D5 / 验收场景 S12
+    status: passed
+  - item: "目标未消失、identity mismatch、权限失败和 tree unsupported 不返回 killed=true"
+    source: D6 / 验收场景 S8-S11
+    status: passed
+  - item: "fake provider/executor 能证明拒绝路径不调用 terminate，既有 isError/错误码兼容"
+    source: 可测试性 / 验收场景 S13-S14
+    status: passed
+  - item: "本 feature 不新增 MCP surface、运行时依赖或安全核心规则改写"
+    source: 范围守护 / 验收场景 S15
+    status: passed
+  - item: "architecture、roadmap item 和 acceptance report 完整回写，未把后续 supervisor 计划写成现状"
+    source: 第 4 节 / CodeStable 收尾
+    status: passed

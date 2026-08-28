@@ -21,25 +21,60 @@ Supports **27 tools** across 7 categories: command execution, file I/O, file man
 
 ## Quick Start
 
+### npm consumer
+
+Install the published package in the consumer project, then use its bin entry. The npm package does not include setup.bat, the source checkout, bundled pwsh, or the Everything development fixture. Installation must allow lifecycle scripts because postinstall applies the pinned MCP SDK compatibility patch.
+
 ```bash
-# Install
+# Global installation
+npm install --global enhanced-terminal-mcp
+
+# Or project-local installation
 npm install enhanced-terminal-mcp
+```
 
-# Windows one-click setup (also installs bundled pwsh 7 as the default shell;
-# pass --no-pwsh to skip — the server then falls back to Windows PowerShell 5.1)
-setup.bat
+MCP configuration for a global installation:
 
-# Configure in Claude Desktop / Cherry Studio / etc.
-# Add to your MCP config:
+```json
 {
   "mcpServers": {
     "enhanced-terminal-mcp": {
-      "command": "node",
-      "args": ["path/to/enhanced-terminal-mcp/build/index.js"]
+      "command": "enhanced-terminal-mcp"
     }
   }
 }
 ```
+
+For a project-local installation, use the npm runner explicitly:
+
+```json
+{
+  "mcpServers": {
+    "enhanced-terminal-mcp": {
+      "command": "npx",
+      "args": ["--yes", "enhanced-terminal-mcp@4.0.0"]
+    }
+  }
+}
+```
+
+The npm consumer path never downloads pwsh at install or runtime. On Windows it uses an explicit MCP_POWERSHELL_PATH, a local pwsh on PATH, or the existing Windows PowerShell 5.1 fallback according to the shell resolver.
+
+### Source checkout
+
+This path is for maintainers who have the repository checkout. From the repository root:
+
+```bat
+setup.bat
+```
+
+setup.bat installs with the pinned pnpm version, builds build/index.js, and then runs the explicit fixed-version pwsh bootstrap. Use setup.bat --no-pwsh to skip that optional download, and add --non-interactive for CI or automation. Source development can start the server with:
+
+```bash
+node build/index.js
+```
+
+The source checkout and npm consumer paths are intentionally separate: setup.bat is not an npm package entry point, and npm install is not a replacement for the source bootstrap.
 
 ### Environment Variables
 
@@ -176,13 +211,32 @@ pnpm run format         # Biome formatter
 
 Development uses pnpm `11.21.0`. pnpm can reuse a machine-configured shared content store; on the maintainer machine, `pnpm store path` is `E:\pnpm\v11`. This path is configuration, not part of the repository contract. Each MCP project keeps its own `node_modules`, virtual store, and lockfile. Do not share a runtime `node_modules` directory or use `NODE_PATH` between projects. The published package remains installable by npm as shown in Quick Start.
 
+## Release verification
+
+维护者在发布前应运行以下命令。先 clean build，再直接运行源码侧 verifier；它会对实际 npm tarball 校验 manifest、入口 shebang、Node syntax、source map、禁发文件和 SHA-256。verifier 不发布、不上传、不签名，也不代替 CI provenance。
+
+```bash
+pnpm run audit:prod
+pnpm run build
+node scripts/verify-package.mjs
+```
+
+verify-package.mjs 和 verify-clean-consumer.mjs 是源码维护工具，不会被发布到 npm package。clean consumer 使用实际 tarball 执行：
+
+```bash
+node scripts/verify-clean-consumer.mjs <path-to-tarball>
+```
+
+verifier JSON 输出、pnpm audit 结果、lockfile、SBOM 和 CI 生成的 provenance 必须作为同一 release evidence 保存。单独的本地 SHA-256 只能证明该 tarball 的内容摘要，不能称为签名或 provenance。
+
 ## Supply chain & integrity
 
 | Artifact | Notes |
 |----------|--------|
 | `es_tool/es.exe` | Everything CLI development/test fixture only (locked to `ES_EXE_SHA256` in `src/es-integrity.ts`: `5101b3a6d9542de378e077f4b8c66c4e608d3bff088092427749b65fbb18b342`). Production resolves `ENHANCED_TERMINAL_ES_PATH` → `<state-dir>/tools/es.exe` → unavailable; the fixture is not included in the npm package. Update binary ⇒ update constant + tests. |
-| `scripts/apply-mcp-sdk-patch.mjs` | Zero-dep `postinstall` patch for `@modelcontextprotocol/sdk@1.29.0` (object schema `required: []`). `patch-package` is **devDependency only**. |
-| SDK pin | `@modelcontextprotocol/sdk` locked to `1.29.0` (no caret) + `overrides` so the patch target stays stable. |
+| `scripts/apply-mcp-sdk-patch.mjs` | Zero-dep `postinstall` patch for `@modelcontextprotocol/sdk@1.29.0`; it resolves only the package-owned SDK and fails closed on version, layout, or pattern drift. `patch-package` is **devDependency only**. |
+| SDK pin | `@modelcontextprotocol/sdk` remains exactly `1.29.0` for wire/API compatibility; its patched transitive dependency versions are frozen in `pnpm-lock.yaml`. |
+| Package verifier | `scripts/verify-package.mjs` checks the actual tarball, package files, entry point, source maps, forbidden local assets and SHA-256. |
 | Zod | Stays on **v3** until roadmap spike `deps-zod-v4-spike` goes go (see `codestable/compound/2026-07-12-decision-zod-v3-remain.md`). |
 
 Security policy is **defense in depth, not a sandbox** when using full shell strings — see `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md` and remaining work in `codestable/roadmap/2026-07-12-remaining-hardening/`.

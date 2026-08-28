@@ -3,10 +3,23 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
+import { boundedString, finiteInt, type RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
-import { getKillSpec, getNetworkSpec, getProcessListSpec, getSystemInfoSpec } from "../platform.js";
+import { getNetworkSpec, getProcessListSpec, getSystemInfoSpec } from "../platform.js";
+import {
+  defaultProcessIdentityProvider,
+  isExactProcessNameValid,
+  isProcessIdentityValid,
+  isProtectedInput,
+  isProtectedProcessIdentity,
+  isToolError,
+  type ProcessIdentity,
+  type ProcessIdentityProvider,
+  parseKillTarget,
+} from "../process-identity.js";
+import { ManagedProcessError } from "../process-supervisor.js";
 import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
-import { guardDestructiveAction, isCriticalProcess } from "../safeguard.js";
+import { guardDestructiveAction } from "../safeguard.js";
 import { validateHost } from "../security.js";
 import { getShellSpec, shellResolutionFail } from "../shell.js";
 import { safeExecFile } from "../utils.js";
@@ -15,7 +28,31 @@ import { wrapHandler } from "../wrap.js";
 const SENSITIVE_ENV_KEYWORDS =
   /(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|AUTH|PRIVATE_?KEY|CREDENTIAL|ENCRYPTION|PSW|JWT|OAUTH|CERT|LICENSE_KEY|DB_PASS)/i;
 
-export function registerSystemTools(server: McpServer) {
+export interface SystemToolDependencies {
+  processIdentityProvider?: ProcessIdentityProvider;
+}
+
+/** 精确名称必须只解析为一个 identity，否则不进入终止副作用。 */
+async function findUniqueIdentity(
+  provider: ProcessIdentityProvider,
+  exactName: string,
+): Promise<ProcessIdentity | ReturnType<typeof Errors.processIdentityAmbiguous>> {
+  const candidates = await provider.findByExactName(exactName);
+  if (candidates.length === 0) {
+    return fail(ErrorCode.NOT_FOUND, "Process not found", { retryable: true, param: "name" });
+  }
+  if (candidates.length > 1) {
+    return Errors.processIdentityAmbiguous("Exact process name is not unique; provide pid", {
+      target_kind: "name",
+      candidate_count: candidates.length,
+    });
+  }
+  return candidates[0];
+}
+
+export function registerSystemTools(server: McpServer, dependencies: SystemToolDependencies = {}) {
+  const processIdentityProvider = dependencies.processIdentityProvider ?? defaultProcessIdentityProvider;
+
   // ====================================================================
   server.registerTool(
     "get_system_info",
@@ -26,13 +63,20 @@ export function registerSystemTools(server: McpServer) {
       outputSchema: withErrorSchema(z.object({ info: z.string() })),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    wrapHandler("get_system_info", async () => {
+    wrapHandler("get_system_info", async (_, context: RequestContext) => {
       try {
         const spec = getSystemInfoSpec(await getShellSpec());
-        const result = await safeExecFile(spec.file, spec.args, 30000);
+        const result = await safeExecFile(spec.file, spec.args, {
+          timeout: 30000,
+          signal: context.signal,
+          requestId: context.requestId,
+          scopeId: context.scopeId,
+          kind: "system-info",
+        });
         logger.info("get_system_info", "collected", "system info gathered");
         return success(result.stdout.trim(), { info: result.stdout.trim() });
       } catch (e: unknown) {
+        if (e instanceof ManagedProcessError && e.cancelled) return Errors.cancelled("get_system_info cancelled");
         const m = e instanceof Error ? e.message : String(e);
         return shellResolutionFail(e) ?? Errors.executionFailed(m);
       }
@@ -55,12 +99,19 @@ export function registerSystemTools(server: McpServer) {
       outputSchema: withErrorSchema(z.object({ output: z.string() })),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    wrapHandler("process_list", async ({ filter, top }: ProcessListInput) => {
+    wrapHandler("process_list", async ({ filter, top }: ProcessListInput, context: RequestContext) => {
       try {
         const spec = getProcessListSpec(filter, top || 20, await getShellSpec());
-        const result = await safeExecFile(spec.file, spec.args, 10000);
+        const result = await safeExecFile(spec.file, spec.args, {
+          timeout: 10000,
+          signal: context.signal,
+          requestId: context.requestId,
+          scopeId: context.scopeId,
+          kind: "process-list",
+        });
         return success(`Running Processes:\n${result.stdout.trim()}`, { output: result.stdout.trim() });
       } catch (e: unknown) {
+        if (e instanceof ManagedProcessError && e.cancelled) return Errors.cancelled("process_list cancelled");
         const m = e instanceof Error ? e.message : String(e);
         return shellResolutionFail(e) ?? Errors.executionFailed(m);
       }
@@ -69,8 +120,13 @@ export function registerSystemTools(server: McpServer) {
 
   // ====================================================================
   const KillProcessInput = z.object({
-    pid: z.number().optional().describe("Process ID to kill"),
-    name: z.string().optional().describe("Process name to kill"),
+    pid: finiteInt(1, 2_147_483_647).optional().describe("Process ID to kill"),
+    name: boundedString(128, 512)
+      .refine((value) => isExactProcessNameValid(value), {
+        message: "name must be an exact process basename without wildcard or path characters",
+      })
+      .optional()
+      .describe("Exact process basename to kill"),
     force: z.boolean().optional().describe("Force kill, default false"),
   });
   type KillProcessInput = z.infer<typeof KillProcessInput>;
@@ -82,28 +138,76 @@ export function registerSystemTools(server: McpServer) {
       description: "Kill a process by PID or name. Refuses to kill critical system processes.",
       inputSchema: KillProcessInput,
       outputSchema: withErrorSchema(
-        z.object({ killed: z.boolean(), pid: z.number().optional(), name: z.string().optional() }),
+        z.object({
+          killed: z.boolean(),
+          pid: z.number().optional(),
+          name: z.string().optional(),
+          tree: z.boolean().optional(),
+        }),
       ),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("kill_process", async ({ pid, name, force }: KillProcessInput) => {
-      if (isCriticalProcess(name, pid)) {
-        return fail(ErrorCode.PROCESS_PROTECTED, `Cannot kill critical system process: ${name || `PID ${pid}`}`, {
+      const target = parseKillTarget({ pid, name, force });
+      if (isToolError(target)) return target;
+
+      if (isProtectedInput(target.exactName, target.pid)) {
+        return fail(
+          ErrorCode.PROCESS_PROTECTED,
+          "Cannot kill a protected system process (critical system process protection)",
+          {
+            retryable: false,
+            param: target.pid !== undefined ? "pid" : "name",
+          },
+        );
+      }
+
+      const block = await guardDestructiveAction(
+        "kill_process",
+        `终止进程 ${target.exactName ?? target.pid ?? "(unknown)"}`,
+      );
+      if (block) {
+        return fail(ErrorCode.SAFETY_BLOCKED, block, {
           retryable: false,
-          param: name ? "name" : "pid",
+          param: target.pid !== undefined ? "pid" : "name",
         });
       }
 
-      const block = await guardDestructiveAction("kill_process", `终止进程 ${name || pid || "(unknown)"}`);
-      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: pid ? "pid" : "name" });
-
       try {
-        const spec = getKillSpec(pid, name, force);
-        await safeExecFile(spec.file, spec.args, 10000);
-        return success(`Killed: ${name || pid}`, { killed: true, pid: pid ?? undefined, name: name ?? undefined });
-      } catch (e: unknown) {
-        const m = e instanceof Error ? e.message : String(e);
-        return Errors.executionFailed(m);
+        const identity =
+          target.pid !== undefined
+            ? await processIdentityProvider.inspectPid(target.pid)
+            : await findUniqueIdentity(processIdentityProvider, target.exactName as string);
+        if (isToolError(identity)) return identity;
+        if (!isProcessIdentityValid(identity)) {
+          return Errors.processIdentityAmbiguous("Unable to establish a safe process identity", {
+            target_kind: target.pid !== undefined ? "pid" : "name",
+          });
+        }
+
+        if (isProtectedProcessIdentity(identity) || isProtectedInput(identity.name, identity.pid)) {
+          return fail(
+            ErrorCode.PROCESS_PROTECTED,
+            "Cannot kill a protected system process (critical system process protection)",
+            {
+              retryable: false,
+              param: target.pid !== undefined ? "pid" : "name",
+            },
+          );
+        }
+
+        const termination = await processIdentityProvider.terminate(identity, target.force, target.force);
+        if (isToolError(termination)) return termination;
+        return success(`Killed: ${identity.name}`, {
+          killed: true,
+          pid: identity.pid,
+          name: identity.name,
+          tree: target.force,
+        });
+      } catch {
+        return Errors.processIdentityAmbiguous("Unable to establish a safe process identity", {
+          target_kind: target.pid !== undefined ? "pid" : "name",
+        });
       }
     }),
   );
@@ -127,7 +231,7 @@ export function registerSystemTools(server: McpServer) {
       outputSchema: withErrorSchema(z.object({ output: z.string(), action: z.string() })),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    wrapHandler("network_info", async ({ action, target }: NetworkInfoInput) => {
+    wrapHandler("network_info", async ({ action, target }: NetworkInfoInput, context: RequestContext) => {
       try {
         const act = action || "config";
         if ((act === "ping" || act === "dns") && target) {
@@ -135,9 +239,16 @@ export function registerSystemTools(server: McpServer) {
           if (hostErr) return fail(ErrorCode.HOST_INVALID, hostErr, { retryable: true, param: "target" });
         }
         const spec = getNetworkSpec(act, target);
-        const result = await safeExecFile(spec.file, spec.args, 15000);
+        const result = await safeExecFile(spec.file, spec.args, {
+          timeout: 15000,
+          signal: context.signal,
+          requestId: context.requestId,
+          scopeId: context.scopeId,
+          kind: "network-info",
+        });
         return success(result.stdout.trim(), { output: result.stdout.trim(), action: act });
       } catch (e: unknown) {
+        if (e instanceof ManagedProcessError && e.cancelled) return Errors.cancelled("network_info cancelled");
         const m = e instanceof Error ? e.message : String(e);
         return Errors.executionFailed(m);
       }

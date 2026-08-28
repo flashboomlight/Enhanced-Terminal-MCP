@@ -1,0 +1,82 @@
+---
+doc_type: feature-checklist
+feature: 2026-08-28-process-supervisor-and-cancellation
+roadmap: production-hardening
+roadmap_item: process-supervisor-and-cancellation
+status: done
+created: "2026-08-28"
+
+implementation_checkpoint:
+  updated: "2026-08-28"
+  status: completed
+  completed:
+    - "child process inventory 和 supervisor design 已完成并落盘"
+    - "ProcessSupervisor、managed snapshot/state、active limit、timeout/AbortSignal、幂等 termination 和 shutdown report 已写入工作树"
+    - "capture、stream、safeExecFile、shell where、Everything、grep、system、archive、process identity 和 command context 的接线已开始落地"
+    - "supervisor 单测与 MCP RequestContext cancellation 回归测试已加入"
+    - "修复 registry cleanup 竞态：child 已退出时立即移除 entry，termination promise 完成且 child 已退出时主动回收，消除 close 事件与 promise 完成顺序不确定的窗口"
+    - "修复 lint（command-output format、command.test import 排序、stream useTemplate），cancel registry 断言改为 bounded 等待并将 test timeout 显式提高到 10s"
+  verification:
+    typescript: passed
+    lint: "passed；0 errors、0 infos"
+    focused_tests: "supervisor 定向 8/8、接线定向组 9 文件 100/100、全量 51 文件 639 用例全过、latency 24/24、tools coverage 59.37/48.55/65.62/63.26 达标"
+  acceptance: done
+  blockers: []
+
+steps:
+  - action: "child process inventory 节点：核对全部 spawn/execFile/同步 probe、现有 timeout/kill 和 shutdown 生命周期"
+    exit_signal: "全部生产创建点、控制 probe、树范围、pending queue 和 shutdown 缺口都有代码/测试证据"
+    status: done
+  - action: "supervisor design 节点：确定 registry、active limit、termination state、Unix group、Windows taskkill、abort 和 drain 契约"
+    exit_signal: "approved design 已落盘；不引入 native runtime dependency，不修改 security core，不把用户输入当 tree scope"
+    status: done
+  - action: "registry/termination 节点：实现 ProcessSupervisor、ManagedProcess、snapshot、幂等 termination 和 bounded shutdown report"
+    exit_signal: "child 可登记/移除；timeout/abort/tree termination/shutdown 有确定状态；active 上限在 spawn 前生效"
+    status: done
+  - action: "capture/stream 节点：接入 supervisor timeout/AbortSignal/process group，并加入 pending capture bytes 上限和 bounded drain"
+    exit_signal: "capture/stream 不再维护重复 kill timer；超时、取消、output/queue termination 不遗留 child"
+    status: done
+  - action: "execFile/probe/tool 节点：接管 safeExecFile、shell where/probe、Everything、grep、system、archive、process identity"
+    exit_signal: "全部生产 child 在 registry 可观察；同步 where 被移除；context signal、request scope 和 kind 贯穿调用"
+    status: done
+  - action: "lifecycle/验收节点：接入 index shutdown、错误映射、fake control runner、跨平台 smoke、全量质量门禁和 CodeStable 回写"
+    exit_signal: "17 个场景和 12 个 checks 全部通过；shutdown residual truthful；architecture/roadmap/acceptance 已回写"
+    status: done
+
+checks:
+  - item: "所有生产 spawn/execFile 创建点已登记，registry snapshot 含 requestId/pid/startedAt/treeScope/kind 且不含 command/env"
+    source: "设计 1、2.1、3 / 验收场景 1、9"
+    status: passed
+  - item: "active process 上限在 spawn/execFile 副作用前生效，超限返回明确 capacity error"
+    source: "设计 2.1 / 验收场景 2"
+    status: passed
+  - item: "timeout/AbortSignal/close/error/termination 状态幂等，重复 cancel/shutdown 不重复 kill"
+    source: "设计 2.1、2.2 / 验收场景 3-5、7、16"
+    status: passed
+  - item: "Unix 使用 detached process group + 负 PID 信号，Windows 使用 PID-only taskkill /T /F，不生成 /IM/pkill"
+    source: "设计 2.1 / 验收场景 6、14"
+    status: passed
+  - item: "capture pending bytes 有界，超限停止接收新任务并在 drain deadline 后 truthful 返回"
+    source: "设计 2.2 / 验收场景 8"
+    status: passed
+  - item: "capture/stream/safeExecFile 的现有调用兼容，timeout/termination/error 字段和 tool result 语义不破坏"
+    source: "设计 2.2、2.3、2.4 / 验收场景 3、15"
+    status: passed
+  - item: "Everything/grep/system/archive/process identity/shell probe 均使用 managed child，where 不再同步阻塞"
+    source: "设计 2.3 / 验收场景 9、10"
+    status: passed
+  - item: "command/search/system/archive handler 将 RequestContext signal/request scope 传入 execution；direct call 保持兼容"
+    source: "设计 2.4 / 验收场景 11、12"
+    status: passed
+  - item: "index shutdown 先 supervisor drain 再 flush session/audit，remaining/deadlineExceeded 进入 degraded evidence"
+    source: "设计 2.5 / 验收场景 13"
+    status: passed
+  - item: "fake control runner、real timeout/cancel/tree child 和 cross-platform parser/termination tests 覆盖关键边界"
+    source: "设计 3、4、5 / 验收场景 3-8、14、16"
+    status: passed
+  - item: "17 个 acceptance 场景、build、tsc、lint、test、latency、coverage、git diff --check 和 CodeStable 校验全部通过"
+    source: "设计 5 / 验收场景 17"
+    status: passed
+  - item: "无 active registry/timer/listener/pending queue 泄漏，报告明确区分 natural close、timeout、cancel、termination failure 和 shutdown residual"
+    source: "设计 2.1、2.2、2.5 / 验收场景 1、3、7、13、16"
+    status: passed

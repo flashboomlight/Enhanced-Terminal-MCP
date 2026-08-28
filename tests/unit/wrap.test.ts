@@ -2,6 +2,7 @@
  * Handler wrapper unit tests
  */
 import { describe, expect, it } from "vitest";
+import type { createRequestContext } from "../../src/profile.js";
 import { success, type ToolResult } from "../../src/result.js";
 import { wrapHandler } from "../../src/wrap.js";
 
@@ -19,6 +20,29 @@ describe("wrapHandler", () => {
     if ("text" in textContent) {
       expect(textContent.text).toContain("Hello World");
     }
+  });
+
+  it("passes runtime request context to the handler", async () => {
+    const controller = new AbortController();
+    let received: ReturnType<typeof createRequestContext> | undefined;
+    const handler = async (_args: { profile?: string }, context: ReturnType<typeof createRequestContext>) => {
+      received = context;
+      return success("context-ok", { profile: context.profile, request_id: context.requestId });
+    };
+    const wrapped = wrapHandler("context_wrap", handler);
+
+    await wrapped(
+      { profile: "spoofed-by-arguments" },
+      { requestId: 99, sessionId: "runtime-session", signal: controller.signal },
+    );
+
+    expect(received).toMatchObject({
+      requestId: 99,
+      sessionId: "runtime-session",
+      scopeId: "runtime-session",
+      profile: "local-trusted-shell",
+      signal: controller.signal,
+    });
   });
 
   it("caches idempotent read tools", async () => {

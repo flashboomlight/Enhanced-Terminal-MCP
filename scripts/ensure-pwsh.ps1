@@ -15,6 +15,7 @@ $installDir  = Join-Path $toolsDir 'pwsh'
 $staging     = Join-Path $toolsDir '.pwsh-staging'
 $versionFile = Join-Path $installDir '.version'
 $targetExe   = Join-Path $installDir 'pwsh.exe'
+$maxDownloadBytes = 250MB
 
 function Probe-Pwsh([string]$Exe) {
     try { return (& $Exe -NoProfile -NoLogo -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()' 2>$null) } catch { return $null }
@@ -39,7 +40,11 @@ try {
     $zip = Join-Path $staging "PowerShell-$Version-win-x64.zip"
     Write-Host "[ensure-pwsh] downloading $url"
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 120
+    $zipInfo = Get-Item -LiteralPath $zip
+    if ($zipInfo.Length -le 0 -or $zipInfo.Length -gt $maxDownloadBytes) {
+        throw "downloaded archive exceeds the configured size limit"
+    }
 
     # 2) SHA256 check (mismatch = failure; staging cleaned later; tools/pwsh untouched)
     $actual = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
@@ -53,6 +58,10 @@ try {
     Expand-Archive -Path $zip -DestinationPath $extractDir -Force
     $stagedExe = Join-Path $extractDir 'pwsh.exe'
     if (-not (Test-Path $stagedExe)) { throw 'pwsh.exe not found in archive' }
+    $stagedInfo = Get-Item -LiteralPath $stagedExe
+    if (($stagedInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'staged pwsh.exe must not be a reparse point'
+    }
 
     # 4) Version probe in staging: must be 7.x
     $probe = Probe-Pwsh $stagedExe

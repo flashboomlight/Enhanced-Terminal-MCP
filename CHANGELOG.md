@@ -12,10 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow (`.github/workflows/ci.yml`): lint + type-check on ubuntu, build/test/tools-coverage gate on a Windows runner (Node 22/24); the latency benchmark runs non-blocking (thresholds are calibrated on dev hardware).
 - `pnpm run gate`: one-shot local gate (build + tsc + lint + test + latency + tools-coverage).
 - Tools-layer coverage gate `pnpm run test:coverage:tools` (`vitest.tools-coverage.config.ts`, floors: statements/lines 55, functions 60, branches 45) so the layer excluded from global coverage stays measured and regression-guarded; new unit suites for `files` / `manage` / `system` / `archive` tools (27 cases).
-- `postinstall` MCP SDK patch is now fail-closed: a changed SDK layout (no `dist/esm` or `dist/cjs` `server/mcp.js`) fails the install instead of silently skipping the `required: []` compatibility patch; pattern mismatches warn loudly. Behavior covered by `tests/unit/sdk-patch.test.ts`.
+- `postinstall` MCP SDK patch is now fail-closed and package-owned: a changed SDK version, layout, or patch pattern fails the install instead of silently skipping the `required: []` compatibility patch. Behavior is covered by `tests/unit/sdk-patch.test.ts`.
 
 ### Changed
 
+- Refreshed the SDK 1.29.0 dependency tree to patched transitive versions with a blocking `pnpm audit --prod --audit-level=high` release check; the SDK wire/API compatibility baseline remains unchanged.
+- Added `prepack` clean builds, self-contained source maps, an explicit MIT `LICENSE`, source/npm bootstrap separation, and the zero-dependency `scripts/verify-package.mjs` tarball verifier with SHA-256 evidence.
+- Added an explicit `tsx` devDependency for the `dev` source entry; source bootstrap now validates Node 20+/pnpm 11.21.0 and supports `--non-interactive`.
+- Hardened the source pwsh bootstrap with a 120-second download timeout, a 250 MB archive cap, and staged reparse-point rejection; SDK patch writes now use same-directory atomic replacement.
 - `src/paging.ts` split into `src/paging/{codec,index-format,paths,errors}.ts` with the public API re-exported unchanged (1141-line file reduced to orchestration + facade).
 - `src/temp-manager.ts` infrastructure (helpers, env readers, errors, interfaces, `AsyncMutex`, `ReservationImpl`) extracted to `src/temp-core.ts`; public API unchanged.
 - `command.ts`: execute/watch shared preamble extracted (`resolveCommandLimits` / `prepareInvocation` / `finishCommandEnvelope`); no behavior change.

@@ -79,15 +79,16 @@ describe("platform Unix branches", () => {
   });
 
   test("getKillSpec by pid force on Unix", () => {
-    const spec = getKillSpec(1234, undefined, true);
+    const spec = getKillSpec(1234, true);
     expect(spec.file).toBe("kill");
     expect(spec.args).toContain("-9");
   });
 
-  test("getKillSpec by name on Unix uses pkill", () => {
-    const spec = getKillSpec(undefined, "node");
-    expect(spec.file).toBe("pkill");
-    expect(spec.args).toContain("node");
+  test("getKillSpec tree path remains PID-only on Unix", () => {
+    const spec = getKillSpec(1234, true, true);
+    expect(spec.file).toBe("kill");
+    expect(spec.args).toContain("-1234");
+    expect(spec.args).not.toContain("pkill");
   });
 
   test("getNetworkSpec config on Unix", () => {

@@ -2,7 +2,7 @@
  * apply-mcp-sdk-patch.mjs 行为回归
  *
  * postinstall 补丁脚本的失败语义必须可测：patched / already 幂等、
- * SDK 布局变化时 fail-closed（退出码 1）、未安装时跳过、模式失配时警告不阻断。
+ * SDK 布局变化和模式失配均 fail-closed（退出码 1），未安装时跳过。
  * 通过复制脚本到 fixture 根目录执行，隔离真实 node_modules。
  */
 import { execFile } from "node:child_process";
@@ -112,7 +112,7 @@ describe("apply-mcp-sdk-patch", () => {
     expect(result.stdout).toContain("not found");
   });
 
-  test("warns without failing when file exists but patterns no longer match", async () => {
+  test("fails closed when file exists but patterns no longer match", async () => {
     const root = await makeFixture(`mismatch-${Date.now()}`, {
       [path.join("node_modules", "@modelcontextprotocol", "sdk", "package.json")]:
         '{"name":"@modelcontextprotocol/sdk"}',
@@ -120,7 +120,37 @@ describe("apply-mcp-sdk-patch", () => {
     });
 
     const result = await runPatch(root);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("ERROR");
+  });
+
+  test("does not patch an unrelated SDK under the consumer root", async () => {
+    const root = await makeFixture(`owned-${Date.now()}`, {
+      [path.join("node_modules", "@modelcontextprotocol", "sdk", "package.json")]:
+        '{"name":"@modelcontextprotocol/sdk"}',
+      [MCP_JS_REL]: OLD_SDK_SHAPE,
+      [path.join("consumer", "node_modules", "@modelcontextprotocol", "sdk", "package.json")]:
+        '{"name":"@modelcontextprotocol/sdk","version":"1.29.0"}',
+      [path.join("consumer", MCP_JS_REL)]: OLD_SDK_SHAPE,
+    });
+
+    const result = await runPatch(root);
     expect(result.code).toBe(0);
-    expect(result.stderr).toContain("WARNING");
+    const unrelated = await readFile(path.join(root, "consumer", MCP_JS_REL), "utf8");
+    expect(unrelated).toBe(OLD_SDK_SHAPE);
+  });
+
+  test("fails closed when the package-owned SDK version is unsupported", async () => {
+    const root = await makeFixture(`version-${Date.now()}`, {
+      [path.join("node_modules", "@modelcontextprotocol", "sdk", "package.json")]:
+        '{"name":"@modelcontextprotocol/sdk","version":"1.30.0"}',
+      [MCP_JS_REL]: OLD_SDK_SHAPE,
+    });
+
+    const result = await runPatch(root);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("unsupported");
+    const unchanged = await readFile(path.join(root, MCP_JS_REL), "utf8");
+    expect(unchanged).toBe(OLD_SDK_SHAPE);
   });
 });

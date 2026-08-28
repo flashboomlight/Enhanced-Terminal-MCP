@@ -4,6 +4,8 @@
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { CACHEABLE_TOOLS, LRUCache, TOOL_TTL, toolCache } from "./cache.js";
+import type { RequestContext, RequestHandlerExtraLike } from "./hardening-contract.js";
+import { createRequestContext, getActiveExecutionProfile } from "./profile.js";
 import { type ToolResult, toCallToolResult } from "./result.js";
 import { scanContent, shouldScanOnCache } from "./scan.js";
 import { telemetry } from "./telemetry.js";
@@ -31,13 +33,18 @@ function extractCacheableText(callResult: CallToolResult): string {
  */
 export function wrapHandler<T extends Record<string, unknown>>(
   toolName: string,
-  fn: (args: T) => Promise<ToolResult>,
-): (args: T) => Promise<CallToolResult> {
+  fn: (args: T, context: RequestContext) => Promise<ToolResult>,
+): (args: T, extra?: RequestHandlerExtraLike) => Promise<CallToolResult> {
   _registeredToolCount++;
   const cacheable = CACHEABLE_TOOLS.has(toolName);
+  const directCallExtra: RequestHandlerExtraLike = {
+    requestId: "direct-call",
+    signal: new AbortController().signal,
+  };
 
-  return async (args: T): Promise<CallToolResult> => {
+  return async (args: T, extra?: RequestHandlerExtraLike): Promise<CallToolResult> => {
     const t0 = Date.now();
+    const context = createRequestContext(extra ?? directCallExtra, getActiveExecutionProfile());
     const cacheKey = cacheable && args ? LRUCache.key(toolName, args as Record<string, unknown>) : "";
 
     // 缓存检查
@@ -50,7 +57,7 @@ export function wrapHandler<T extends Record<string, unknown>>(
     }
 
     // 执行
-    const result = await fn(args);
+    const result = await fn(args, context);
     const elapsed = Date.now() - t0;
 
     // 记录 telemetry

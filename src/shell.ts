@@ -1,5 +1,4 @@
 // src/shell.ts — shell 解析与调用构造的统一归属（platform.ts 兼容重导出旧 getShell/wrapCommand）
-import { execFileSync } from "node:child_process";
 import { statSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,7 +67,7 @@ export interface ResolveShellOptions {
   /** 路径存在性检查（默认 statSync + isFile） */
   exists?: (p: string) => boolean;
   /** PATH 查找（默认 where.exe） */
-  which?: (name: string) => string | null;
+  which?: (name: string) => string | null | Promise<string | null>;
   /** 版本探测（默认 spawn $PSVersionTable.PSVersion，失败返回 null） */
   probeVersion?: (file: string) => Promise<string | null>;
 }
@@ -85,15 +84,15 @@ function defaultExists(p: string): boolean {
   }
 }
 
-function defaultWhich(name: string): string | null {
+async function defaultWhich(name: string): Promise<string | null> {
   try {
-    const out = execFileSync("where", [name], {
-      windowsHide: true,
+    const result = await spawnStream("where", [name], {
       timeout: 5000,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"], // 抑制 where 未命中时的 stderr 控制台回显
+      maxOutput: 4096,
+      kind: "shell-probe",
     });
-    const first = out
+    if (result.exitCode !== 0 || result.timedOut || result.cancelled) return null;
+    const first = result.stdout
       .split(/\r?\n/)
       .map((l) => l.trim())
       .find(Boolean);
@@ -143,7 +142,7 @@ export async function resolveShell(options: ResolveShellOptions = {}): Promise<S
   }
 
   if (mode === "powershell") {
-    const file = which("powershell.exe");
+    const file = await which("powershell.exe");
     if (!file) {
       throw new ShellResolutionError("SHELL_NOT_FOUND", "Windows PowerShell (powershell.exe) not found", [
         { source: "system", reason: "powershell.exe not on PATH" },
@@ -193,7 +192,7 @@ export async function resolveShell(options: ResolveShellOptions = {}): Promise<S
     attempted.push({ source: "bundled", reason: "tools/pwsh/pwsh.exe not found" });
   }
 
-  const pathPwsh = which("pwsh.exe");
+  const pathPwsh = await which("pwsh.exe");
   if (pathPwsh) {
     const version = await probe(pathPwsh);
     if (version) return { file: pathPwsh, flavor: "pwsh", source: "path", version };
@@ -202,7 +201,7 @@ export async function resolveShell(options: ResolveShellOptions = {}): Promise<S
     attempted.push({ source: "path", reason: "pwsh.exe not on PATH" });
   }
 
-  const ps51 = which("powershell.exe");
+  const ps51 = await which("powershell.exe");
   if (ps51) {
     const version = await probe(ps51);
     if (version) return { file: ps51, flavor: "powershell", source: "fallback", version };

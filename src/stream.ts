@@ -2,8 +2,7 @@
  * 流式命令执行器 — spawn + 增量输出
  * 替代 exec 全量缓冲，大输出场景首字节延迟从 5s→50ms
  */
-import { spawn } from "node:child_process";
-import { logger } from "./logger.js";
+import { processSupervisor } from "./process-supervisor.js";
 import { buildShellInvocation, getShellSpec } from "./shell.js";
 
 export interface StreamResult {
@@ -11,6 +10,8 @@ export interface StreamResult {
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
+  cancelled: boolean;
+  terminationFailed: boolean;
   truncated: boolean;
   /** 完整的 stdout（流式收集完毕后的结果） */
   all: string;
@@ -28,6 +29,11 @@ export async function spawnStream(
     cwd?: string;
     env?: Record<string, string>;
     maxOutput?: number;
+    signal?: AbortSignal;
+    requestId?: string | number;
+    scopeId?: string;
+    kind?: string;
+    tree?: boolean;
   },
 ): Promise<StreamResult> {
   const timeout = opts?.timeout ?? 30000;
@@ -35,49 +41,52 @@ export async function spawnStream(
 
   return new Promise((resolve, reject) => {
     let settled = false;
-    const child = spawn(command, args, {
+    let killed = false;
+    let cancelled = false;
+    let terminationFailed = false;
+    const managed = processSupervisor.spawnManaged(command, args, {
       cwd: opts?.cwd,
       env: opts?.env ? { ...process.env, ...opts.env } : process.env,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
+      kind: opts?.kind ?? "stream",
+      requestId: opts?.requestId,
+      scopeId: opts?.scopeId,
+      tree: opts?.tree,
+      timeoutMs: timeout,
+      signal: opts?.signal,
+      onTimeout: () => {
+        killed = true;
+      },
+      onCancel: () => {
+        cancelled = true;
+      },
+      onTerminationFailed: () => {
+        terminationFailed = true;
+      },
     });
+    const child = managed.child;
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let stdoutLen = 0;
     let stderrLen = 0;
     const maxStderr = 1024 * 1024; // 1MB stderr cap
-    let killed = false;
     let truncated = false;
-
-    const timer = setTimeout(() => {
-      killed = true;
-      child.kill("SIGTERM");
-      // 给进程 2s 响应 SIGTERM，否则 SIGKILL
-      setTimeout(() => {
-        try {
-          child.kill("SIGKILL");
-        } catch (err) {
-          logger.debug("stream", "sigkill-failed", String(err));
-        }
-      }, 2000).unref();
-    }, timeout);
 
     child.stdout?.on("data", (chunk: Buffer) => {
       const prevLen = stdoutLen;
       stdoutLen += chunk.length;
       if (prevLen >= maxOut) {
-        // 已超限，不再收集（保留已截断标记）
         if (!truncated) truncated = true;
         return;
       }
       if (stdoutLen > maxOut) {
-        // 当前 chunk 超出上限：截取到 maxOut 边界后入栈，保留部分输出供诊断
         const slice = chunk.subarray(0, maxOut - prevLen);
         stdoutChunks.push(slice);
         if (!truncated) {
           truncated = true;
-          child.kill("SIGTERM");
+          void managed.terminate("output-limit");
         }
       } else {
         stdoutChunks.push(chunk);
@@ -90,30 +99,38 @@ export async function spawnStream(
     });
 
     child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      const stdout = Buffer.concat(stdoutChunks).toString() + (truncated ? "\n... (TRUNCATED)" : "");
-      const stderr = Buffer.concat(stderrChunks).toString();
-      resolve({
-        stdout,
-        stderr,
-        exitCode: code,
-        timedOut: killed,
-        truncated,
-        all: stdout + (stderr ? `\n[stderr]\n${stderr}` : ""),
-      });
+      void (async () => {
+        if (managed.state.terminationRequested) {
+          try {
+            await managed.terminate(managed.state.reason ?? "internal-error");
+          } catch {
+            terminationFailed = true;
+          }
+        }
+        if (settled) return;
+        settled = true;
+        const stdout = Buffer.concat(stdoutChunks).toString() + (truncated ? "\n... (TRUNCATED)" : "");
+        const stderr = Buffer.concat(stderrChunks).toString();
+        resolve({
+          stdout,
+          stderr,
+          exitCode: code,
+          timedOut: killed,
+          cancelled,
+          terminationFailed,
+          truncated,
+          all: stdout + (stderr ? `\n[stderr]\n${stderr}` : ""),
+        });
+      })();
     });
 
     child.on("error", (err) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
       reject(err);
     });
   });
 }
-
 /**
  * 快速执行简单命令（echo、dir、ls 等轻量级）— 统一走 shell spec
  */
@@ -123,6 +140,11 @@ export async function quickExec(
   cwd?: string,
 ): Promise<{ stdout: string; exitCode: number | null; timedOut: boolean }> {
   const inv = buildShellInvocation(command, await getShellSpec());
-  const r = await spawnStream(inv.file, inv.args, { timeout, cwd, maxOutput: 1024 * 1024 });
+  const r = await spawnStream(inv.file, inv.args, {
+    timeout,
+    cwd,
+    maxOutput: 1024 * 1024,
+    kind: "quick-exec",
+  });
   return { stdout: r.stdout, exitCode: r.exitCode, timedOut: r.timedOut };
 }

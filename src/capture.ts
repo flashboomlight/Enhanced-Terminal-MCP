@@ -2,8 +2,8 @@
  * 命令捕获原语 — child lifecycle、原始字节事件、backpressure、drain 与 actual 计数
  * 不感知 page/cache/envelope；retention、scanner gate、staging 由 command-output 编排层组合
  */
-import { spawn } from "node:child_process";
 import { logger } from "./logger.js";
+import { processSupervisor } from "./process-supervisor.js";
 
 export type CaptureStreamName = "stdout" | "stderr";
 
@@ -25,6 +25,7 @@ export type CaptureChunkHandler = (stream: CaptureStreamName, chunk: Buffer, con
 export interface CaptureResult {
   exitCode: number | null;
   timedOut: boolean;
+  cancelled: boolean;
   captureLimitReached: boolean;
   terminationFailed: boolean;
   /** spawn 错误信息（ENOENT 等 spawn 失败；消费方 throw/reject 的 fail-closed 错误） */
@@ -34,29 +35,9 @@ export interface CaptureResult {
   stderrActualBytes: number;
 }
 
-/** 终止子进程：先 SIGTERM，2s 后 SIGKILL；仍未关闭时通知调用方。 */
-function terminateChild(child: ReturnType<typeof spawn>, onFailed: () => void): void {
-  try {
-    child.kill("SIGTERM");
-  } catch (err) {
-    logger.debug("capture", "sigterm-failed", String(err));
-  }
-  setTimeout(() => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    try {
-      child.kill("SIGKILL");
-    } catch (err) {
-      logger.debug("capture", "sigkill-failed", String(err));
-    }
-    setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) onFailed();
-    }, 500).unref();
-  }, 2000).unref();
-}
-
 /**
  * spawn 子进程并流式捕获原始字节。
- * 始终读完两个流并计数（drain），不因输出量杀进程——只有 timeout 与 fail-closed 会终止子进程。
+ * timeout/cancel/tree termination 由 ProcessSupervisor 统一处理。
  */
 export async function captureCommand(
   file: string,
@@ -66,36 +47,37 @@ export async function captureCommand(
     timeoutMode?: "timeout" | "watch_window";
     cwd?: string;
     env?: Record<string, string>;
+    signal?: AbortSignal;
+    requestId?: string | number;
+    scopeId?: string;
+    kind?: string;
+    tree?: boolean;
+    maxPendingBytes?: number;
     onChunk?: CaptureChunkHandler;
   },
 ): Promise<CaptureResult> {
   const timeout = opts?.timeout ?? 30000;
   const timeoutMode = opts?.timeoutMode ?? "timeout";
   const onChunk = opts?.onChunk;
+  const maxPendingBytes = opts?.maxPendingBytes ?? 4 * 1024 * 1024;
 
   return new Promise((resolve) => {
     let settled = false;
-    const child = spawn(file, args, {
-      cwd: opts?.cwd,
-      env: opts?.env ? { ...process.env, ...opts.env } : process.env,
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdoutActualBytes = 0;
-    let stderrActualBytes = 0;
     let timedOut = false;
+    let cancelled = false;
     let captureLimitReached = false;
     let terminationFailed = false;
+    let pendingBytes = 0;
     const pending = new Set<Promise<void>>();
+    let managed: import("./process-supervisor.js").ManagedProcess | null = null;
 
-    const finish = (code: number | null, error: Error | null = null) => {
+    const finish = (code: number | null, error: Error | null = null): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
       resolve({
         exitCode: code,
         timedOut,
+        cancelled,
         captureLimitReached,
         terminationFailed,
         error,
@@ -104,19 +86,42 @@ export async function captureCommand(
       });
     };
 
-    const requestTermination = () => {
-      terminateChild(child, () => {
-        if (settled) return;
-        terminationFailed = true;
-        finish(null);
+    let stdoutActualBytes = 0;
+    let stderrActualBytes = 0;
+    if (opts?.signal?.aborted) {
+      cancelled = true;
+      finish(null);
+      return;
+    }
+    try {
+      managed = processSupervisor.spawnManaged(file, args, {
+        cwd: opts?.cwd,
+        env: opts?.env ? { ...process.env, ...opts.env } : process.env,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        kind: opts?.kind ?? "capture",
+        requestId: opts?.requestId,
+        scopeId: opts?.scopeId,
+        tree: opts?.tree,
+        timeoutMs: timeout,
+        signal: opts?.signal,
+        onTimeout: () => {
+          if (timeoutMode === "watch_window") captureLimitReached = true;
+          else timedOut = true;
+        },
+        onCancel: () => {
+          cancelled = true;
+        },
+        onTerminationFailed: () => {
+          terminationFailed = true;
+          finish(null);
+        },
       });
-    };
-
-    const timer = setTimeout(() => {
-      if (timeoutMode === "watch_window") captureLimitReached = true;
-      else timedOut = true;
-      requestTermination();
-    }, timeout);
+    } catch (error) {
+      finish(null, error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    const child = managed.child;
 
     const controls: CaptureControls = {
       resume: (stream) => {
@@ -128,12 +133,10 @@ export async function captureCommand(
       },
     };
 
-    const settleWithError = (err: unknown) => {
+    const settleWithError = (err: unknown): void => {
       if (settled) return;
-      clearTimeout(timer);
-      const error = err instanceof Error ? err : new Error(String(err));
-      terminateChild(child, () => undefined);
-      finish(null, error);
+      void managed?.terminate("internal-error");
+      finish(null, err instanceof Error ? err : new Error(String(err)));
     };
 
     const handleChunk = async (stream: CaptureStreamName, chunk: Buffer): Promise<void> => {
@@ -170,11 +173,21 @@ export async function captureCommand(
       if (settled) return;
       if (stream === "stdout") stdoutActualBytes += chunk.length;
       else stderrActualBytes += chunk.length;
+      if (pendingBytes + chunk.length > maxPendingBytes) {
+        captureLimitReached = true;
+        child.stdout?.pause();
+        child.stderr?.pause();
+        void managed.terminate("output-limit");
+        return;
+      }
+      pendingBytes += chunk.length;
       const processChunk = async (): Promise<void> => {
         try {
           await handleChunk(stream, chunk);
         } catch (err) {
           settleWithError(err);
+        } finally {
+          pendingBytes -= chunk.length;
         }
       };
       const task = queues[stream].then(processChunk, processChunk);
@@ -191,14 +204,24 @@ export async function captureCommand(
 
     child.on("error", (err) => {
       if (settled) return;
-      clearTimeout(timer);
       finish(null, err);
     });
 
     child.on("close", (code) => {
-      const finishAfterPending = () => finish(code);
-      if (pending.size === 0) finishAfterPending();
-      else void Promise.allSettled([...pending]).then(finishAfterPending);
+      const finishAfterPending = async (): Promise<void> => {
+        if (managed?.state.terminationRequested) {
+          try {
+            await managed.terminate(managed.state.reason ?? "internal-error");
+          } catch (error) {
+            terminationFailed = true;
+            finish(null, error instanceof Error ? error : new Error(String(error)));
+            return;
+          }
+        }
+        finish(code);
+      };
+      if (pending.size === 0) void finishAfterPending();
+      else void Promise.allSettled([...pending]).then(() => finishAfterPending());
     });
   });
 }

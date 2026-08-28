@@ -90,6 +90,7 @@ export interface CommandOutputRun {
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
+  cancelled: boolean;
   captureLimitReached: boolean;
   terminationFailed: boolean;
   /** stdout 达到 retained 上限（等价旧 StreamResult.truncated）；secret 命中时按 stdoutActualBytes>0 计 */
@@ -271,6 +272,10 @@ export async function runCommandOutput(
     env?: Record<string, string>;
     limits: CommandOutputLimits;
     pageSize?: number;
+    signal?: AbortSignal;
+    requestId?: string | number;
+    scopeId?: string;
+    kind?: string;
   },
 ): Promise<CommandOutputRun> {
   const streams: Record<CaptureStreamName, StreamState> = {
@@ -439,6 +444,10 @@ export async function runCommandOutput(
     timeoutMode: opts.timeoutMode,
     cwd: opts.cwd,
     env: opts.env,
+    signal: opts.signal,
+    requestId: opts.requestId,
+    scopeId: opts.scopeId,
+    kind: opts.kind,
     onChunk: (stream, chunk) => processRaw(stream, chunk),
   });
   if (capture.error) throw capture.error;
@@ -468,18 +477,20 @@ export async function runCommandOutput(
   let cachePage: PageResult | undefined;
   const activeWriter = writer as unknown as PageCacheWriter | null;
   if (activeWriter !== null && !secretDetected && !cacheDisabledReason) {
-    const commandError: PageCacheError | undefined = capture.timedOut
-      ? { code: "TIMEOUT", message: "Command timed out", retryable: true }
-      : capture.terminationFailed
-        ? {
-            code: "EXECUTION_FAILED",
-            message: "Command termination failed",
-            retryable: true,
-            detail: { watch_termination_failed: true },
-          }
-        : capture.exitCode !== null && capture.exitCode !== 0
-          ? { code: "EXECUTION_FAILED", message: `Command failed (exit ${capture.exitCode})`, retryable: true }
-          : undefined;
+    const commandError: PageCacheError | undefined = capture.cancelled
+      ? { code: "CANCELLED", message: "Command cancelled", retryable: true }
+      : capture.timedOut
+        ? { code: "TIMEOUT", message: "Command timed out", retryable: true }
+        : capture.terminationFailed
+          ? {
+              code: "EXECUTION_FAILED",
+              message: "Command termination failed",
+              retryable: true,
+              detail: { watch_termination_failed: true },
+            }
+          : capture.exitCode !== null && capture.exitCode !== 0
+            ? { code: "EXECUTION_FAILED", message: `Command failed (exit ${capture.exitCode})`, retryable: true }
+            : undefined;
     try {
       const published = await activeWriter.finalize({
         exitCode: capture.exitCode,
@@ -545,6 +556,7 @@ export async function runCommandOutput(
     stderr: secretDetected ? "" : stderrDecoded.text,
     exitCode: capture.exitCode,
     timedOut: capture.timedOut,
+    cancelled: capture.cancelled,
     captureLimitReached: capture.captureLimitReached,
     terminationFailed: capture.terminationFailed,
     truncated: finalStdoutTruncated,

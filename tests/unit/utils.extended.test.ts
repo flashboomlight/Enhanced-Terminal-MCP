@@ -66,7 +66,7 @@ describe("safeExecFile (mocked)", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    vi.doMock("child_process", () => ({
+    vi.doMock("node:child_process", () => ({
       exec: vi.fn(),
       execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         setImmediate(() => cb(null, "file-output", ""));
@@ -84,7 +84,7 @@ describe("safeExecFile (mocked)", () => {
 
   test("safeExecFile 错误但无输出时 reject", async () => {
     vi.resetModules();
-    vi.doMock("child_process", () => ({
+    vi.doMock("node:child_process", () => ({
       exec: vi.fn(),
       execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         const error = new Error("not found");
@@ -99,7 +99,7 @@ describe("safeExecFile (mocked)", () => {
 
   test("safeExecFile 错误且有 stderr 时仍 reject", async () => {
     vi.resetModules();
-    vi.doMock("child_process", () => ({
+    vi.doMock("node:child_process", () => ({
       exec: vi.fn(),
       execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         const error = new Error("exit 7");

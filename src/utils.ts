@@ -1,5 +1,6 @@
 // src/utils.ts — 核心工具函数：命令执行、格式化
-import { execFile } from "node:child_process";
+import { parseStrictInteger } from "./hardening-contract.js";
+import { execFileManaged } from "./process-supervisor.js";
 import { buildShellInvocation, getShellSpec } from "./shell.js";
 import { spawnStream } from "./stream.js";
 
@@ -7,12 +8,12 @@ import { spawnStream } from "./stream.js";
  * 读取数字型环境变量，统一解析 + 下限 + 默认值
  * 消除各模块重复的 parseInt(process.env.X || "default") 模式
  */
-export function envInt(name: string, defaultVal: number, min = 1): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return defaultVal;
-  const parsed = parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < min) return defaultVal;
-  return parsed;
+export function envInt(name: string, defaultVal: number, min = 1, max = Number.MAX_SAFE_INTEGER): number {
+  try {
+    return parseStrictInteger(process.env[name], { name, defaultValue: defaultVal, min, max });
+  } catch {
+    return defaultVal;
+  }
 }
 
 /**
@@ -30,7 +31,11 @@ export async function safeExec(
     timeout,
     cwd,
     env: { PYTHONIOENCODING: "utf-8" },
+    kind: "shell-exec",
   });
+  if (r.cancelled) {
+    throw new Error("Operation cancelled");
+  }
   if (r.timedOut) {
     throw new Error(`Timeout (${timeout}ms)\n[CMD]: ${cmd}`);
   }
@@ -43,42 +48,39 @@ export async function safeExec(
   return { stdout: r.stdout, stderr: r.stderr };
 }
 
-/**
- * 安全执行命令 — 使用 execFile 避免 shell 注入（用于参数化命令）
- */
+/** 安全执行命令：通过 execFileManaged 运行参数化命令。 */
+export interface SafeExecFileOptions {
+  timeout?: number;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+  requestId?: string | number;
+  scopeId?: string;
+  kind?: string;
+  tree?: boolean;
+  maxBuffer?: number;
+}
+
+/** 执行参数化 child process，并将其生命周期交给 ProcessSupervisor。 */
 export function safeExecFile(
   file: string,
   args: string[],
-  timeout = 30000,
+  timeoutOrOptions: number | SafeExecFileOptions = 30000,
   cwd?: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      file,
-      args,
-      {
-        cwd: cwd || undefined,
-        timeout,
-        maxBuffer: 10 * 1024 * 1024,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        const stdoutText = (stdout || "").toString();
-        const stderrText = (stderr || "").toString();
-        if (error) {
-          const parts = [error.message];
-          if (stdoutText) parts.push(`[stdout]\n${stdoutText}`);
-          if (stderrText) parts.push(`[stderr]\n${stderrText}`);
-          reject(new Error(parts.join("\n")));
-          return;
-        }
-        resolve({
-          stdout: stdoutText,
-          stderr: stderrText,
-        });
-      },
-    );
-  });
+  const config: SafeExecFileOptions =
+    typeof timeoutOrOptions === "number" ? { timeout: timeoutOrOptions, cwd } : timeoutOrOptions;
+  return execFileManaged(file, args, {
+    timeoutMs: config.timeout ?? 30000,
+    cwd: config.cwd,
+    env: config.env,
+    signal: config.signal,
+    requestId: config.requestId,
+    scopeId: config.scopeId,
+    kind: config.kind ?? "exec-file",
+    tree: config.tree,
+    maxBuffer: config.maxBuffer ?? 10 * 1024 * 1024,
+  }).then(({ stdout, stderr }) => ({ stdout, stderr }));
 }
 
 /**

@@ -28,21 +28,22 @@ describe("getKillSpec 详细验证", () => {
     expect(spec.file.length).toBeGreaterThan(0);
   });
 
-  test("按名称时 file 非空", () => {
-    const spec = getKillSpec(undefined, "test-app");
-    expect(spec.file.length).toBeGreaterThan(0);
+  test("未验证的名称参数被拒绝", () => {
+    expect(() => (getKillSpec as unknown as (pid: number, force: unknown) => unknown)(1234, "test-app")).toThrow(
+      "force and tree must be boolean",
+    );
   });
 
-  test("同时提供 pid 和 name 时优先 pid", () => {
-    const spec = getKillSpec(1234, "ignored");
+  test("tree spec 只使用 verified pid", () => {
+    const spec = getKillSpec(1234, true, true);
     const argsStr = spec.args.join(" ");
     expect(argsStr).toContain("1234");
-    expect(argsStr).not.toContain("ignored");
+    expect(argsStr).not.toMatch(/\/IM|pkill/i);
   });
 
   test("force 参数独立影响", () => {
-    const normal = getKillSpec(1234, undefined, false);
-    const forced = getKillSpec(1234, undefined, true);
+    const normal = getKillSpec(1234, false);
+    const forced = getKillSpec(1234, true);
     expect(normal.args.length).not.toBe(forced.args.length);
   });
 
@@ -53,17 +54,18 @@ describe("getKillSpec 详细验证", () => {
     }
   });
 
-  test("Unix 使用 kill/pkill", () => {
+  test("Unix 使用 kill", () => {
     if (!IS_WIN) {
       const spec = getKillSpec(1234);
       expect(spec.file).toMatch(/kill/);
     }
   });
 
-  test("Unix 按名称使用 pkill", () => {
+  test("Unix tree spec remains PID-only", () => {
     if (!IS_WIN) {
-      const spec = getKillSpec(undefined, "test");
-      expect(spec.file).toBe("pkill");
+      const spec = getKillSpec(1234, true, true);
+      expect(spec.file).toBe("kill");
+      expect(spec.args).toContain("-1234");
     }
   });
 });

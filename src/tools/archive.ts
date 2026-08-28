@@ -6,8 +6,10 @@ import * as fs from "node:fs/promises";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { withRetry } from "../adaptive.js";
+import type { RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
 import { getCompressSpec, getDownloadSpec, getExtractSpec } from "../platform.js";
+import { ManagedProcessError } from "../process-supervisor.js";
 import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { validatePath, validateRealPath, validateUrl } from "../security.js";
@@ -37,40 +39,50 @@ export function registerArchiveTools(server: McpServer) {
       ),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
-    wrapHandler("compress_archive", async ({ source_path, output_path }: CompressArchiveInput) => {
-      for (const [p, l] of [
-        [source_path, "source"],
-        [output_path, "output"],
-      ] as const) {
-        const e = validatePath(p, `compress:${l}`);
-        if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
-        const re = await validateRealPath(p, `compress:${l}`);
-        if (re) return fail(ErrorCode.PATH_FORBIDDEN, re, { retryable: false, param: l });
-      }
-
-      const block = await guardDestructiveAction("compress_archive", `压缩到归档: ${source_path} -> ${output_path}`);
-      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "output_path" });
-
-      try {
-        const spec = getCompressSpec(source_path, output_path, await getShellSpec());
-        await safeExecFile(spec.file, spec.args, 60000);
-        let size_bytes: number | undefined;
-        try {
-          const s = await fs.stat(output_path);
-          size_bytes = s.size;
-        } catch (err) {
-          logger.debug("compress_archive", "stat-failed", String(err));
+    wrapHandler(
+      "compress_archive",
+      async ({ source_path, output_path }: CompressArchiveInput, context: RequestContext) => {
+        for (const [p, l] of [
+          [source_path, "source"],
+          [output_path, "output"],
+        ] as const) {
+          const e = validatePath(p, `compress:${l}`);
+          if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
+          const re = await validateRealPath(p, `compress:${l}`);
+          if (re) return fail(ErrorCode.PATH_FORBIDDEN, re, { retryable: false, param: l });
         }
-        logger.info("compress_archive", "compressed", `${source_path} -> ${output_path}`);
-        return success(`Compressed: ${source_path} -> ${output_path}${size_bytes ? ` (${size_bytes} bytes)` : ""}`, {
-          source: source_path,
-          output: output_path,
-          size_bytes,
-        });
-      } catch (e: unknown) {
-        return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, errMsg(e), { retryable: true });
-      }
-    }),
+
+        const block = await guardDestructiveAction("compress_archive", `压缩到归档: ${source_path} -> ${output_path}`);
+        if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "output_path" });
+
+        try {
+          const spec = getCompressSpec(source_path, output_path, await getShellSpec());
+          await safeExecFile(spec.file, spec.args, {
+            timeout: 60000,
+            signal: context.signal,
+            requestId: context.requestId,
+            scopeId: context.scopeId,
+            kind: "archive-compress",
+          });
+          let size_bytes: number | undefined;
+          try {
+            const s = await fs.stat(output_path);
+            size_bytes = s.size;
+          } catch (err) {
+            logger.debug("compress_archive", "stat-failed", String(err));
+          }
+          logger.info("compress_archive", "compressed", `${source_path} -> ${output_path}`);
+          return success(`Compressed: ${source_path} -> ${output_path}${size_bytes ? ` (${size_bytes} bytes)` : ""}`, {
+            source: source_path,
+            output: output_path,
+            size_bytes,
+          });
+        } catch (e: unknown) {
+          if (e instanceof ManagedProcessError && e.cancelled) return Errors.cancelled("compress_archive cancelled");
+          return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, errMsg(e), { retryable: true });
+        }
+      },
+    ),
   );
 
   const ExtractArchiveInput = z.object({
@@ -88,28 +100,38 @@ export function registerArchiveTools(server: McpServer) {
       outputSchema: withErrorSchema(z.object({ archive: z.string(), output: z.string() })),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
-    wrapHandler("extract_archive", async ({ archive_path, output_dir }: ExtractArchiveInput) => {
-      for (const [p, l] of [
-        [archive_path, "archive"],
-        [output_dir, "output"],
-      ] as const) {
-        const e = validatePath(p, `extract:${l}`);
-        if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
-        const re = await validateRealPath(p, `extract:${l}`);
-        if (re) return fail(ErrorCode.PATH_FORBIDDEN, re, { retryable: false, param: l });
-      }
+    wrapHandler(
+      "extract_archive",
+      async ({ archive_path, output_dir }: ExtractArchiveInput, context: RequestContext) => {
+        for (const [p, l] of [
+          [archive_path, "archive"],
+          [output_dir, "output"],
+        ] as const) {
+          const e = validatePath(p, `extract:${l}`);
+          if (e) return fail(ErrorCode.PATH_FORBIDDEN, e, { retryable: false, param: l });
+          const re = await validateRealPath(p, `extract:${l}`);
+          if (re) return fail(ErrorCode.PATH_FORBIDDEN, re, { retryable: false, param: l });
+        }
 
-      const block = await guardDestructiveAction("extract_archive", `解压归档: ${archive_path} -> ${output_dir}`);
-      if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "output_dir" });
+        const block = await guardDestructiveAction("extract_archive", `解压归档: ${archive_path} -> ${output_dir}`);
+        if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "output_dir" });
 
-      try {
-        const spec = getExtractSpec(archive_path, output_dir, await getShellSpec());
-        await safeExecFile(spec.file, spec.args, 60000);
-        return success(`Extracted: ${archive_path} -> ${output_dir}`, { archive: archive_path, output: output_dir });
-      } catch (e: unknown) {
-        return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, errMsg(e), { retryable: true });
-      }
-    }),
+        try {
+          const spec = getExtractSpec(archive_path, output_dir, await getShellSpec());
+          await safeExecFile(spec.file, spec.args, {
+            timeout: 60000,
+            signal: context.signal,
+            requestId: context.requestId,
+            scopeId: context.scopeId,
+            kind: "archive-extract",
+          });
+          return success(`Extracted: ${archive_path} -> ${output_dir}`, { archive: archive_path, output: output_dir });
+        } catch (e: unknown) {
+          if (e instanceof ManagedProcessError && e.cancelled) return Errors.cancelled("extract_archive cancelled");
+          return shellResolutionFail(e) ?? fail(ErrorCode.ARCHIVE_FAILED, errMsg(e), { retryable: true });
+        }
+      },
+    ),
   );
 
   const DownloadFileInput = z.object({
@@ -127,7 +149,7 @@ export function registerArchiveTools(server: McpServer) {
       outputSchema: withErrorSchema(z.object({ url: z.string(), path: z.string() })),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
-    wrapHandler("download_file", async ({ url, save_path }: DownloadFileInput) => {
+    wrapHandler("download_file", async ({ url, save_path }: DownloadFileInput, context: RequestContext) => {
       const pathErr = validatePath(save_path, "download:save_path");
       if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "save_path" });
       const realErr = await validateRealPath(save_path, "download:save_path");
@@ -140,12 +162,23 @@ export function registerArchiveTools(server: McpServer) {
 
       try {
         const spec = getDownloadSpec(url, save_path, await getShellSpec());
-        await withRetry(() => safeExecFile(spec.file, spec.args, 120000), {
-          baseDelay: 1000,
-          toolName: "download_file",
-        });
+        await withRetry(
+          () =>
+            safeExecFile(spec.file, spec.args, {
+              timeout: 120000,
+              signal: context.signal,
+              requestId: context.requestId,
+              scopeId: context.scopeId,
+              kind: "archive-download",
+            }),
+          {
+            baseDelay: 1000,
+            toolName: "download_file",
+          },
+        );
         return success(`Downloaded: ${url} -> ${save_path}`, { url, path: save_path });
       } catch (e: unknown) {
+        if (e instanceof ManagedProcessError && e.cancelled) return Errors.cancelled("download_file cancelled");
         return shellResolutionFail(e) ?? Errors.executionFailed(errMsg(e));
       }
     }),

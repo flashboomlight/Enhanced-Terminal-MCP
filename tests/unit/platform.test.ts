@@ -85,16 +85,15 @@ describe("wrapCommand", () => {
     }
   });
 
-  test("getKillSpec throws when neither pid nor name provided", () => {
-    expect(() => getKillSpec(undefined, undefined)).toThrow("requires at least pid or name");
+  test("getKillSpec rejects missing or invalid verified pid", () => {
+    expect(() => getKillSpec(undefined as unknown as number)).toThrow("requires a verified positive pid");
+    expect(() => getKillSpec(0)).toThrow("requires a verified positive pid");
   });
 
-  test("getKillSpec by name without pid on Unix uses pkill", () => {
-    if (!IS_WIN) {
-      const spec = getKillSpec(undefined, "node");
-      expect(spec.file).toBe("pkill");
-      expect(spec.args).toContain("node");
-    }
+  test("getKillSpec rejects an unverified name-shaped argument", () => {
+    expect(() => (getKillSpec as unknown as (pid: number, force: unknown) => unknown)(1234, "node")).toThrow(
+      "force and tree must be boolean",
+    );
   });
 
   test("getNetworkSpec uses default hosts", () => {
@@ -152,15 +151,15 @@ describe("getKillSpec", () => {
     expect(argsStr).toContain("1234");
   });
 
-  test("按名称杀进程返回有效 CommandSpec", () => {
-    const spec = getKillSpec(undefined, "notepad");
-    expect(spec.file).toBeTruthy();
+  test("只允许 verified PID 生成终止 CommandSpec", () => {
+    const spec = getKillSpec(1234, true, true);
     const argsStr = spec.args.join(" ");
-    expect(argsStr.toLowerCase()).toContain("notepad");
+    expect(argsStr).toContain("1234");
+    expect(argsStr).not.toMatch(/\/IM|pkill/i);
   });
 
   test("force 模式包含强制参数", () => {
-    const spec = getKillSpec(1234, undefined, true);
+    const spec = getKillSpec(1234, true);
     const argsStr = spec.args.join(" ").toLowerCase();
     if (IS_WIN) {
       expect(argsStr).toContain("/f");
@@ -171,7 +170,7 @@ describe("getKillSpec", () => {
 
   test("非 force 模式使用温和信号", () => {
     if (!IS_WIN) {
-      const spec = getKillSpec(1234, undefined, false);
+      const spec = getKillSpec(1234, false);
       const argsStr = spec.args.join(" ");
       expect(argsStr).toContain("-15");
     }

@@ -1,0 +1,54 @@
+feature: 2026-08-28-hardening-contract-and-profiles
+created: 2026-08-28
+
+steps:
+  - action: "契约骨架：建立 RequestContext、ExecutionProfile、Capability、BudgetKind、ErrorCode 扩展和 profile availability API"
+    exit_signal: "共享类型可被后续模块导入；既有错误码值不变；pnpm exec tsc --noEmit 通过"
+    status: done
+  - action: "验证节点：实现 finite/int/bounded string/array 和 strict configuration integer helper"
+    exit_signal: "NaN、Infinity、负数、小数、超限、前缀数字和 UTF-8 byte 超限均得到确定性结果；正常值保持兼容"
+    status: done
+  - action: "预算节点：实现 parent/child BudgetAccount、共享 ledger、deadline、AbortSignal 和幂等 close"
+    exit_signal: "多个 child 竞争 parent 额度时不越权、不出现负账本；deadline/abort 能传播到 child"
+    status: done
+  - action: "Profile 节点：实现 MCP_EXECUTION_PROFILE 解析、local/sandbox capability 默认矩阵和 sandbox availability fail-closed"
+    exit_signal: "默认 local 可继续启动；unknown profile 返回 CONFIG_INVALID；sandbox backend 不可用返回 SANDBOX_UNAVAILABLE 且不连接 transport"
+    status: done
+  - action: "兼容接入：将安全数值解析接入现有 envInt 兼容入口并补齐生产硬化错误码构造"
+    exit_signal: "既有合法配置和错误码行为不变；非法数值不再被 parseInt 前缀接受；新错误可通过 ToolResult/MCP 转换"
+    status: done
+  - action: "测试收尾：补充 contract/profile/budget hostile-input 和兼容性回归测试"
+    exit_signal: "本 checklist 的 15 条验收场景都有测试或类型证据，build、tsc、lint、相关测试全部通过"
+    status: done
+
+checks:
+  - item: "RequestContext 从 runtime extra 获取 requestId/sessionId/signal，arguments 不能覆盖"
+    source: 名词契约
+    status: passed
+  - item: "ExecutionProfile 默认 local-trusted-shell，未知值 CONFIG_INVALID，sandbox unavailable SANDBOX_UNAVAILABLE"
+    source: 编排骨架
+    status: passed
+  - item: "CapabilityPolicy local/sandbox 矩阵遵守最小权限，未把应用策略宣称为 OS sandbox"
+    source: 跨层纪律
+    status: passed
+  - item: "finite/int/bounded schema helper 拒绝非有限值、非整数、超限和 byte 超限"
+    source: 验收场景
+    status: passed
+  - item: "strict configuration integer 拒绝 parseInt 前缀、科学计数法、溢出和负值"
+    source: 验收场景
+    status: passed
+  - item: "BudgetAccount parent/child 共享额度、deadline、cancel 和幂等 close"
+    source: 名词契约
+    status: passed
+  - item: "既有 ErrorCode 字符串、ToolResult、isError 和安全核心配置不改变"
+    source: 范围守护
+    status: passed
+  - item: "本 feature 不新增 tool/resource/prompt、OS sandbox backend、网络 client 或运行时依赖"
+    source: 范围守护
+    status: passed
+  - item: "本 feature 的 startup gate、配置 key、共享导出和错误码均可完整卸载或定位"
+    source: 挂载点
+    status: passed
+  - item: "architecture 回写内容已在 acceptance 阶段按实际代码更新，未提前把计划写成现状"
+    source: 挂载点
+    status: passed

@@ -18,6 +18,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { audit } from "./audit.js";
 import { logger } from "./logger.js";
 import { processPool } from "./pool.js";
+import { processSupervisor } from "./process-supervisor.js";
+import { initializeExecutionProfile } from "./profile.js";
 import { initSafeGuard } from "./safeguard.js";
 import { session } from "./session.js";
 import { tempManager } from "./temp-manager.js";
@@ -43,6 +45,8 @@ async function readAuditLog(uri: URL) {
 }
 
 async function main() {
+  initializeExecutionProfile();
+
   const server = new McpServer({
     name: "enhanced-terminal-mcp",
     version: VERSION,
@@ -79,18 +83,38 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // 优雅退出：清理进程池与临时资源
+  // 优雅退出：先 drain 所有 managed child，再 flush session/audit
   let shuttingDown = false;
-  const shutdown = () => {
+  const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info("server", "shutdown", "Graceful shutdown initiated");
-    session.flush().catch((e) => logger.warn("server", "session-flush-failed", String(e)));
-    audit.flush().catch((e) => logger.warn("server", "audit-flush-failed", String(e)));
     processPool.destroy();
     tempManager.stopAutoCleanup();
-    // 给 pending I/O 时间完成（session 去抖 5s、audit 去抖 1s，3s 足够覆盖常态写盘）
-    setTimeout(() => process.exit(0), 3000).unref();
+    void (async () => {
+      const report = await processSupervisor.shutdown(3000);
+      if (!report.clean) {
+        process.exitCode = 1;
+        logger.error("server", "shutdown-degraded", JSON.stringify(report));
+      }
+      try {
+        await session.flush();
+      } catch (error) {
+        process.exitCode = 1;
+        logger.warn("server", "session-flush-failed", String(error));
+      }
+      try {
+        await audit.flush();
+      } catch (error) {
+        process.exitCode = 1;
+        logger.warn("server", "audit-flush-failed", String(error));
+      }
+      process.exit(process.exitCode ?? 0);
+    })().catch((error: unknown) => {
+      process.exitCode = 1;
+      logger.error("server", "shutdown-failed", String(error));
+      process.exit(1);
+    });
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

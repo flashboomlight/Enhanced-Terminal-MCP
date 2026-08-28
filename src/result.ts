@@ -34,6 +34,17 @@ export const ErrorCode = {
   HOST_INVALID: "HOST_INVALID",
   ARCHIVE_FAILED: "ARCHIVE_FAILED",
   SECRET_DETECTED: "SECRET_DETECTED",
+  RESOURCE_LIMIT: "RESOURCE_LIMIT",
+  CANCELLED: "CANCELLED",
+  PROCESS_TREE_TERMINATION_FAILED: "PROCESS_TREE_TERMINATION_FAILED",
+  SANDBOX_UNAVAILABLE: "SANDBOX_UNAVAILABLE",
+  SSRF_BLOCKED: "SSRF_BLOCKED",
+  ARCHIVE_LIMIT: "ARCHIVE_LIMIT",
+  STATE_PERSISTENCE_FAILED: "STATE_PERSISTENCE_FAILED",
+  CAPABILITY_DENIED: "CAPABILITY_DENIED",
+  PROCESS_IDENTITY_AMBIGUOUS: "PROCESS_IDENTITY_AMBIGUOUS",
+  PARTIAL_RESULT: "PARTIAL_RESULT",
+  CONFIG_INVALID: "CONFIG_INVALID",
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -67,6 +78,7 @@ export interface CommandOutputEnvelope {
   stderr: string;
   exit_code: number | null;
   timed_out: boolean;
+  cancelled: boolean;
   truncated: boolean;
   stdout_truncated: boolean;
   stderr_truncated: boolean;
@@ -262,6 +274,39 @@ export const Errors = {
       param: "target",
       detail: { host },
     }),
+
+  resourceLimit: (message: string, detail?: unknown) =>
+    fail(ErrorCode.RESOURCE_LIMIT, message, { retryable: true, detail }),
+
+  cancelled: (message = "Operation cancelled", detail?: unknown) =>
+    fail(ErrorCode.CANCELLED, message, { retryable: true, detail }),
+
+  processTreeTerminationFailed: (message = "Process tree termination failed", detail?: unknown) =>
+    fail(ErrorCode.PROCESS_TREE_TERMINATION_FAILED, message, { retryable: true, detail }),
+
+  sandboxUnavailable: (message = "Sandbox execution is unavailable", detail?: unknown) =>
+    fail(ErrorCode.SANDBOX_UNAVAILABLE, message, { retryable: false, detail }),
+
+  ssrfBlocked: (message = "Network target blocked by SSRF policy", detail?: unknown) =>
+    fail(ErrorCode.SSRF_BLOCKED, message, { retryable: false, param: "url", detail }),
+
+  archiveLimit: (message = "Archive resource limit exceeded", detail?: unknown) =>
+    fail(ErrorCode.ARCHIVE_LIMIT, message, { retryable: false, detail }),
+
+  statePersistenceFailed: (message = "State persistence failed", detail?: unknown) =>
+    fail(ErrorCode.STATE_PERSISTENCE_FAILED, message, { retryable: true, detail }),
+
+  capabilityDenied: (message = "Capability denied by execution profile", detail?: unknown) =>
+    fail(ErrorCode.CAPABILITY_DENIED, message, { retryable: false, detail }),
+
+  processIdentityAmbiguous: (message = "Process identity is ambiguous", detail?: unknown) =>
+    fail(ErrorCode.PROCESS_IDENTITY_AMBIGUOUS, message, { retryable: false, detail }),
+
+  partialResult: (message = "Result is incomplete", detail?: unknown) =>
+    fail(ErrorCode.PARTIAL_RESULT, message, { retryable: true, detail }),
+
+  configInvalid: (message: string, param?: string, detail?: unknown) =>
+    fail(ErrorCode.CONFIG_INVALID, message, { retryable: false, param, detail }),
 };
 
 // ====================================================================
@@ -285,6 +330,7 @@ export const commandOutputSchema = z.object({
   stderr: z.string(),
   exit_code: z.number().nullable(),
   timed_out: z.boolean(),
+  cancelled: z.boolean(),
   truncated: z.boolean(),
   stdout_truncated: z.boolean(),
   stderr_truncated: z.boolean(),

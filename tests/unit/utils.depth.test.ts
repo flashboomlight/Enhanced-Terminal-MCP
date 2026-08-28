@@ -13,7 +13,7 @@ type ExecCallback = (error: Error | null, stdout?: Buffer | string, stderr?: Buf
 describe("safeExecFile (edge cases)", () => {
   test("safeExecFile 有 stderr 但无 stdout 仍 resolve", async () => {
     vi.resetModules();
-    vi.doMock("child_process", () => ({
+    vi.doMock("node:child_process", () => ({
       exec: vi.fn(),
       execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         setImmediate(() => cb(null, "", "error output"));
@@ -28,7 +28,7 @@ describe("safeExecFile (edge cases)", () => {
 
   test("safeExecFile 默认 toString 处理 buffer", async () => {
     vi.resetModules();
-    vi.doMock("child_process", () => ({
+    vi.doMock("node:child_process", () => ({
       exec: vi.fn(),
       execFile: (_file: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
         // execFile 直接返回 string（不是 buffer）

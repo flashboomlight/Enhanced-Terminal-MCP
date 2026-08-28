@@ -2,19 +2,19 @@
  * 搜索工具: search_files, everything_search, grep_content
  */
 
-import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { promisify } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { type EsExeResolution, resolveEsExe } from "../es-integrity.js";
+import type { RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
 import { escapePsString, IS_WIN } from "../platform.js";
+import { execFileManaged, ManagedProcessError } from "../process-supervisor.js";
 import { getRegex } from "../regex.js";
-import { ErrorCode, fail, success, withErrorSchema } from "../result.js";
+import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
 import { validatePath } from "../security.js";
 import { buildShellInvocation, getShellSpec } from "../shell.js";
 import { wrapHandler } from "../wrap.js";
@@ -85,82 +85,82 @@ export function registerSearchTools(server: McpServer) {
       ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    wrapHandler("search_files", async ({ dir_path, pattern, max_depth, max_results }: SearchFilesInput) => {
-      const pathErr = validatePath(dir_path, "search_files");
-      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
-      const t0 = Date.now();
-      const maxR = max_results || 50;
-      const matches: string[] = [];
+    wrapHandler(
+      "search_files",
+      async ({ dir_path, pattern, max_depth, max_results }: SearchFilesInput, context: RequestContext) => {
+        const pathErr = validatePath(dir_path, "search_files");
+        if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+        const t0 = Date.now();
+        const maxR = max_results || 50;
+        const matches: string[] = [];
 
-      try {
-        if (IS_WIN) {
-          try {
-            const resolution = await resolveEsExe();
-            if (!resolution.available) {
-              if (resolution.source === "explicit") return esResolutionFailure(resolution, "search_files");
-              logger.debug("search_files", "everything-skipped", resolution.diagnostic.reason);
-            } else {
-              const esPath = resolution.path;
-              const normalizedDir = resolve(dir_path).toLowerCase();
-              await new Promise<void>((done) => {
-                const args = ["-s", "-n", String(maxR * 2), pattern];
-                execFile(
-                  esPath,
-                  args,
-                  { maxBuffer: 10 * 1024 * 1024, timeout: 10000 },
-                  (_err: unknown, stdout: string) => {
-                    if (stdout) {
-                      for (const l of stdout.split("\n")) {
-                        const trimmed = l.trim();
-                        if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
-                          matches.push(trimmed);
-                          if (matches.length >= maxR) break;
-                        }
-                      }
-                    }
-                    done();
-                  },
-                );
-              });
-            }
-          } catch (err) {
-            logger.debug("search_files", "everything-fallback", String(err));
-          }
-        }
-
-        if (matches.length === 0) {
-          const maxD = max_depth || 5;
-          const reg = globToRegex(pattern);
-
-          async function walk(p: string, d: number) {
-            if (d > maxD || matches.length >= maxR) return;
+        try {
+          if (IS_WIN) {
             try {
-              const entries = await readdir(p, { withFileTypes: true });
-              for (const e of entries) {
-                if (matches.length >= maxR) break;
-                const fp = join(p, e.name);
-                if (e.isDirectory()) {
-                  if (!e.name.startsWith(".")) await walk(fp, d + 1);
-                } else if (reg.test(e.name)) matches.push(fp);
+              const resolution = await resolveEsExe();
+              if (!resolution.available) {
+                if (resolution.source === "explicit") return esResolutionFailure(resolution, "search_files");
+                logger.debug("search_files", "everything-skipped", resolution.diagnostic.reason);
+              } else {
+                const esPath = resolution.path;
+                const normalizedDir = resolve(dir_path).toLowerCase();
+                const result = await execFileManaged(esPath, ["-s", "-n", String(maxR * 2), pattern], {
+                  maxBuffer: 10 * 1024 * 1024,
+                  timeoutMs: 10000,
+                  signal: context.signal,
+                  requestId: context.requestId,
+                  scopeId: context.scopeId,
+                  kind: "everything-search",
+                });
+                for (const line of result.stdout.split("\n")) {
+                  const trimmed = line.trim();
+                  if (trimmed?.toLowerCase().startsWith(normalizedDir)) {
+                    matches.push(trimmed);
+                    if (matches.length >= maxR) break;
+                  }
+                }
               }
-            } catch (e) {
-              logger.warn("search_files", "walk-error", `${p}: ${String(e)}`);
+            } catch (err) {
+              if (context.signal.aborted) return Errors.cancelled("search_files cancelled");
+              logger.debug("search_files", "everything-fallback", String(err));
             }
           }
-          await walk(dir_path, 0);
-        }
 
-        const ms = Date.now() - t0;
-        logger.info("search_files", "done", `${matches.length} matches in ${ms}ms`);
-        return success(
-          `Found ${matches.length} file(s) in ${ms}ms:\n${matches.join("\n")}`,
-          { matches, total: matches.length, search_ms: ms, truncated: matches.length >= maxR },
-          { truncated: matches.length >= maxR, latency_ms: ms },
-        );
-      } catch (e: unknown) {
-        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
-      }
-    }),
+          if (matches.length === 0) {
+            const maxD = max_depth || 5;
+            const reg = globToRegex(pattern);
+
+            async function walk(p: string, d: number) {
+              if (d > maxD || matches.length >= maxR) return;
+              try {
+                const entries = await readdir(p, { withFileTypes: true });
+                for (const e of entries) {
+                  if (matches.length >= maxR) break;
+                  const fp = join(p, e.name);
+                  if (e.isDirectory()) {
+                    if (!e.name.startsWith(".")) await walk(fp, d + 1);
+                  } else if (reg.test(e.name)) matches.push(fp);
+                }
+              } catch (e) {
+                logger.warn("search_files", "walk-error", `${p}: ${String(e)}`);
+              }
+            }
+            await walk(dir_path, 0);
+          }
+
+          const ms = Date.now() - t0;
+          logger.info("search_files", "done", `${matches.length} matches in ${ms}ms`);
+          return success(
+            `Found ${matches.length} file(s) in ${ms}ms:\n${matches.join("\n")}`,
+            { matches, total: matches.length, search_ms: ms, truncated: matches.length >= maxR },
+            { truncated: matches.length >= maxR, latency_ms: ms },
+          );
+        } catch (e: unknown) {
+          if (context.signal.aborted) return Errors.cancelled("search_files cancelled");
+          return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
+        }
+      },
+    ),
   );
 
   // ====================================================================
@@ -184,53 +184,59 @@ export function registerSearchTools(server: McpServer) {
       ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    wrapHandler("everything_search", async ({ query, dir_filter, max_results }: EverythingSearchInput) => {
-      if (dir_filter) {
-        const pathErr = validatePath(dir_filter, "everything_search");
-        if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_filter" });
-      }
-      const t0 = Date.now();
-      const maxR = max_results || 100;
+    wrapHandler(
+      "everything_search",
+      async ({ query, dir_filter, max_results }: EverythingSearchInput, context: RequestContext) => {
+        if (dir_filter) {
+          const pathErr = validatePath(dir_filter, "everything_search");
+          if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_filter" });
+        }
+        const t0 = Date.now();
+        const maxR = max_results || 100;
 
-      if (!IS_WIN) {
-        return fail(ErrorCode.EXECUTION_FAILED, "Everything search is only available on Windows", {
-          retryable: false,
-          suggestion: "Use search_files instead",
-        });
-      }
+        if (!IS_WIN) {
+          return fail(ErrorCode.EXECUTION_FAILED, "Everything search is only available on Windows", {
+            retryable: false,
+            suggestion: "Use search_files instead",
+          });
+        }
 
-      try {
-        const resolution = await resolveEsExe();
-        if (!resolution.available) return esResolutionFailure(resolution, "everything_search");
-        const esPathWin = resolution.path;
-        const results: string[] = [];
+        try {
+          const resolution = await resolveEsExe();
+          if (!resolution.available) return esResolutionFailure(resolution, "everything_search");
+          const esPathWin = resolution.path;
+          const results: string[] = [];
 
-        await new Promise<void>((resolve) => {
           const args = ["-s", "-n", String(maxR)];
           if (dir_filter) args.push("-path", dir_filter);
           args.push(query);
-          execFile(esPathWin, args, { maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (_e: unknown, stdout: string) => {
-            if (stdout)
-              results.push(
-                ...stdout
-                  .split("\n")
-                  .map((l) => l.trim())
-                  .filter((l) => l),
-              );
-            resolve();
+          const result = await execFileManaged(esPathWin, args, {
+            maxBuffer: 10 * 1024 * 1024,
+            timeoutMs: 15000,
+            signal: context.signal,
+            requestId: context.requestId,
+            scopeId: context.scopeId,
+            kind: "everything-search",
           });
-        });
+          results.push(
+            ...result.stdout
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line),
+          );
 
-        const ms = Date.now() - t0;
-        return success(`[Everything ${ms}ms] Found ${results.length} file(s):\n${results.join("\n")}`, {
-          matches: results,
-          total: results.length,
-          search_ms: ms,
-        });
-      } catch (e: unknown) {
-        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
-      }
-    }),
+          const ms = Date.now() - t0;
+          return success(`[Everything ${ms}ms] Found ${results.length} file(s):\n${results.join("\n")}`, {
+            matches: results,
+            total: results.length,
+            search_ms: ms,
+          });
+        } catch (e: unknown) {
+          if (context.signal.aborted) return Errors.cancelled("everything_search cancelled");
+          return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
+        }
+      },
+    ),
   );
 
   // ====================================================================
@@ -253,76 +259,72 @@ export function registerSearchTools(server: McpServer) {
       ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    wrapHandler("grep_content", async ({ dir_path, pattern, file_pattern, max_results }: GrepContentInput) => {
-      const pathErr = validatePath(dir_path, "grep_content");
-      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
-      // 主路径预检 pattern：语法 + ReDoS 防护（与 fallback 路径统一）
-      try {
-        getRegex(pattern, "gi");
-      } catch (e: unknown) {
-        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
-      }
-      const t0 = Date.now();
-      const maxR = max_results || 50;
-      const fileFilter = file_pattern || "*";
-      const results: string[] = [];
-
-      try {
-        // PS 入口仅在解析到 PowerShell flavor 时启用；cmd 模式或解析失败走原生降级
-        const shellSpec = await getShellSpec().catch(() => null);
-        if (IS_WIN && shellSpec && (shellSpec.flavor === "pwsh" || shellSpec.flavor === "powershell")) {
-          const execAsync = promisify(execFile);
-          // 参数内联进单引号字面量（'' 转义），避免拼接注入
-          const q = (s: string) => `'${escapePsString(s)}'`;
-          const psScript = [
-            "$ErrorActionPreference = 'SilentlyContinue';",
-            `Get-ChildItem -LiteralPath ${q(dir_path)} -Filter ${q(fileFilter)} -Recurse -File |`,
-            `  Select-String -Pattern ${q(pattern)} |`,
-            `  Select-Object -First ${maxR} |`,
-            '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
-          ].join(" ");
-          try {
-            const inv = buildShellInvocation(psScript, shellSpec);
-            const { stdout } = await execAsync(inv.file, inv.args, { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
-            results.push(
-              ...stdout
-                .split("\n")
-                .map((l) => l.trim())
-                .filter((l) => l),
-            );
-          } catch (e: unknown) {
-            logger.warn("grep_content", "ps-error", String(e));
-            return fail(ErrorCode.EXECUTION_FAILED, `PowerShell grep failed: ${errMsg(e)}`, {
-              retryable: true,
-              detail: { dir_path, file_pattern: fileFilter, pattern },
-            });
-          }
+    wrapHandler(
+      "grep_content",
+      async ({ dir_path, pattern, file_pattern, max_results }: GrepContentInput, context: RequestContext) => {
+        const pathErr = validatePath(dir_path, "grep_content");
+        if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+        // 主路径预检 pattern：语法 + ReDoS 防护（与 fallback 路径统一）
+        try {
+          getRegex(pattern, "gi");
+        } catch (e: unknown) {
+          return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
         }
+        const t0 = Date.now();
+        const maxR = max_results || 50;
+        const fileFilter = file_pattern || "*";
+        const results: string[] = [];
 
-        if (!IS_WIN && results.length === 0) {
-          try {
-            const execAsync = promisify(execFile);
-            const grepArgs = ["-rnI", `--include=${fileFilter}`, pattern, dir_path];
-            const { stdout } = await execAsync("grep", grepArgs, { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
-            results.push(
-              ...stdout
-                .split("\n")
-                .map((l) => l.trim())
-                .filter((l) => l)
-                .slice(0, maxR),
-            );
-          } catch (e: unknown) {
-            const rawOut = (e as { stdout?: unknown }).stdout;
-            const stdout =
-              typeof rawOut === "string"
-                ? rawOut
-                : rawOut != null && typeof (rawOut as { toString?: () => string }).toString === "function"
-                  ? String((rawOut as { toString: () => string }).toString())
-                  : "";
-            const code = (e as { code?: unknown }).code;
-            if (code === 1 && !stdout) {
-              logger.debug("grep_content", "grep-no-matches", `${dir_path} ${pattern}`);
-            } else if (stdout) {
+        try {
+          // PS 入口仅在解析到 PowerShell flavor 时启用；cmd 模式或解析失败走原生降级
+          const shellSpec = await getShellSpec().catch(() => null);
+          if (IS_WIN && shellSpec && (shellSpec.flavor === "pwsh" || shellSpec.flavor === "powershell")) {
+            // 参数内联进单引号字面量（'' 转义），避免拼接注入
+            const q = (s: string) => `'${escapePsString(s)}'`;
+            const psScript = [
+              "$ErrorActionPreference = 'SilentlyContinue';",
+              `Get-ChildItem -LiteralPath ${q(dir_path)} -Filter ${q(fileFilter)} -Recurse -File |`,
+              `  Select-String -Pattern ${q(pattern)} |`,
+              `  Select-Object -First ${maxR} |`,
+              '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
+            ].join(" ");
+            try {
+              const inv = buildShellInvocation(psScript, shellSpec);
+              const { stdout } = await execFileManaged(inv.file, inv.args, {
+                timeoutMs: 30000,
+                maxBuffer: 10 * 1024 * 1024,
+                signal: context.signal,
+                requestId: context.requestId,
+                scopeId: context.scopeId,
+                kind: "grep",
+              });
+              results.push(
+                ...stdout
+                  .split("\n")
+                  .map((l) => l.trim())
+                  .filter((l) => l),
+              );
+            } catch (e: unknown) {
+              if (context.signal.aborted) return Errors.cancelled("grep_content cancelled");
+              logger.warn("grep_content", "ps-error", String(e));
+              return fail(ErrorCode.EXECUTION_FAILED, `PowerShell grep failed: ${errMsg(e)}`, {
+                retryable: true,
+                detail: { dir_path, file_pattern: fileFilter, pattern },
+              });
+            }
+          }
+
+          if (!IS_WIN && results.length === 0) {
+            try {
+              const grepArgs = ["-rnI", `--include=${fileFilter}`, pattern, dir_path];
+              const { stdout } = await execFileManaged("grep", grepArgs, {
+                timeoutMs: 30000,
+                maxBuffer: 10 * 1024 * 1024,
+                signal: context.signal,
+                requestId: context.requestId,
+                scopeId: context.scopeId,
+                kind: "grep",
+              });
               results.push(
                 ...stdout
                   .split("\n")
@@ -330,73 +332,94 @@ export function registerSearchTools(server: McpServer) {
                   .filter((l) => l)
                   .slice(0, maxR),
               );
-            } else {
-              logger.warn("grep_content", "grep-error", String(e));
-              return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${errMsg(e)}`, {
-                retryable: true,
-                detail: { dir_path, file_pattern: fileFilter, pattern },
-              });
-            }
-          }
-        }
-
-        if (results.length === 0) {
-          let regex: RegExp;
-          try {
-            regex = getRegex(pattern, "gi");
-          } catch (e: unknown) {
-            return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
-          }
-          const fileRegex = globToRegex(fileFilter);
-
-          async function grepFile(fp: string) {
-            const rl = createInterface({ input: createReadStream(fp, { encoding: "utf-8" }), crlfDelay: Infinity });
-            let lineNum = 0;
-            for await (const line of rl) {
-              if (results.length >= maxR) {
-                rl.close();
-                break;
+            } catch (e: unknown) {
+              if (context.signal.aborted) return Errors.cancelled("grep_content cancelled");
+              const rawOut = e instanceof ManagedProcessError ? e.stdout : (e as { stdout?: unknown }).stdout;
+              const stdout =
+                typeof rawOut === "string"
+                  ? rawOut
+                  : rawOut != null && typeof (rawOut as { toString?: () => string }).toString === "function"
+                    ? String((rawOut as { toString: () => string }).toString())
+                    : "";
+              const code = e instanceof ManagedProcessError ? e.exitCode : (e as { code?: unknown }).code;
+              if (code === 1 && !stdout) {
+                logger.debug("grep_content", "grep-no-matches", `${dir_path} ${pattern}`);
+              } else if (stdout) {
+                results.push(
+                  ...stdout
+                    .split("\n")
+                    .map((l) => l.trim())
+                    .filter((l) => l)
+                    .slice(0, maxR),
+                );
+              } else {
+                logger.warn("grep_content", "grep-error", String(e));
+                return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${errMsg(e)}`, {
+                  retryable: true,
+                  detail: { dir_path, file_pattern: fileFilter, pattern },
+                });
               }
-              lineNum++;
-              if (regex.test(line)) results.push(`${fp}:${lineNum}: ${line.trim()}`);
-              regex.lastIndex = 0;
             }
           }
 
-          async function walk(p: string, depth: number) {
-            if (depth > 5 || results.length >= maxR) return;
+          if (results.length === 0) {
+            let regex: RegExp;
             try {
-              const entries = await readdir(p, { withFileTypes: true });
-              for (const entry of entries) {
-                if (results.length >= maxR) break;
-                const fp = join(p, entry.name);
-                if (entry.isFile() && fileRegex.test(entry.name)) {
-                  try {
-                    await grepFile(fp);
-                  } catch (e) {
-                    logger.warn("grep_content", "grep-file-error", `${fp}: ${String(e)}`);
-                  }
-                } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
-                  await walk(fp, depth + 1);
-                }
-              }
-            } catch (e) {
-              logger.warn("grep_content", "walk-error", `${p}: ${String(e)}`);
+              regex = getRegex(pattern, "gi");
+            } catch (e: unknown) {
+              return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
             }
-          }
-          await walk(dir_path, 0);
-        }
+            const fileRegex = globToRegex(fileFilter);
 
-        const ms = Date.now() - t0;
-        logger.info("grep_content", "done", `${results.length} matches in ${ms}ms`);
-        return success(`Found ${results.length} match(es) in ${ms}ms:\n${results.join("\n")}`, {
-          matches: results,
-          total: results.length,
-          search_ms: ms,
-        });
-      } catch (e: unknown) {
-        return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
-      }
-    }),
+            async function grepFile(fp: string) {
+              const rl = createInterface({ input: createReadStream(fp, { encoding: "utf-8" }), crlfDelay: Infinity });
+              let lineNum = 0;
+              for await (const line of rl) {
+                if (results.length >= maxR) {
+                  rl.close();
+                  break;
+                }
+                lineNum++;
+                if (regex.test(line)) results.push(`${fp}:${lineNum}: ${line.trim()}`);
+                regex.lastIndex = 0;
+              }
+            }
+
+            async function walk(p: string, depth: number) {
+              if (depth > 5 || results.length >= maxR) return;
+              try {
+                const entries = await readdir(p, { withFileTypes: true });
+                for (const entry of entries) {
+                  if (results.length >= maxR) break;
+                  const fp = join(p, entry.name);
+                  if (entry.isFile() && fileRegex.test(entry.name)) {
+                    try {
+                      await grepFile(fp);
+                    } catch (e) {
+                      logger.warn("grep_content", "grep-file-error", `${fp}: ${String(e)}`);
+                    }
+                  } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
+                    await walk(fp, depth + 1);
+                  }
+                }
+              } catch (e) {
+                logger.warn("grep_content", "walk-error", `${p}: ${String(e)}`);
+              }
+            }
+            await walk(dir_path, 0);
+          }
+
+          const ms = Date.now() - t0;
+          logger.info("grep_content", "done", `${results.length} matches in ${ms}ms`);
+          return success(`Found ${results.length} match(es) in ${ms}ms:\n${results.join("\n")}`, {
+            matches: results,
+            total: results.length,
+            search_ms: ms,
+          });
+        } catch (e: unknown) {
+          return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
+        }
+      },
+    ),
   );
 }
