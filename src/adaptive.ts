@@ -10,17 +10,18 @@ const DEFAULT_TIMEOUTS: Record<string, number> = {
 
 /**
  * 计算工具自适应超时
- * formula: max(默认值, P95历史延迟 × 2)
+ * formula: max(默认值, min(round(nearest-rank P95 × 3), 默认值 × 4))
+ * P95 取非 cache-hit 样本排序后第 ceil(0.95 × n) 名（1-based）；样本 < 5 回退默认值
  */
 export function adaptiveTimeout(toolName: string, defaultMs?: number): number {
   const base = defaultMs ?? DEFAULT_TIMEOUTS[toolName] ?? 30000;
-  const agg = telemetry.aggregate();
-  const stats = agg.get(toolName);
+  const samples = telemetry.latencySamples(toolName);
 
-  if (!stats || stats.count < 5) return base;
+  if (samples.length < 5) return base;
 
-  // approximate high-percentile timeout: avg × 3（经验系数，偏斜分布下可能不准，但足够作为超时保护）
-  const adaptive = Math.round(stats.avgLatency * 3);
+  const sorted = [...samples].sort((a, b) => a - b);
+  const p95 = sorted[Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)];
+  const adaptive = Math.round(p95 * 3);
   return Math.max(base, Math.min(adaptive, base * 4)); // 上限 4× 默认
 }
 

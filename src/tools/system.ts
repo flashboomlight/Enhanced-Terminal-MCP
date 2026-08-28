@@ -6,6 +6,7 @@ import * as z from "zod";
 import { boundedString, finiteInt, type RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
 import { validateTarget } from "../network-policy.js";
+import { assertIntRange, assertStringBounded, SEARCH_BUDGET } from "../partial-result.js";
 import { getNetworkSpec, getProcessListSpec, getSystemInfoSpec } from "../platform.js";
 import {
   defaultProcessIdentityProvider,
@@ -89,8 +90,8 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
 
   // ====================================================================
   const ProcessListInput = z.object({
-    filter: z.string().optional().describe("Filter processes by name"),
-    top: z.number().optional().describe("Show top N processes by memory, default 20"),
+    filter: boundedString(SEARCH_BUDGET.processFilterMaxChars, 512).optional().describe("Filter processes by name"),
+    top: finiteInt(1, SEARCH_BUDGET.processTopMax).optional().describe("Show top N processes by memory, default 20"),
   });
   type ProcessListInput = z.infer<typeof ProcessListInput>;
 
@@ -107,8 +108,16 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
     wrapHandler("process_list", async ({ filter, top }: ProcessListInput, context: RequestContext) => {
       const denied = capabilityGate(context, "host-process-inspection");
       if (denied) return denied;
+      // handler 层同源校验（直调路径）
+      const inputErr =
+        assertStringBounded(filter, {
+          maxChars: SEARCH_BUDGET.processFilterMaxChars,
+          maxBytes: 512,
+          param: "filter",
+        }) ?? assertIntRange(top, { min: 1, max: SEARCH_BUDGET.processTopMax, param: "top" });
+      if (inputErr) return inputErr;
       try {
-        const spec = getProcessListSpec(filter, top || 20, await getShellSpec());
+        const spec = getProcessListSpec(filter, top ?? 20, await getShellSpec());
         const result = await safeExecFile(spec.file, spec.args, {
           timeout: 10000,
           signal: context.signal,

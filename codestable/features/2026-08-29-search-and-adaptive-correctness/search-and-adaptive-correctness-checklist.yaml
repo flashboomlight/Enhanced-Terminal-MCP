@@ -1,0 +1,74 @@
+---
+doc_type: feature-checklist
+feature: 2026-08-29-search-and-adaptive-correctness
+roadmap: production-hardening
+roadmap_item: search-and-adaptive-correctness
+status: done
+created: "2026-08-29"
+
+steps:
+  - action: "新增 src/partial-result.ts：SearchWarning{code,path?,count?}、WARNING_CODES、SEARCH_BUDGET、pushWarning（上限 50/WARNINGS_TRUNCATED 收尾/path 截 256）、assertIntRange/assertStringBounded（code point 计数，undefined 跳过）"
+    exit_signal: "pnpm exec tsc --noEmit 绿；tests/unit/partial-result.test.ts 绿（上限/截断/边界/code point）"
+    status: done
+  - action: "新增 src/native-search.ts：nativeSearchFiles/nativeGrepContent——walk readdir 失败收集 WALK_READ_FAILED+complete=false 继续、单文件读取失败 GREP_FILE_READ_FAILED、命中行截断 maxMatchItemChars 附标记、迭代检查 signal 抛 AbortError、隐藏目录跳过语义不变"
+    exit_signal: "tsc 绿；tests/unit/native-search.test.ts 绿（root 为文件触发 readdir 失败/AbortError/行截断/隐藏目录）"
+    status: done
+  - action: "src/telemetry.ts 新增 latencySamples(toolName)（排除 cacheHit 样本）；src/adaptive.ts 改真实 nearest-rank P95×3（上限 4×base、样本<5 回退 base），修正文件头与函数注释删除 P95×2 错误表述"
+    exit_signal: "tests/unit/adaptive.test.ts 绿（偏斜 18×10+2×5000→P95=5000、P95×3 生效、上限截断、base 兜底、均匀分布、样本<5 回退、cache-hit 排除）"
+    status: done
+  - action: "src/platform.ts 抽出 buildUnixProcessListCommand(filter, top) 纯函数（先筛选再 sort -k4,4 -rn 再 head 截断，去 GNU --sort），getProcessListSpec Unix 分支换用"
+    exit_signal: "platform 单测绿（filter 分支无未过滤全量段、含 tail/grep -i/sort/head 顺序；无 filter 分支 top 截断；sanitize 后空 filter 回落无 filter 分支）"
+    status: done
+  - action: "src/tools/search.ts 三工具：schema 收紧（pattern/query boundedString、max_results/max_depth finiteInt）+ handler 首行同源校验；search_files Everything exec 失败 warn+EVERYTHING_EXEC_FAILED warning 后 fallback；everything_search 错误分类（timedOut→TIMEOUT、maxBuffer→RESOURCE_LIMIT、其余→EXECUTION_FAILED 有限 detail {exitCode,signal}，不再 errMsg 全文）；三工具输出补 complete/warnings/truncated；max_results || 50 类写法改 ??；PS grep 两段挂 -ErrorVariable 合计输出 ETMCP_PARTIAL_ERRORS=N 并解析；Unix grep exit 1+有输出→GREP_PARTIAL_RESULTS+complete=false"
+    exit_signal: "tests/unit/tools/search.test.ts 绿（越界 VALIDATION_ERROR、mock execFileManaged 错误分类、CLI failure fallback+warning、PS stderr 标记解析、输出形状）"
+    status: done
+  - action: "src/tools/files.ts list_directory 改 partial 语义：顶层 readdir 失败仍整体失败（mapFsError），递归子目录失败 WALK_READ_FAILED+complete=false 继续；max_depth finiteInt(1,32)+handler 同源校验；输出补 complete/warnings"
+    exit_signal: "tests/unit/tools/files.test.ts 绿（子目录不可读 partial+warnings、root 整体失败、max_depth 越界校验）"
+    status: done
+  - action: "src/tools/system.ts ProcessListInput 收紧（top finiteInt(1,100)、filter boundedString(128,512)）+ handler 同源校验；top || 20 改 top ?? 20"
+    exit_signal: "tests/unit/tools/system.test.ts 绿（top=0/-1/101、filter 超长 → VALIDATION_ERROR 直调路径）"
+    status: done
+  - action: "src/wrap.ts 缓存写入条件追加 result.structured?.complete !== false（无该字段的既有工具行为不变）"
+    exit_signal: "tests/unit/wrap.test.ts 绿（complete=false 不缓存、complete=true/无字段照常缓存）"
+    status: done
+  - action: "e2e 回归 + 全量门禁 pnpm run gate（build/tsc/lint/test/latency/tools coverage）"
+    exit_signal: "gate EXIT=0；e2e 现有搜索/list/process 用例保持绿，structured 断言仅新增字段不删旧字段"
+    status: done
+
+checks:
+  - item: "everything_search 错误分类：timeout→TIMEOUT、maxBuffer→RESOURCE_LIMIT、非零退出→EXECUTION_FAILED 且 detail 仅 {exitCode,signal}（不携带 stdout/stderr 全文）"
+    source: "设计 3.4 / 验收句 1"
+    status: done
+  - item: "search_files Everything CLI failure 可观测：fallback 保留 + warnings=[EVERYTHING_EXEC_FAILED]，native 完整走完 complete=true"
+    source: "设计 3.3 / 验收句 1"
+    status: done
+  - item: "native walk readdir 失败、PS 遍历部分错误、Unix grep 非零退出+有输出三路径均 complete=false + 对应 warning code，不再静默报成功"
+    source: "设计 3.2/3.5 / 验收句 2"
+    status: done
+  - item: "list_directory 递归子目录不可读 → complete=false + WALK_READ_FAILED 继续；顶层不可读仍整体失败"
+    source: "设计 3.6 / 验收句 2"
+    status: done
+  - item: "搜索/list/process 参数越界（max_results/max_depth/pattern/query/file_pattern/top/filter）返回 VALIDATION_ERROR，schema 与 handler 同源双层生效（直调路径不绕过）"
+    source: "设计 3.1/3.3-3.7 / 验收句 3"
+    status: done
+  - item: "grep_content 命中行超 maxMatchItemChars(1000) 截断并附截断标记，响应无超长单行"
+    source: "设计 3.2 / 验收句 3"
+    status: done
+  - item: "partial（complete=false）搜索/list 结果不写入 LRU 缓存；complete=true 或无 complete 字段工具缓存行为不变"
+    source: "设计 3.9 / 验收句 2"
+    status: done
+  - item: "Unix process_list filter 分支先筛选再排序截断（命令串不含未过滤全量 ps 段）；无 filter 分支 top 恒生效（不依赖 GNU --sort）"
+    source: "设计 3.7 / 验收句 4"
+    status: done
+  - item: "adaptiveTimeout 使用非 cache-hit 样本 nearest-rank P95×3（上限 4×base、样本<5 回退 base）；adaptive.ts 注释/ARCHITECTURE §3.2/README 三者一致"
+    source: "设计 3.8 / 验收句 5"
+    status: done
+  - item: "everything_search no-match（exit 0 空输出）返回空 matches + complete=true，与 CLI failure 错误明确区分"
+    source: "设计 3.4 / 验收句 6"
+    status: done
+  - item: "四工具输出统一含 complete/warnings（everything/grep 补 truncated）；新增字段向后兼容、不删旧字段，错误 envelope 不变"
+    source: "设计 7 行为变化 14 / 验收句 2"
+    status: done
+  - item: "warnings 收集有界：上限 50 条以 WARNINGS_TRUNCATED 收尾；warning path 截断 256 字符"
+    source: "设计 3.1"
+    status: done

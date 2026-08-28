@@ -52,6 +52,11 @@ class TelemetryStore {
     return this.metrics.slice(-n).reverse();
   }
 
+  /** 指定工具最近窗口内的非 cache-hit 延迟样本（ms）；cache 命中不代表真实执行延迟，不计入 */
+  latencySamples(toolName: string): number[] {
+    return this.metrics.filter((m) => m.toolName === toolName && !m.cacheHit).map((m) => m.latency_ms);
+  }
+
   private rebuildAgg() {
     this._agg.clear();
     for (const m of this.metrics) {

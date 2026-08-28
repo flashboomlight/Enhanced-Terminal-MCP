@@ -23,9 +23,23 @@ export interface CommandSpec {
 }
 
 /**
+ * 构造 Unix 进程列表命令串（纯函数，IS_WIN 不敏感，跨平台可单测）。
+ * 先筛选再按 %MEM（ps aux 第 4 列）倒序截断 top N；不使用 GNU --sort 扩展（macOS/BSD 一致）；
+ * 表头经 tail -n +2 排除单独输出；filter 经 sanitizeProcessName 消毒后单引号包裹。
+ */
+export function buildUnixProcessListCommand(filter: string | undefined, top: number): string {
+  const safeFilter = filter ? sanitizeProcessName(filter) : "";
+  const header = "ps aux 2>/dev/null | head -n 1";
+  const body = safeFilter
+    ? `ps aux 2>/dev/null | tail -n +2 | grep -i -- '${safeFilter}' | grep -v grep | sort -k4,4 -rn | head -n ${top}`
+    : `ps aux 2>/dev/null | tail -n +2 | sort -k4,4 -rn | head -n ${top}`;
+  return `${header}; ${body}`;
+}
+
+/**
  * 获取进程列表命令（返回 CommandSpec，execFile 执行）
  * Windows: 用 PowerShell Get-Process 并按 WorkingSet 倒序
- * Unix: ps aux --sort=-%mem（若不支持则退化为 ps aux）
+ * Unix: buildUnixProcessListCommand（先筛选再排序截断）
  * @param shell Windows 下 PS 执行目标来源（由调用方传入解析后的 ShellSpec）
  */
 export function getProcessListSpec(filter: string | undefined, top: number, shell: ShellSpec): CommandSpec {
@@ -47,26 +61,8 @@ export function getProcessListSpec(filter: string | undefined, top: number, shel
       args: [...ps.baseArgs, "-Command", script],
     };
   }
-  // Unix: 通过 /bin/sh -c 执行，filter 已通过 sanitizeProcessName 消毒
-  if (filter) {
-    const safeFilter = sanitizeProcessName(filter);
-    if (!safeFilter) {
-      // sanitize 后为空，走无 filter 分支
-      return { file: "/bin/sh", args: ["-c", `ps aux --sort=-%mem 2>/dev/null || ps aux | head -n ${top}`] };
-    }
-    return {
-      file: "/bin/sh",
-      args: [
-        "-c",
-        `ps aux --sort=-%mem 2>/dev/null || ps aux | head -n 1; ps aux 2>/dev/null | grep -i -- '${safeFilter}' | grep -v grep | head -n ${top}`,
-      ],
-      useShell: false,
-    };
-  }
-  return {
-    file: "/bin/sh",
-    args: ["-c", `ps aux --sort=-%mem 2>/dev/null || ps aux | head -n ${top}`],
-  };
+  // Unix: 通过 /bin/sh -c 执行，filter 消毒与空值回落在 buildUnixProcessListCommand 内处理
+  return { file: "/bin/sh", args: ["-c", buildUnixProcessListCommand(filter, top)] };
 }
 
 /**

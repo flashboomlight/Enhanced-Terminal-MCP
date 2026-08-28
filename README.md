@@ -164,6 +164,8 @@ For interactive personal-agent use, the recommended profile is `MCP_SAFETY_MODE=
 | `everything_search` | Ultra-fast Everything search (Windows only) | 30s |
 | `grep_content` | Regex content search via PowerShell/grep/native with global `max_results` | 30s |
 
+Search and `list_directory` results carry a partial-result contract: `complete` (false when traversal/read errors were skipped), `warnings` (bounded structured warning codes), and `truncated` (budget reached). Partial (`complete=false`) results are never cached.
+
 ### System Tools
 | Tool | Description |
 |------|-------------|

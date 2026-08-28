@@ -61,9 +61,9 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 |------|------|
 | `src/index.ts` | 入口：解析并固定 `MCP_EXECUTION_PROFILE`（backend 不可用时 fail-closed）→ 创建 McpServer → initSafeGuard → 注册业务工具 + 运维工具 → 注册资源/prompts → 连接 stdio → shutdown 时先请求 `processSupervisor` drain，再 flush session/audit（顺序已随 process-supervisor-and-cancellation 验收） |
 | `src/tools/command.ts` | `execute_command` / `batch_execute` / `watch_command`。Windows 消费 `shell.ts` 统一解析的 shell spec（默认 pwsh 7，详见 ADR-7/14），Unix 用 `/bin/sh -c`；命令 policy + 危险模式检查 + 限流 + SafeGuard + audit 后调用共享 `runCommandOutput`，并把 `RequestContext` cancellation/scope 传给 managed execution。公开输入输出已是 M2 A+ envelope（分页/secret/容量字段） |
-| `src/tools/files.ts` | `read_file`（分页/编码；real 解析重验后以 real 打开）/ `write_file`（秘密扫描 + 覆写确认 + 原子 staging 写；no-follow）/ `list_directory`（符号链接循环保护；real 入口）/ `file_info`（real 解析；可被 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 禁用）/ `make_directory`（父链重验） |
+| `src/tools/files.ts` | `read_file`（分页/编码；real 解析重验后以 real 打开）/ `write_file`（秘密扫描 + 覆写确认 + 原子 staging 写；no-follow）/ `list_directory`（符号链接循环保护；real 入口；递归子目录不可读 → `complete=false`+`WALK_READ_FAILED` warning 继续，顶层不可读仍整体失败）/ `file_info`（real 解析；可被 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 禁用）/ `make_directory`（父链重验） |
 | `src/tools/manage.ts` | `copy_move`（源读语义/目标 no-follow，real 执行）/ `delete_path`（Elicitation 确认保护；递归删除需 `recursive=true`；symlink 仅移除链接本身） |
-| `src/tools/search.ts` | `search_files`（Windows 优先使用经 resolver 校验的 Everything；隐式 state binary 不可用时原生递归兜底；显式配置错误直接结构化失败）/ `everything_search`（仅 Windows；binary 不可用时返回带安装信息的结构化失败）/ `grep_content`（解析为 pwsh/powershell flavor 时走统一 spec 的 Select-String → Unix grep → 原生三级降级；参数单引号内联转义）；Everything/grep child 已通过 managed execFile 接入 supervisor 并传递 RequestContext cancellation |
+| `src/tools/search.ts` | `search_files`（Windows 优先使用经 resolver 校验的 Everything，CLI 执行失败记 `EVERYTHING_EXEC_FAILED` warning 后 native 兜底；隐式 state binary 不可用时原生递归兜底；显式配置错误直接结构化失败）/ `everything_search`（仅 Windows；binary 不可用时返回带安装信息的结构化失败；CLI 错误分类 timedOut→`TIMEOUT`、maxBuffer→`RESOURCE_LIMIT`、其余→`EXECUTION_FAILED` 有限 detail）/ `grep_content`（解析为 pwsh/powershell flavor 时走统一 spec 的 Select-String → Unix grep → 原生三级降级；参数单引号内联转义；PS 遍历/匹配非终止错误经 `-ErrorVariable` 合计 `ETMCP_PARTIAL_ERRORS=N` stderr 标记回传）；Everything/grep child 已通过 managed execFile 接入 supervisor 并传递 RequestContext cancellation；三工具输出统一 partial-result 契约（`complete`/`warnings`/`truncated`），schema+handler 双层有界校验 |
 | `src/tools/system.ts` | `get_system_info` / `process_list` / `kill_process`（严格 PID/name XOR、ProcessIdentityProvider、关键/self/parent 保护）/ `network_info` / `environment_vars`（敏感键打码）；系统查询 child 已通过 managed `safeExecFile` 接入 supervisor |
 | `src/tools/archive.ts` | `compress_archive` / `extract_archive`（Windows 走 PowerShell Compress/Expand-Archive）/ `download_file`（HTTP/HTTPS 白名单 + 指数退避重试）；归档 child 已通过 managed `safeExecFile` 接入 supervisor |
 | `src/tools/utility.ts` | `telemetry_report` / `cache_stats` / `session_state` / `pool_stats` / `temp_stats` 等运维工具 |
@@ -80,12 +80,14 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `src/command-risk.ts` | 命令风险纯分类层：`MCP_COMMAND_CONFIRMATION` 解析（非法回退 all）、`classifyCommandRisk`/`classifyBatchRisk`（batch>5 / 破坏类残余 / 性能词表 / watch duration>60s），规则表数据化、语料治理（tests/fixtures/command-risk-corpus.json） |
 | `src/result.ts` | ToolResult 协议、31 错误码、`fail`/`success` 工厂、MCP `CallToolResult` 转换；命令类 A+ envelope 与 `SECRET_DETECTED` 已落地 |
 | `src/hardening-contract.ts` | 生产硬化共享类型、strict finite/int/bounded schema helper、strict config integer 和 parent/child `BudgetAccount`；不直接执行命令或访问文件 |
+| `src/partial-result.ts` | 搜索/list 的 partial-result 共享契约：`SearchWarning{code,path?,count?}` + `WARNING_CODES` + `SEARCH_BUDGET`（参数/每项/warnings 上限）+ `pushWarning`（50 条封顶 `WARNINGS_TRUNCATED` 收尾）+ `assertIntRange`/`assertStringBounded`（handler 层同源校验，code point 计数） |
+| `src/native-search.ts` | `search_files`/`grep_content` 的 native 遍历层：walk readdir 失败收集 `WALK_READ_FAILED` + `complete=false` 继续、单文件读取失败 `GREP_FILE_READ_FAILED`、命中行 1000 code point 截断附标记、每次迭代检查 AbortSignal、隐藏目录跳过 |
 | `src/profile.ts` | 启动 profile 解析/固定、sandbox availability fail-closed、MCP extra → `RequestContext` 和 local/sandbox `CapabilityPolicy` |
 | `src/process-supervisor.ts` | 当前工作树中的 managed child registry：`ProcessSupervisor`/`processSupervisor`、snapshot/state、active limit、timeout/AbortSignal、幂等 termination、Unix group/Windows PID-tree adapter 和 shutdown report；feature 尚未完成 acceptance |
 | `src/process-identity.ts` | `kill_process` 的严格目标解析、Windows/Linux/macOS identity probe、start-time token、PID-only/tree termination adapter 和退出确认；无法证明身份时 fail-closed |
 | `src/wrap.ts` | handler 包装：MCP `extra` → `RequestContext`、telemetry 记录 + 缓存命中/回填 |
 | `src/cache.ts` | LRU 实现 + `CACHEABLE_TOOLS`（7 个只读工具）+ 工具级 TTL + 按前缀/路径失效 |
-| `src/telemetry.ts` | 指标环形历史（1000 条）+ 按工具聚合 + 全局 summary |
+| `src/telemetry.ts` | 指标环形历史（1000 条）+ 按工具聚合 + 全局 summary + `latencySamples(toolName)`（非 cache-hit 延迟样本，供 adaptive P95） |
 | `src/session.ts` | cwd/env/history 管理，去抖持久化到 `<projectRoot>/.etmcp/session.json`；恢复消毒 |
 | `src/state-dir.ts` | 统一状态目录解析：固定 `projectRoot`（`realpath(process.cwd())`，进程级不变）、默认 `<projectRoot>/.etmcp`、`MCP_STATE_DIR` 覆盖只解析一次；`getStateDir` 为纯解析（不创建目录），`ensureStateDir` 仅供写路径在真实产生物落盘前调用；旧 `.enhanced-terminal-mcp` 迁移协议 |
 | `src/audit.ts` | 结构化审计日志写入与读取（`<projectRoot>/.etmcp/logs/audit.jsonl`） |
@@ -99,7 +101,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `src/stream.ts` | `spawnStream` 通过 `processSupervisor.spawnManaged` 执行，保留 stdout 10MB/stderr 1MB 上限并增加 supervisor timeout/AbortSignal/termination 状态；三个命令工具的 M2 捕获路径仍走 `capture.ts`（supervisor 接线已随 process-supervisor-and-cancellation 验收） |
 | `src/pool.ts` | E 的 inactive stub（仅 stats / 生命周期钩子），`pool_stats` 固定 `active:false` |
 | `src/platform.ts` | 平台判定 + `getShell`/`wrapCommand` 兼容再导出 + 各类 `get*Spec` 跨平台命令构造 |
-| `src/adaptive.ts` | 自适应超时（历史 avg×3，上限 4× 默认）+ `withRetry` 指数退避 |
+| `src/adaptive.ts` | 自适应超时（非 cache-hit 样本 nearest-rank P95×3，上限 4× 默认，样本 <5 回退默认）+ `withRetry` 指数退避 |
 | `src/ratelimit.ts` | TokenBucket（10 req/s，burst 20）；`checkRateLimit` |
 | `src/utils.ts` | `safeExec`（shell spec + managed `spawnStream`）/ `safeExecFile`（managed 参数化执行）/ strict `envInt` / `formatSize` |
 | `src/scan.ts` | write_file 前扫描 OpenAI/GitHub/AWS/JWT/Slack/连接串等 10 类凭据 |
@@ -215,6 +217,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 
 - 2026-08-29：`tool-wrapper-and-surface-contract` 完成验收——新增 `src/tool-registry.ts` 以 SDK `RegisteredTool.enabled` 为唯一真源的真实启用计数，banner/health（`tools.enabled/disabled`）/usage-guide 与 `tools/list` 27/26 三面同源一致；`wrapHandler` 收敛未预期异常（取消→`CANCELLED`、其余→`INTERNAL_ERROR` 且经脱敏）并新增 `MCP_RESPONSE_MAX_BYTES`（默认 2 MiB）响应兜底；session_state/environment_vars/network_info 缺参显式 `VALIDATION_ERROR`（删除隐式 ping 127.0.0.1/localhost 默认）；`capabilityGate` 接线五个披露面（关闭审计 REL-05/PRO-01/PRO-02 与 SEC-06 capability 部分）；门禁全绿（全量 58 文件 752 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 9/13。
 - 2026-08-29：`audit-health-and-state-writer` 完成验收——新增 `src/lock-lease.ts` 统一 temp/migration 锁的 owner/lease heartbeat/fencing 语义（心跳存活的长持锁不被接管、staging+rename 原子接管保留 fence 单调、崩溃 owner 立即恢复、未知迁移锁 fail-closed）；audit 改单飞行写链（失败保留退避重试、entry/queue 字节上限、按大小轮换 `audit.jsonl.N`、`record()/flush()/health()` 落 §5.7 契约）；session revision writer 以 revision 比对修复写窗口 dirty 竞态；temp 跨进程配额经 `.quota.json` ledger 互见 outstanding；LRU 超限 entry 拒绝 + 计数；`health://status` 从恒 `ok` 改为 `healthy|degraded|failed` + components 四组件聚合（关闭审计 OPS-01/OPS-02 与 lock fencing 验收行）；门禁全绿（全量 63 文件 786 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 10/13。
+- 2026-08-29：`search-and-adaptive-correctness` 完成验收——新增 `src/partial-result.ts`（SearchWarning/WARNING_CODES/SEARCH_BUDGET/pushWarning/assert 同源校验）与 `src/native-search.ts`（native 遍历层 complete=false+warnings、命中行截断、AbortError）；`everything_search` 错误分类消灭 CLI 失败假成功（关闭 SEARCH-01），walk/PS `-ErrorVariable`/Unix grep/list 子目录遍历错误全部 partial 结构化暴露（关闭 SEARCH-02）；搜索/list/process schema+handler 双层有界校验；Unix process_list 重写 `buildUnixProcessListCommand` 先筛选再排序截断（关闭 SYS-01）；`adaptiveTimeout` 改非 cache-hit 样本 nearest-rank P95×3（关闭 PERF-01）；partial 结果不入 LRU 缓存；四工具输出补 complete/warnings/truncated（纯新增向后兼容）；门禁全绿（全量 66 文件 835 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 11/13。
 
 ## 7. 规划入口（非现状）
 

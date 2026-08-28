@@ -2,7 +2,7 @@
  * 文件操作工具: read_file, write_file, list_directory, file_info, make_directory
  */
 
-import { createReadStream } from "node:fs";
+import { createReadStream, type Dirent } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as readline from "node:readline";
@@ -10,7 +10,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
+import { finiteInt } from "../hardening-contract.js";
 import { logger } from "../logger.js";
+import {
+  assertIntRange,
+  pushWarning,
+  SEARCH_BUDGET,
+  type SearchWarning,
+  searchWarningSchema,
+  WARNING_CODES,
+} from "../partial-result.js";
 import { atomicWriteFile, resolveForRead, resolveForWrite } from "../path-policy.js";
 import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
@@ -259,7 +268,7 @@ export function registerFileTools(server: McpServer) {
   const ListDirectoryInput = z.object({
     dir_path: z.string().describe("Absolute path to directory"),
     recursive: z.boolean().optional().describe("List recursively, default false"),
-    max_depth: z.number().optional().describe("Max depth for recursive, default 3"),
+    max_depth: finiteInt(1, SEARCH_BUDGET.maxDepth).optional().describe("Max depth for recursive, default 3"),
   });
   type ListDirectoryInput = z.infer<typeof ListDirectoryInput>;
 
@@ -277,6 +286,8 @@ export function registerFileTools(server: McpServer) {
           ),
           total: z.number(),
           truncated: z.boolean(),
+          complete: z.boolean(),
+          warnings: z.array(searchWarningSchema),
         }),
       ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -284,13 +295,18 @@ export function registerFileTools(server: McpServer) {
     wrapHandler("list_directory", async ({ dir_path, recursive, max_depth }: ListDirectoryInput) => {
       const resolved = await resolveForRead(dir_path, "list_directory", "dir_path");
       if (!resolved.ok) return resolved.result;
+      // handler 层同源校验（直调路径）
+      const inputErr = assertIntRange(max_depth, { min: 1, max: SEARCH_BUDGET.maxDepth, param: "max_depth" });
+      if (inputErr) return inputErr;
 
       try {
-        const maxD = max_depth || 3;
+        const maxD = max_depth ?? 3;
         const maxE = 2000;
         let count = 0;
+        let complete = true;
         const lines: string[] = [];
         const structured: Array<{ name: string; type: "file" | "dir"; size_bytes?: number }> = [];
+        const warnings: SearchWarning[] = [];
         const visited = new Set<string>(); // 防止符号链接循环
 
         async function walk(p: string, depth: number) {
@@ -305,7 +321,17 @@ export function registerFileTools(server: McpServer) {
           }
           if (visited.has(realP)) return;
           visited.add(realP);
-          const entries = await fs.readdir(p, { withFileTypes: true });
+          let entries: Dirent[];
+          try {
+            entries = await fs.readdir(p, { withFileTypes: true });
+          } catch (e) {
+            // 顶层（请求目标本身）不可读 → 整体失败；递归子目录不可读 → partial + warning 继续
+            if (depth === 0) throw e;
+            complete = false;
+            pushWarning(warnings, { code: WARNING_CODES.WALK_READ_FAILED, path: p });
+            logger.warn("list_directory", "walk-error", `${p}: ${String(e)}`);
+            return;
+          }
           const indent = "  ".repeat(depth);
           const files: Array<{ e: (typeof entries)[0]; fp: string }> = [];
           for (const e of entries) {
@@ -341,10 +367,11 @@ export function registerFileTools(server: McpServer) {
         lines.push(`Directory: ${dir_path}\n`);
         await walk(resolved.resolution.real, 0);
         logger.info("list_directory", "listed", dir_path);
+        if (warnings.length > 0) lines.push(`Warnings: ${warnings.length} (first: ${warnings[0].code})`);
 
         return success(
           lines.join("\n"),
-          { entries: structured, total: count, truncated: count >= maxE },
+          { entries: structured, total: count, truncated: count >= maxE, complete, warnings },
           { truncated: count >= maxE },
         );
       } catch (e: unknown) {

@@ -265,4 +265,27 @@ describe("system tools decision paths (unit)", () => {
     expect(result?.isError).toBe(true);
     expect(result?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "name" });
   });
+
+  test("process_list rejects top below the allowed range before spawning", async () => {
+    const result = await registerTools().get("process_list")?.handler({ top: 0 });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "top" });
+  });
+
+  test("process_list rejects top above the allowed range before spawning", async () => {
+    const result = await registerTools().get("process_list")?.handler({ top: 101 });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "top" });
+  });
+
+  test("process_list rejects an overlong filter before spawning", async () => {
+    const result = await registerTools()
+      .get("process_list")
+      ?.handler({ filter: "x".repeat(129) });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "filter" });
+  });
 });

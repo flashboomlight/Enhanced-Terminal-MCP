@@ -75,4 +75,30 @@ describe("wrapHandler", () => {
     await wrapped({ file_path: "/test/fail.txt" } as any);
     expect(callCount).toBe(2); // not cached
   });
+
+  it("does not cache partial results (structured.complete === false)", async () => {
+    let callCount = 0;
+    const handler = async (): Promise<ToolResult> => {
+      callCount++;
+      return success("partial", { complete: false, matches: [] });
+    };
+    const wrapped = wrapHandler("read_file", handler);
+
+    await wrapped({ file_path: "/test/partial-f.txt" } as any);
+    await wrapped({ file_path: "/test/partial-f.txt" } as any);
+    expect(callCount).toBe(2); // partial 结果不进共享缓存
+  });
+
+  it("caches successful results when structured.complete is true", async () => {
+    let callCount = 0;
+    const handler = async (): Promise<ToolResult> => {
+      callCount++;
+      return success("full", { complete: true, matches: ["a"] });
+    };
+    const wrapped = wrapHandler("read_file", handler);
+
+    await wrapped({ file_path: "/test/partial-t.txt" } as any);
+    await wrapped({ file_path: "/test/partial-t.txt" } as any);
+    expect(callCount).toBe(1);
+  });
 });

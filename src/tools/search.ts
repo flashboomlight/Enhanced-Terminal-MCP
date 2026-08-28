@@ -2,15 +2,22 @@
  * 搜索工具: search_files, everything_search, grep_content
  */
 
-import { createReadStream } from "node:fs";
-import { readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { createInterface } from "node:readline";
+import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { type EsExeResolution, resolveEsExe } from "../es-integrity.js";
-import type { RequestContext } from "../hardening-contract.js";
+import { boundedString, finiteInt, type RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
+import { nativeGrepContent, nativeSearchFiles } from "../native-search.js";
+import {
+  assertIntRange,
+  assertStringBounded,
+  pushWarning,
+  SEARCH_BUDGET,
+  type SearchWarning,
+  searchWarningSchema,
+  WARNING_CODES,
+} from "../partial-result.js";
 import { escapePsString, IS_WIN } from "../platform.js";
 import { execFileManaged, ManagedProcessError } from "../process-supervisor.js";
 import { getRegex } from "../regex.js";
@@ -63,9 +70,13 @@ export function registerSearchTools(server: McpServer) {
   // ====================================================================
   const SearchFilesInput = z.object({
     dir_path: z.string().describe("Directory to search in"),
-    pattern: z.string().describe("Filename pattern, e.g. *.ts, *.log, test*"),
-    max_depth: z.number().optional().describe("Max search depth for native fallback, default 5"),
-    max_results: z.number().optional().describe("Max results, default 50"),
+    pattern: boundedString(SEARCH_BUDGET.patternMaxChars, SEARCH_BUDGET.patternMaxBytes).describe(
+      "Filename pattern, e.g. *.ts, *.log, test*",
+    ),
+    max_depth: finiteInt(1, SEARCH_BUDGET.maxDepth)
+      .optional()
+      .describe("Max search depth for native fallback, default 5"),
+    max_results: finiteInt(1, SEARCH_BUDGET.searchFilesMaxResults).optional().describe("Max results, default 50"),
   });
   type SearchFilesInput = z.infer<typeof SearchFilesInput>;
 
@@ -83,6 +94,8 @@ export function registerSearchTools(server: McpServer) {
           total: z.number(),
           search_ms: z.number(),
           truncated: z.boolean(),
+          complete: z.boolean(),
+          warnings: z.array(searchWarningSchema),
         }),
       ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -92,9 +105,21 @@ export function registerSearchTools(server: McpServer) {
       async ({ dir_path, pattern, max_depth, max_results }: SearchFilesInput, context: RequestContext) => {
         const pathErr = validatePath(dir_path, "search_files");
         if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+        // handler 层同源校验：直调路径绕过 SDK zod 层时的第二道（坑清单）
+        const inputErr =
+          assertStringBounded(pattern, {
+            maxChars: SEARCH_BUDGET.patternMaxChars,
+            maxBytes: SEARCH_BUDGET.patternMaxBytes,
+            param: "pattern",
+          }) ??
+          assertIntRange(max_depth, { min: 1, max: SEARCH_BUDGET.maxDepth, param: "max_depth" }) ??
+          assertIntRange(max_results, { min: 1, max: SEARCH_BUDGET.searchFilesMaxResults, param: "max_results" });
+        if (inputErr) return inputErr;
         const t0 = Date.now();
-        const maxR = max_results || 50;
+        const maxR = max_results ?? 50;
         const matches: string[] = [];
+        const warnings: SearchWarning[] = [];
+        let complete = true;
 
         try {
           if (IS_WIN) {
@@ -124,38 +149,31 @@ export function registerSearchTools(server: McpServer) {
               }
             } catch (err) {
               if (context.signal.aborted) return Errors.cancelled("search_files cancelled");
-              logger.debug("search_files", "everything-fallback", String(err));
+              // CLI failure 可观测：记 warning 后走 native fallback（产品承诺保留）
+              logger.warn("search_files", "everything-exec-failed", String(err));
+              pushWarning(warnings, { code: WARNING_CODES.EVERYTHING_EXEC_FAILED });
             }
           }
 
           if (matches.length === 0) {
-            const maxD = max_depth || 5;
-            const reg = globToRegex(pattern);
-
-            async function walk(p: string, d: number) {
-              if (d > maxD || matches.length >= maxR) return;
-              try {
-                const entries = await readdir(p, { withFileTypes: true });
-                for (const e of entries) {
-                  if (matches.length >= maxR) break;
-                  const fp = join(p, e.name);
-                  if (e.isDirectory()) {
-                    if (!e.name.startsWith(".")) await walk(fp, d + 1);
-                  } else if (reg.test(e.name)) matches.push(fp);
-                }
-              } catch (e) {
-                logger.warn("search_files", "walk-error", `${p}: ${String(e)}`);
-              }
-            }
-            await walk(dir_path, 0);
+            const outcome = await nativeSearchFiles(dir_path, globToRegex(pattern), {
+              maxResults: maxR,
+              maxDepth: max_depth ?? 5,
+              signal: context.signal,
+            });
+            matches.push(...outcome.matches);
+            warnings.push(...outcome.warnings);
+            complete = outcome.complete;
           }
 
           const ms = Date.now() - t0;
+          const truncated = matches.length >= maxR;
           logger.info("search_files", "done", `${matches.length} matches in ${ms}ms`);
+          const warnLine = warnings.length > 0 ? `\nWarnings: ${warnings.length} (first: ${warnings[0].code})` : "";
           return success(
-            `Found ${matches.length} file(s) in ${ms}ms:\n${matches.join("\n")}`,
-            { matches, total: matches.length, search_ms: ms, truncated: matches.length >= maxR },
-            { truncated: matches.length >= maxR, latency_ms: ms },
+            `Found ${matches.length} file(s) in ${ms}ms:\n${matches.join("\n")}${warnLine}`,
+            { matches, total: matches.length, search_ms: ms, truncated, complete, warnings },
+            { truncated, latency_ms: ms },
           );
         } catch (e: unknown) {
           if (context.signal.aborted) return Errors.cancelled("search_files cancelled");
@@ -167,11 +185,11 @@ export function registerSearchTools(server: McpServer) {
 
   // ====================================================================
   const EverythingSearchInput = z.object({
-    query: z
-      .string()
-      .describe("Everything search query. Supports: wildcards(*.txt), regex, path:, size:, date: filters"),
+    query: boundedString(SEARCH_BUDGET.patternMaxChars, SEARCH_BUDGET.patternMaxBytes).describe(
+      "Everything search query. Supports: wildcards(*.txt), regex, path:, size:, date: filters",
+    ),
     dir_filter: z.string().optional().describe("Optional: limit search to this directory path"),
-    max_results: z.number().optional().describe("Max results, default 100"),
+    max_results: finiteInt(1, SEARCH_BUDGET.everythingMaxResults).optional().describe("Max results, default 100"),
   });
   type EverythingSearchInput = z.infer<typeof EverythingSearchInput>;
 
@@ -183,7 +201,14 @@ export function registerSearchTools(server: McpServer) {
       description: "Ultra-fast full-disk file search powered by Everything engine (Windows only).",
       inputSchema: EverythingSearchInput,
       outputSchema: withErrorSchema(
-        z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number() }),
+        z.object({
+          matches: z.array(z.string()),
+          total: z.number(),
+          search_ms: z.number(),
+          truncated: z.boolean(),
+          complete: z.boolean(),
+          warnings: z.array(searchWarningSchema),
+        }),
       ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
@@ -194,8 +219,16 @@ export function registerSearchTools(server: McpServer) {
           const pathErr = validatePath(dir_filter, "everything_search");
           if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_filter" });
         }
+        // handler 层同源校验（直调路径）
+        const inputErr =
+          assertStringBounded(query, {
+            maxChars: SEARCH_BUDGET.patternMaxChars,
+            maxBytes: SEARCH_BUDGET.patternMaxBytes,
+            param: "query",
+          }) ?? assertIntRange(max_results, { min: 1, max: SEARCH_BUDGET.everythingMaxResults, param: "max_results" });
+        if (inputErr) return inputErr;
         const t0 = Date.now();
-        const maxR = max_results || 100;
+        const maxR = max_results ?? 100;
 
         if (!IS_WIN) {
           return fail(ErrorCode.EXECUTION_FAILED, "Everything search is only available on Windows", {
@@ -233,9 +266,31 @@ export function registerSearchTools(server: McpServer) {
             matches: results,
             total: results.length,
             search_ms: ms,
+            truncated: results.length >= maxR,
+            complete: true,
+            warnings: [],
           });
         } catch (e: unknown) {
           if (context.signal.aborted) return Errors.cancelled("everything_search cancelled");
+          // CLI failure 分类：timeout / 输出截断 / 非零退出分别映射，detail 仅有限元（不携带 stdout/stderr 全文）
+          if (e instanceof ManagedProcessError) {
+            if (e.timedOut) {
+              return fail(ErrorCode.TIMEOUT, "Everything CLI timed out", {
+                retryable: true,
+                suggestion: "narrow the query or retry",
+              });
+            }
+            if (/maxBuffer|ENOBUFS|ERR_OUT_OF_RANGE/i.test(e.message)) {
+              return fail(ErrorCode.RESOURCE_LIMIT, "Everything CLI output exceeded buffer", {
+                retryable: true,
+                suggestion: "lower max_results",
+              });
+            }
+            return fail(ErrorCode.EXECUTION_FAILED, "Everything CLI failed", {
+              retryable: true,
+              detail: { exitCode: e.exitCode, signal: e.signal },
+            });
+          }
           return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
         }
       },
@@ -245,9 +300,13 @@ export function registerSearchTools(server: McpServer) {
   // ====================================================================
   const GrepContentInput = z.object({
     dir_path: z.string().describe("Directory to search in"),
-    pattern: z.string().describe("Regex pattern to search for in file contents"),
-    file_pattern: z.string().optional().describe("File name filter, e.g. *.ts, default *"),
-    max_results: z.number().optional().describe("Max matching lines, default 50"),
+    pattern: boundedString(SEARCH_BUDGET.patternMaxChars, SEARCH_BUDGET.patternMaxBytes).describe(
+      "Regex pattern to search for in file contents",
+    ),
+    file_pattern: boundedString(SEARCH_BUDGET.filePatternMaxChars, 1024)
+      .optional()
+      .describe("File name filter, e.g. *.ts, default *"),
+    max_results: finiteInt(1, SEARCH_BUDGET.grepMaxResults).optional().describe("Max matching lines, default 50"),
   });
   type GrepContentInput = z.infer<typeof GrepContentInput>;
 
@@ -259,7 +318,14 @@ export function registerSearchTools(server: McpServer) {
       description: "Search file contents using regex pattern. Uses PowerShell Select-String on Windows, grep on Unix.",
       inputSchema: GrepContentInput,
       outputSchema: withErrorSchema(
-        z.object({ matches: z.array(z.string()), total: z.number(), search_ms: z.number() }),
+        z.object({
+          matches: z.array(z.string()),
+          total: z.number(),
+          search_ms: z.number(),
+          truncated: z.boolean(),
+          complete: z.boolean(),
+          warnings: z.array(searchWarningSchema),
+        }),
       ),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
@@ -268,6 +334,20 @@ export function registerSearchTools(server: McpServer) {
       async ({ dir_path, pattern, file_pattern, max_results }: GrepContentInput, context: RequestContext) => {
         const pathErr = validatePath(dir_path, "grep_content");
         if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+        // handler 层同源校验（直调路径）
+        const inputErr =
+          assertStringBounded(pattern, {
+            maxChars: SEARCH_BUDGET.patternMaxChars,
+            maxBytes: SEARCH_BUDGET.patternMaxBytes,
+            param: "pattern",
+          }) ??
+          assertStringBounded(file_pattern, {
+            maxChars: SEARCH_BUDGET.filePatternMaxChars,
+            maxBytes: 1024,
+            param: "file_pattern",
+          }) ??
+          assertIntRange(max_results, { min: 1, max: SEARCH_BUDGET.grepMaxResults, param: "max_results" });
+        if (inputErr) return inputErr;
         // 主路径预检 pattern：语法 + ReDoS 防护（与 fallback 路径统一）
         try {
           getRegex(pattern, "gi");
@@ -275,26 +355,31 @@ export function registerSearchTools(server: McpServer) {
           return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
         }
         const t0 = Date.now();
-        const maxR = max_results || 50;
-        const fileFilter = file_pattern || "*";
+        const maxR = max_results ?? 50;
+        const fileFilter = file_pattern ?? "*";
         const results: string[] = [];
+        const warnings: SearchWarning[] = [];
+        let complete = true;
 
         try {
           // PS 入口仅在解析到 PowerShell flavor 时启用；cmd 模式或解析失败走原生降级
           const shellSpec = await getShellSpec().catch(() => null);
           if (IS_WIN && shellSpec && (shellSpec.flavor === "pwsh" || shellSpec.flavor === "powershell")) {
-            // 参数内联进单引号字面量（'' 转义），避免拼接注入
+            // 参数内联进单引号字面量（'' 转义），避免拼接注入；
+            // 遍历与匹配两段均挂 -ErrorVariable 收集非终止错误，末尾按合计计数写 stderr 标记
             const q = (s: string) => `'${escapePsString(s)}'`;
             const psScript = [
               "$ErrorActionPreference = 'SilentlyContinue';",
-              `Get-ChildItem -LiteralPath ${q(dir_path)} -Filter ${q(fileFilter)} -Recurse -File |`,
-              `  Select-String -Pattern ${q(pattern)} |`,
+              `Get-ChildItem -LiteralPath ${q(dir_path)} -Filter ${q(fileFilter)} -Recurse -File -ErrorVariable +walkErrs |`,
+              `  Select-String -Pattern ${q(pattern)} -ErrorVariable +grepErrs |`,
               `  Select-Object -First ${maxR} |`,
-              '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }',
+              '  ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" };',
+              "  $partialErrs = $walkErrs.Count + $grepErrs.Count;",
+              '  if ($partialErrs -gt 0) { [Console]::Error.WriteLine("ETMCP_PARTIAL_ERRORS=$partialErrs") }',
             ].join(" ");
             try {
               const inv = buildShellInvocation(psScript, shellSpec);
-              const { stdout } = await execFileManaged(inv.file, inv.args, {
+              const { stdout, stderr } = await execFileManaged(inv.file, inv.args, {
                 timeoutMs: 30000,
                 maxBuffer: 10 * 1024 * 1024,
                 signal: context.signal,
@@ -308,6 +393,17 @@ export function registerSearchTools(server: McpServer) {
                   .map((l) => l.trim())
                   .filter((l) => l),
               );
+              // PS 遍历/匹配部分错误经 stderr 计数标记回传（明细不回传）
+              const partialMatch = /ETMCP_PARTIAL_ERRORS=(\d+)/.exec(stderr ?? "");
+              if (partialMatch) {
+                const count = Number(partialMatch[1]);
+                if (count > 0) {
+                  complete = false;
+                  pushWarning(warnings, { code: WARNING_CODES.PS_PARTIAL_WALK_ERRORS, count });
+                }
+              } else if (stderr?.trim()) {
+                logger.debug("grep_content", "ps-stderr", stderr.trim());
+              }
             } catch (e: unknown) {
               if (context.signal.aborted) return Errors.cancelled("grep_content cancelled");
               logger.warn("grep_content", "ps-error", String(e));
@@ -349,6 +445,7 @@ export function registerSearchTools(server: McpServer) {
               if (code === 1 && !stdout) {
                 logger.debug("grep_content", "grep-no-matches", `${dir_path} ${pattern}`);
               } else if (stdout) {
+                // 非零退出 + 有输出：遍历部分文件不可读等 partial 场景，不再静默当完整结果
                 results.push(
                   ...stdout
                     .split("\n")
@@ -356,6 +453,8 @@ export function registerSearchTools(server: McpServer) {
                     .filter((l) => l)
                     .slice(0, maxR),
                 );
+                complete = false;
+                pushWarning(warnings, { code: WARNING_CODES.GREP_PARTIAL_RESULTS });
               } else {
                 logger.warn("grep_content", "grep-error", String(e));
                 return fail(ErrorCode.EXECUTION_FAILED, `grep failed: ${errMsg(e)}`, {
@@ -373,54 +472,29 @@ export function registerSearchTools(server: McpServer) {
             } catch (e: unknown) {
               return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: false, param: "pattern" });
             }
-            const fileRegex = globToRegex(fileFilter);
-
-            async function grepFile(fp: string) {
-              const rl = createInterface({ input: createReadStream(fp, { encoding: "utf-8" }), crlfDelay: Infinity });
-              let lineNum = 0;
-              for await (const line of rl) {
-                if (results.length >= maxR) {
-                  rl.close();
-                  break;
-                }
-                lineNum++;
-                if (regex.test(line)) results.push(`${fp}:${lineNum}: ${line.trim()}`);
-                regex.lastIndex = 0;
-              }
-            }
-
-            async function walk(p: string, depth: number) {
-              if (depth > 5 || results.length >= maxR) return;
-              try {
-                const entries = await readdir(p, { withFileTypes: true });
-                for (const entry of entries) {
-                  if (results.length >= maxR) break;
-                  const fp = join(p, entry.name);
-                  if (entry.isFile() && fileRegex.test(entry.name)) {
-                    try {
-                      await grepFile(fp);
-                    } catch (e) {
-                      logger.warn("grep_content", "grep-file-error", `${fp}: ${String(e)}`);
-                    }
-                  } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
-                    await walk(fp, depth + 1);
-                  }
-                }
-              } catch (e) {
-                logger.warn("grep_content", "walk-error", `${p}: ${String(e)}`);
-              }
-            }
-            await walk(dir_path, 0);
+            const outcome = await nativeGrepContent(dir_path, globToRegex(fileFilter), regex, {
+              maxResults: maxR,
+              signal: context.signal,
+            });
+            results.push(...outcome.matches);
+            warnings.push(...outcome.warnings);
+            complete = complete && outcome.complete;
           }
 
           const ms = Date.now() - t0;
+          const truncated = results.length >= maxR;
           logger.info("grep_content", "done", `${results.length} matches in ${ms}ms`);
-          return success(`Found ${results.length} match(es) in ${ms}ms:\n${results.join("\n")}`, {
+          const warnLine = warnings.length > 0 ? `\nWarnings: ${warnings.length} (first: ${warnings[0].code})` : "";
+          return success(`Found ${results.length} match(es) in ${ms}ms:\n${results.join("\n")}${warnLine}`, {
             matches: results,
             total: results.length,
             search_ms: ms,
+            truncated,
+            complete,
+            warnings,
           });
         } catch (e: unknown) {
+          if (context.signal.aborted) return Errors.cancelled("grep_content cancelled");
           return fail(ErrorCode.EXECUTION_FAILED, errMsg(e), { retryable: true });
         }
       },

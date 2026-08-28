@@ -77,10 +77,10 @@ items:
   - slug: search-and-adaptive-correctness
     description: 修复 everything_search 错误吞掉、native search partial-result/预算/取消、目录边界、Unix process filter 和 adaptive timeout 语义不一致
     depends_on: [bounded-command-execution, tool-wrapper-and-surface-contract]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-29-search-and-adaptive-correctness
     minimal_loop: false
-    notes: 真实 P95 或统一改为 average heuristic；Everything no-match、CLI failure、permission partial 必须区分并显式返回 complete/warnings
+    notes: 已完成并通过 acceptance；新增 src/partial-result.ts（SearchWarning/WARNING_CODES/SEARCH_BUDGET/pushWarning/assert 同源校验）与 src/native-search.ts（walk/grep 遍历错误收集 complete=false+warnings、命中行 1000 截断、迭代 AbortError）；everything_search 错误分类（timedOut→TIMEOUT、maxBuffer→RESOURCE_LIMIT、其余→EXECUTION_FAILED 有限 detail {exitCode,signal}），search_files CLI 失败 warn+EVERYTHING_EXEC_FAILED 后 native fallback；PS grep 两段 -ErrorVariable 合计 ETMCP_PARTIAL_ERRORS=N 经 stderr 回传解析、Unix grep 非零+有输出→GREP_PARTIAL_RESULTS；list_directory 递归子目录不可读 partial、顶层仍整体失败；搜索/list/process schema+handler 双层有界校验（越界 VALIDATION_ERROR）；Unix process_list 重写为 buildUnixProcessListCommand 先筛选再 sort -k4,4 -rn 再 head（关闭 SYS-01 全量泄露）；adaptiveTimeout 改非 cache-hit 样本 nearest-rank P95×3（上限 4×base、样本<5 回退，关闭 PERF-01）；partial 结果不入 LRU 缓存；四工具输出补 complete/warnings/truncated（纯新增向后兼容，关闭 SEARCH-01/02）。Unix 真实 smoke 与 TTL/rename flake 加固归 #12
 
   - slug: dependency-and-bootstrap-release
     description: 升级或覆盖生产依赖、修复 SDK patch 链、分离 source/npm bootstrap 并让 package、sourcemap、executable integrity 与 clean consumer 可验证

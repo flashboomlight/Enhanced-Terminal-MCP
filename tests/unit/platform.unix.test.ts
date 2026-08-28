@@ -13,6 +13,7 @@ vi.mock("node:os", async () => {
 });
 
 const {
+  buildUnixProcessListCommand,
   getCompressSpec,
   getDownloadSpec,
   getExtractSpec,
@@ -150,5 +151,32 @@ describe("platform Unix branches", () => {
     expect(spec.file).toBe("curl");
     expect(spec.args).toContain("https://example.com/a.txt");
     expect(spec.args).toContain("/tmp/a.txt");
+  });
+});
+
+describe("buildUnixProcessListCommand", () => {
+  test("filter branch greps before sorting and never falls back to full ps", () => {
+    const cmd = buildUnixProcessListCommand("node", 10);
+    expect(cmd).toContain("ps aux 2>/dev/null | head -n 1");
+    expect(cmd).toContain("tail -n +2");
+    expect(cmd).toContain("grep -i -- 'node'");
+    expect(cmd).toContain("grep -v grep");
+    expect(cmd).toContain("sort -k4,4 -rn");
+    expect(cmd).toContain("head -n 10");
+    expect(cmd).not.toContain("--sort=-%mem");
+    expect(cmd).not.toContain("|| ps aux");
+  });
+
+  test("no-filter branch keeps the header line then sorts the body", () => {
+    const cmd = buildUnixProcessListCommand(undefined, 7);
+    expect(cmd).toContain("ps aux 2>/dev/null | head -n 1");
+    expect(cmd).toContain("tail -n +2 | sort -k4,4 -rn | head -n 7");
+    expect(cmd).not.toContain("grep -i");
+  });
+
+  test("sanitized-empty filter falls back to the no-filter shape", () => {
+    const cmd = buildUnixProcessListCommand(";;;", 10);
+    expect(cmd).toContain("tail -n +2 | sort -k4,4 -rn | head -n 10");
+    expect(cmd).not.toContain("grep -i");
   });
 });

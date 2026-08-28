@@ -8,10 +8,25 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { initSafeGuard } from "../../../src/safeguard.js";
 import { resetStateDirCache } from "../../../src/state-dir.js";
 import { registerFileTools } from "../../../src/tools/files.js";
+
+// 部分 mock：仅 readdir 对名称含 "blocked-sub" 的目录抛 EACCES，模拟递归遍历中的
+// 权限拒绝子目录；其余 fs API 与测试自身 setup 全部透传真实实现。
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    readdir: vi.fn(async (target: unknown, options?: unknown) => {
+      if (String(target).includes("blocked-sub")) {
+        throw Object.assign(new Error("EACCES: permission denied, scandir"), { code: "EACCES" });
+      }
+      return (actual.readdir as (t: unknown, o?: unknown) => Promise<unknown>)(target, options);
+    }),
+  };
+});
 
 const TMP_BASE = fileURLToPath(new URL("../../../.etmcp/test-tmp/", import.meta.url));
 const ENV_KEYS = ["MCP_SAFETY_MODE", "MCP_SECRETS_SCAN", "MCP_STATE_DIR"] as const;
@@ -235,5 +250,53 @@ describe("files tools (unit)", () => {
       if (originalScan === undefined) delete process.env.MCP_SECRETS_SCAN;
       else process.env.MCP_SECRETS_SCAN = originalScan;
     }
+  });
+
+  test("list_directory rejects max_depth outside the allowed range", async () => {
+    const low = await call(tools, "list_directory", { dir_path: workDir, max_depth: 0 });
+    expect(low?.isError).toBe(true);
+    expect(low?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "max_depth" });
+
+    const high = await call(tools, "list_directory", { dir_path: workDir, max_depth: 33 });
+    expect(high?.isError).toBe(true);
+    expect(high?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "max_depth" });
+  });
+
+  test("list_directory reports a partial result when a recursive subdir is unreadable", async () => {
+    await fs.mkdir(path.join(workDir, "ok-dir"));
+    await fs.writeFile(path.join(workDir, "ok-dir", "file.txt"), "x", "utf-8");
+    await fs.mkdir(path.join(workDir, "blocked-sub"));
+
+    const result = await call(tools, "list_directory", { dir_path: workDir, recursive: true });
+
+    expect(result?.isError).toBeFalsy();
+    expect(result?.structuredContent.complete).toBe(false);
+    expect(result?.structuredContent.warnings).toHaveLength(1);
+    expect(result?.structuredContent.warnings[0].code).toBe("WALK_READ_FAILED");
+    const names = (result?.structuredContent.entries as Array<{ name: string }>).map((e) => path.basename(e.name));
+    expect(names).toContain("ok-dir");
+    expect(names).toContain("file.txt");
+    expect(names).toContain("blocked-sub");
+  });
+
+  test("list_directory fails as a whole when the requested dir itself is unreadable", async () => {
+    const blocked = path.join(workDir, "blocked-sub");
+    await fs.mkdir(blocked);
+
+    const result = await call(tools, "list_directory", { dir_path: blocked });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.structuredContent.error).toMatchObject({ code: "EXECUTION_FAILED" });
+  });
+
+  test("list_directory marks a clean recursive listing complete with no warnings", async () => {
+    await fs.mkdir(path.join(workDir, "sub-clean"));
+    await fs.writeFile(path.join(workDir, "sub-clean", "a.txt"), "x", "utf-8");
+
+    const result = await call(tools, "list_directory", { dir_path: workDir, recursive: true });
+
+    expect(result?.isError).toBeFalsy();
+    expect(result?.structuredContent.complete).toBe(true);
+    expect(result?.structuredContent.warnings).toEqual([]);
   });
 });
