@@ -193,4 +193,47 @@ describe("files tools (unit)", () => {
     const entries = await fs.readdir(workDir);
     expect(entries.filter((e) => e.includes(".tmp-"))).toEqual([]);
   });
+
+  test("write_file fails closed under strict tier when content exceeds scanner capacity", async () => {
+    const originalScan = process.env.MCP_SECRETS_SCAN;
+    process.env.MCP_SECRETS_SCAN = "strict";
+    try {
+      const result = await call(tools, "write_file", {
+        file_path: path.join(workDir, "big.txt"),
+        content: "a".repeat(5 * 1024 * 1024),
+      });
+      expect(result?.isError).toBe(true);
+      expect(result?.structuredContent.error).toMatchObject({ code: "RESOURCE_LIMIT", param: "content" });
+      await expect(fs.access(path.join(workDir, "big.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      if (originalScan === undefined) delete process.env.MCP_SECRETS_SCAN;
+      else process.env.MCP_SECRETS_SCAN = originalScan;
+    }
+  });
+
+  test("write_file under default tier writes oversize content (allow decision, no scan claim)", async () => {
+    const target = path.join(workDir, "big-cache-tier.txt");
+    const result = await call(tools, "write_file", {
+      file_path: target,
+      content: "b".repeat(5 * 1024 * 1024),
+    });
+    expect(result?.isError).toBeFalsy();
+    const stat = await fs.stat(target);
+    expect(stat.size).toBe(5 * 1024 * 1024);
+  });
+
+  test("read_file fails closed under strict tier when output exceeds scanner capacity", async () => {
+    const originalScan = process.env.MCP_SECRETS_SCAN;
+    process.env.MCP_SECRETS_SCAN = "strict";
+    try {
+      const big = path.join(workDir, "big-read.txt");
+      await fs.writeFile(big, `${"c".repeat(64)}\n`.repeat(90_000));
+      const result = await call(tools, "read_file", { file_path: big });
+      expect(result?.isError).toBe(true);
+      expect(result?.structuredContent.error).toMatchObject({ code: "RESOURCE_LIMIT", param: "file_path" });
+    } finally {
+      if (originalScan === undefined) delete process.env.MCP_SECRETS_SCAN;
+      else process.env.MCP_SECRETS_SCAN = originalScan;
+    }
+  });
 });

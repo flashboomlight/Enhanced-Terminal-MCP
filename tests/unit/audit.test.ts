@@ -110,4 +110,26 @@ describe("audit", () => {
     expect(lines.length).toBe(100);
     expect((JSON.parse(lines[0]) as AuditEntry).action).toBe("entry-5");
   });
+
+  test("record redacts secret-bearing details and error fields before queueing", async () => {
+    const audit = makeAudit();
+    audit.record({
+      action: "command.execute",
+      tool: "execute_command",
+      detail: { command: 'curl -H "Authorization: Bearer ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ12" https://example.com' },
+      success: false,
+      error: "boom\r\nnext line ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ12",
+    });
+    await audit.flush();
+
+    const logFile = path.join(tmpStateDir, "logs", "audit.jsonl");
+    const raw = await fs.readFile(logFile, "utf-8");
+    expect(raw).not.toContain("ghp_ABCD");
+    expect(raw).toContain("[REDACTED]");
+    const entry = JSON.parse(raw.trim().split("\n")[0]) as AuditEntry;
+    // error 字段的换行已转义为字面反斜杠序列（\r\n 两个字符），log forging 面关闭
+    const backslash = String.fromCharCode(92);
+    expect(entry.error).toContain(`${backslash}r${backslash}n`);
+    expect(entry.error).not.toContain("\n"); // 字段内无真实换行，JSONL 行完整性保持
+  });
 });

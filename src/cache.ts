@@ -179,13 +179,13 @@ export const toolCache = new LRUCache<CallToolResult>(128, 30000);
  * 约束：只能含 readOnlyHint=true 的只读工具。禁止加入 write_file / make_directory /
  * copy_move / delete_path / execute_command 等有副作用的工具 —— 它们即便标了
  * idempotentHint，append 等模式也会因缓存命中跳过实际执行。
+ * environment_vars 不缓存（SEC-04）：任意 env 值不得进入共享结果缓存。
  */
 export const CACHEABLE_TOOLS = new Set([
   "read_file",
   "file_info",
   "list_directory",
   "get_system_info",
-  "environment_vars",
   "search_files",
   "grep_content",
 ]);

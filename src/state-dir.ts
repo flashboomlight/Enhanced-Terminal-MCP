@@ -78,7 +78,8 @@ export async function getStateDir(): Promise<string> {
 export async function ensureStateDir(): Promise<string> {
   const dir = await getStateDir();
   try {
-    await fs.mkdir(dir, { recursive: true });
+    // POSIX 收紧到 0o700（Windows 下 mode 为 no-op）
+    await fs.mkdir(dir, { recursive: true, mode: 0o700 });
     await assertSafeStateRoot(dir);
     return dir;
   } catch (e) {
@@ -246,10 +247,10 @@ async function atomicReplaceVerified(src: string, buf: Buffer, dst: string, srcB
   if (!sameFingerprint(srcBefore, srcAfterRead)) {
     throw migrationError(`迁移期间源文件发生变化: ${src}`);
   }
-  await fs.mkdir(dirname(dst), { recursive: true });
+  await fs.mkdir(dirname(dst), { recursive: true, mode: 0o700 });
   const staging = join(dirname(dst), `.${basename(dst)}.migrate-${process.pid}-${Date.now()}.tmp`);
   try {
-    await fs.writeFile(staging, buf);
+    await fs.writeFile(staging, buf, { mode: 0o600 });
     const staged = await fs.readFile(staging);
     if (sha256(staged) !== sha256(buf)) {
       throw migrationError(`staging 回读验证失败: ${staging}`);
@@ -347,12 +348,12 @@ async function migrateAuditJsonl(legacyRoot: string, stateDir: string): Promise<
 async function mergeAuditJsonl(src: string, dst: string): Promise<void> {
   const srcBefore = await fs.lstat(src);
   const dstBefore = await fs.lstat(dst);
-  await fs.mkdir(dirname(dst), { recursive: true });
+  await fs.mkdir(dirname(dst), { recursive: true, mode: 0o700 });
   const staging = join(dirname(dst), `.audit.jsonl.migrate-${process.pid}-${Date.now()}.tmp`);
   const seen = new Set<string>();
   let written = 0;
   try {
-    const out = await fs.open(staging, "w");
+    const out = await fs.open(staging, "w", 0o600);
     try {
       for (const file of [src, dst]) {
         for await (const line of iterateJsonlLines(file)) {
@@ -406,7 +407,7 @@ export async function runStateMigration(projectRoot: string, stateDir: string): 
   }
   if (!legacyStat.isDirectory()) return;
 
-  await fs.mkdir(stateDir, { recursive: true });
+  await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
   const lockPath = join(stateDir, LOCK_FILE_NAME);
   await acquireLock(lockPath);
   try {

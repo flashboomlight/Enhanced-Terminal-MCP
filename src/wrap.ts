@@ -72,11 +72,16 @@ export function wrapHandler<T extends Record<string, unknown>>(
 
     const callResult = toCallToolResult(result);
 
-    // 写入缓存：成功且（不扫描缓存 或 内容无密钥）才缓存
+    // 写入缓存：成功且（不扫描缓存 或 内容扫描安全且完整）才缓存——扫描不完整的内容一律不进共享缓存
     if (cacheKey && result.ok) {
       const text = extractCacheableText(callResult);
-      if (!shouldScanOnCache() || scanContent(text).safe) {
+      if (!shouldScanOnCache()) {
         toolCache.set(cacheKey, callResult, TOOL_TTL[toolName]);
+      } else {
+        const scan = scanContent(text);
+        if (scan.safe && scan.complete) {
+          toolCache.set(cacheKey, callResult, TOOL_TTL[toolName]);
+        }
       }
     }
 

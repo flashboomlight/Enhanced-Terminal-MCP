@@ -1,5 +1,7 @@
 // src/logger.ts — 结构化日志系统
 
+import { sanitizeLogField } from "./secret-governance.js";
+
 type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
@@ -20,8 +22,9 @@ function shouldLog(level: LogLevel): boolean {
 
 function formatMsg(level: LogLevel, tool: string, action: string, detail?: string): string {
   const ts = new Date().toISOString();
-  const base = `[${ts}] [${level.toUpperCase()}] [${tool}] ${action}`;
-  return detail ? `${base}: ${detail}` : base;
+  // 字段统一经 sanitizeLogField：控制字符转义防 log forging + redact + 限长
+  const base = `[${ts}] [${level.toUpperCase()}] [${sanitizeLogField(tool, 64)}] ${sanitizeLogField(action, 128)}`;
+  return detail !== undefined ? `${base}: ${sanitizeLogField(detail)}` : base;
 }
 
 export const logger = {

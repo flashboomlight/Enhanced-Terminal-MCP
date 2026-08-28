@@ -12,6 +12,7 @@ import {
 } from "./command-risk.js";
 import { logger } from "./logger.js";
 import { IS_WIN } from "./platform.js";
+import { redactText } from "./secret-governance.js";
 
 // ===== 类型 =====
 export type SafetyMode = "strict" | "normal" | "off";
@@ -258,20 +259,20 @@ function auditRiskDecision(toolName: string, risk: CommandRisk, outcome: "accept
   audit.record({ action: "safety.decision", tool: toolName, detail, success: outcome === "accept" });
 }
 
-/** heavy 确认消息：必须携带风险原因（design §0"说明原因"）；batch 附逐条摘要 */
+/** heavy 确认消息：必须携带风险原因（design §0"说明原因"）；batch 附逐条摘要；命令文本过 redactor，不回显秘密 */
 function buildRiskMessage(toolName: string, risk: CommandRisk, command: string, context: CommandGuardContext): string {
   const lines: string[] = [`⚠️ 命令风险确认 — ${toolName}`, ``, `原因: ${risk.reason ?? "命中 heavy 规则"}`];
   if (context.batchCommands) {
     const summaries = context.batchCommands.map((c) => {
       const r = classifyCommandRisk(c, { tool: "batch_execute" });
-      return `  - ${c}${r.level === "heavy" ? `（${r.reason}）` : ""}`;
+      return `  - ${redactText(c)}${r.level === "heavy" ? `（${r.reason}）` : ""}`;
     });
     const shown = summaries.slice(0, 10);
     if (summaries.length > 10) shown.push(`  - …共 ${summaries.length} 条`);
     lines.push(`批量 ${context.batchCommands.length} 条:`, ...shown);
   } else {
     const preview = command.length > 500 ? `${command.slice(0, 500)}…` : command;
-    lines.push(`命令: ${preview}`);
+    lines.push(`命令: ${redactText(preview)}`);
   }
   lines.push(``, `确认要执行吗？`);
   return lines.join("\n");

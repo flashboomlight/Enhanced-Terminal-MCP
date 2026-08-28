@@ -235,11 +235,11 @@ export class TempManager {
     }
   }
 
-  /** 首次真实写入前创建 root（懒创建配套） */
+  /** 首次真实写入前创建 root（懒创建配套；POSIX 0o700，Windows 下 mode 为 no-op） */
   private async ensureRoot(): Promise<string> {
     await this.init();
     if (!this.root) throw new Error("TempManager not initialized");
-    await fs.mkdir(this.root, { recursive: true });
+    await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
     await assertSafeStateRoot(this.root);
     return this.root;
   }
@@ -261,7 +261,7 @@ export class TempManager {
     if (!isInside(root, dirPath)) {
       throw new Error(`Rejected temp dir outside root: ${dirPath}`);
     }
-    await fs.mkdir(dirPath, { recursive: true });
+    await fs.mkdir(dirPath, { recursive: true, mode: 0o700 });
     const now = Date.now();
     const dir: TempDir = { id: dirId, dir: dirPath, createdAt: now, lastAccessedAt: now };
     this.dirs.set(dirId, dir);

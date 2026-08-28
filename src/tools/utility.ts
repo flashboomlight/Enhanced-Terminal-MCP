@@ -12,6 +12,7 @@ import { logger } from "../logger.js";
 import { processPool } from "../pool.js";
 import { ErrorCode, fail, success, type ToolResult, withErrorSchema } from "../result.js";
 import { getSafetyMode, getSafetyProtocolVersion, supportsFormElicitation } from "../safeguard.js";
+import { validateEnvKeyPolicy } from "../secret-governance.js";
 import { validatePath } from "../security.js";
 import { session } from "../session.js";
 import { getStateDirSync } from "../state-dir.js";
@@ -25,12 +26,9 @@ export function formatCacheInvalidateMessage(tool: string | undefined, cleared: 
   return tool ? `Cleared cache for: ${tool} (${cleared} entries)` : `Cleared all caches (${cleared} entries)`;
 }
 
-/** 校验环境变量 key */
+/** 校验环境变量 key（委托 secret-governance：形状 + deny 大小写规范化） */
 export function validateEnvKey(key: string): string | null {
-  if (!key.trim() || key.includes("=") || key.length > 256) {
-    return "invalid env key";
-  }
-  return null;
+  return validateEnvKeyPolicy(key);
 }
 
 /** 校验环境变量 value */
@@ -320,14 +318,11 @@ export function registerUtilityTools(server: McpServer) {
               success: false,
               error: keyErr,
             });
-            return fail(
-              ErrorCode.VALIDATION_ERROR,
-              `invalid env key "${key}" (must be non-empty, no '=', max 256 chars)`,
-              {
-                retryable: false,
-                param: "key",
-              },
-            );
+            return fail(ErrorCode.VALIDATION_ERROR, keyErr, {
+              retryable: false,
+              param: "key",
+              suggestion: "Use a non-empty key without '=' (max 256 chars) outside the persistence deny list",
+            });
           }
           const valueErr = validateEnvValue(value);
           if (valueErr) {

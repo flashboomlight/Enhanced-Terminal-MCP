@@ -1,45 +1,33 @@
 /**
  * Session 状态管理 — 工作目录、环境上下文
  * 支持工具间上下文传递 + JSON 文件持久化（重启恢复）
+ *
+ * 持久化边界（SEC-04）：默认只持久化 env key（不落 value）与 redacted 命令历史；
+ * env value 持久化需 MCP_SESSION_PERSIST_ENV_VALUES=1 显式开启，且 denied/sensitive key 永不落盘。
+ * env key 判定大小写规范化——Windows 下 path/node_options 小写变体与 PATH/NODE_OPTIONS 等价。
  */
 
 import { realpathSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { logger } from "./logger.js";
+import { atomicWriteFile } from "./path-policy.js";
+import { isDeniedEnvKey, persistentEnvValueAllowed, redactCommand, validateEnvKeyPolicy } from "./secret-governance.js";
 import { isForbiddenPath, isSensitivePath, validatePath } from "./security.js";
 import { ensureStateDir, ensureStateMigration, getLegacyStateFilePath, getStateFilePath } from "./state-dir.js";
-
-/**
- * 环境变量注入黑名单 —— 持久化恢复时拒绝这些键
- * 这些变量若被污染会影响所有子进程（spawnStream 合并 session env），
- * 构成持久化提权路径：LD_PRELOAD/NODE_OPTIONS/PATH 劫持等。
- */
-const FORBIDDEN_ENV_KEYS = new Set([
-  "LD_PRELOAD",
-  "LD_LIBRARY_PATH",
-  "NODE_OPTIONS",
-  "NODE_PATH",
-  "PATH",
-  "PSModulePath",
-  "SYSTEMROOT",
-  "COMSPEC",
-  "DYLD_INSERT_LIBRARIES",
-  "DYLD_LIBRARY_PATH",
-]);
 
 function isSafeEnvKey(k: unknown): k is string {
   return typeof k === "string" && k.length > 0 && !k.includes("=") && k.length <= 256;
 }
 
 /**
- * 校验从磁盘恢复的 env：键需安全且不在黑名单，值须为字符串
+ * 校验从磁盘恢复的 env：键需安全且不在 deny 集合（大小写规范化），值须为字符串
  * 返回过滤后的 env，丢弃一切非法或危险条目
  */
 function sanitizeRestoredEnv(raw: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (!isSafeEnvKey(k) || FORBIDDEN_ENV_KEYS.has(k)) continue;
+    if (!isSafeEnvKey(k) || isDeniedEnvKey(k)) continue;
     if (typeof v !== "string") continue;
     out[k] = v;
   }
@@ -90,9 +78,11 @@ export class SessionStore {
   }
 
   setEnv(key: string, value: string): void {
-    if (!isSafeEnvKey(key) || FORBIDDEN_ENV_KEYS.has(key)) {
+    // validateEnvKeyPolicy：形状 + deny（大小写规范化，path/node_options 变体命中）
+    const keyErr = validateEnvKeyPolicy(key);
+    if (keyErr) {
       logger.warn("session", "env-key-rejected", key);
-      throw new Error(`Rejected env key: ${key}`);
+      throw new Error(keyErr);
     }
     if (typeof value !== "string") {
       throw new Error("env value must be a string");
@@ -164,15 +154,23 @@ export class SessionStore {
       // session.json 是真实产生物：落盘前才确保目录存在（启动/恢复读取不创建）
       await ensureStateDir();
       const stateFile = await getStateFilePath();
-      const data = {
+      // SEC-04：默认只持久化 env key；value 仅在显式 opt-in 且该 key 允许（非 denied/sensitive）时落盘
+      const envKeys = Object.keys(this.state.env);
+      const data: Record<string, unknown> = {
         cwd: this.state.cwd,
-        env: this.state.env,
-        history: this.state.history.slice(-20), // 只保留最近 20 条
+        envKeys,
+        history: this.state.history.slice(-20).map((cmd) => redactCommand(cmd)), // 只保留最近 20 条且经 redactor
         createdAt: this.state.createdAt,
       };
-      const tmpFile = `${stateFile}.tmp`;
-      await fs.writeFile(tmpFile, JSON.stringify(data, null, 2), "utf-8");
-      await fs.rename(tmpFile, stateFile);
+      if (envKeys.some((k) => persistentEnvValueAllowed(k))) {
+        const persistedEnv: Record<string, string> = {};
+        for (const k of envKeys) {
+          if (persistentEnvValueAllowed(k)) persistedEnv[k] = this.state.env[k];
+        }
+        data.env = persistedEnv;
+      }
+      // 原子落盘：同目录 exclusive staging + rename，POSIX mode 0o600
+      await atomicWriteFile(stateFile, JSON.stringify(data, null, 2), "utf-8");
       this.dirty = false;
       logger.info("session", "persisted", stateFile);
     } catch (e) {
@@ -246,8 +244,13 @@ export class SessionStore {
         this.state.cwd = data.cwd;
       }
     }
-    // env 经黑名单 + 类型守卫过滤（防 LD_PRELOAD/NODE_OPTIONS 等注入子进程）
-    this.state.env = sanitizeRestoredEnv(data.env);
+    // env：legacy env map 经 deny（大小写规范化）+ 类型守卫过滤恢复（防 LD_PRELOAD/NODE_OPTIONS 等注入子进程）；
+    // 新格式只有 envKeys（key 仅供排查信息），value 一律不还原、不注入子进程
+    if (data.env && typeof data.env === "object" && !Array.isArray(data.env)) {
+      this.state.env = sanitizeRestoredEnv(data.env);
+    } else {
+      this.state.env = {};
+    }
     // history 仅保留字符串条目
     if (Array.isArray(data.history)) {
       this.state.history = data.history.filter((h): h is string => typeof h === "string").slice(-50);

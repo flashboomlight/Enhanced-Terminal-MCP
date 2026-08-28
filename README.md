@@ -85,7 +85,10 @@ The source checkout and npm consumer paths are intentionally separate: setup.bat
 | `MCP_COMMAND_POLICY` | `blocklist` | `blocklist` (dangerous patterns + hardBlock) or `allow` (executable allowlist + hardBlock; no shell chaining) |
 | `MCP_COMMAND_ALLOW` | built-in list | Comma-separated executables/prefixes when policy is `allow` (e.g. `npm,git,node`) |
 | `MCP_BATCH_RATE_MODE` | `batch` | `batch` (1 token per batch_execute) or `per_command` (1 token per command in batch) |
-| `MCP_SECRETS_SCAN` | `cache` | `off` / `write` / `cache` / `strict` (strict also blocks secret-bearing read_file content) |
+| `MCP_SECRETS_SCAN` | `cache` | `off` / `write` / `cache` / `strict` (strict also blocks secret-bearing read_file content and fails closed when content exceeds the 4 MiB scanner capacity) |
+| `MCP_ENV_VALUE_MODE` | `allowlist` | `environment_vars` value display: `allowlist` (values only for built-in non-sensitive keys + `MCP_ENV_VALUE_ALLOWLIST`), `full` (all non-sensitive values), `keys` (values always masked). Sensitive keywords are masked in every mode; displayed values pass the secret redactor; results are never cached. |
+| `MCP_ENV_VALUE_ALLOWLIST` | — | Comma-separated extra env key names (case-insensitive, exact match) whose values `environment_vars` may display in `allowlist` mode |
+| `MCP_SESSION_PERSIST_ENV_VALUES` | `0` | Set to `1` to persist session env values to `session.json`. Off by default: only env keys are persisted. Deny-listed keys (`PATH`, `NODE_OPTIONS`, …, matched case-insensitively) and sensitive keys are never persisted. Command history is persisted redacted either way. |
 | `MCP_LOG_LEVEL` | `info` | Log level: debug / info / warn / error |
 | `MCP_SHELL` | `pwsh` | Windows shell mode: `pwsh` (PowerShell 7, recommended), `powershell` (Windows PowerShell 5.1), `cmd` (legacy cmd.exe escape hatch). Unix is unaffected. |
 | `MCP_POWERSHELL_PATH` | — | Explicit path to a pwsh 7 / PowerShell executable. Takes highest priority; invalid path is a hard error (no silent fallback). |

@@ -21,6 +21,7 @@ import { processPool } from "./pool.js";
 import { processSupervisor } from "./process-supervisor.js";
 import { initializeExecutionProfile } from "./profile.js";
 import { initSafeGuard } from "./safeguard.js";
+import { redactError } from "./secret-governance.js";
 import { session } from "./session.js";
 import { tempManager } from "./temp-manager.js";
 import { registerArchiveTools } from "./tools/archive.js";
@@ -127,6 +128,9 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error("[FATAL] Server crashed:", e);
+  // fatal stderr 不回显原始异常文本（可能携带命令/凭据）；栈帧保留定位能力
+  const err = redactError(e);
+  console.error(`[FATAL] Server crashed: [${err.code}] ${err.message}`);
+  if (e instanceof Error && e.stack) console.error(e.stack);
   process.exit(1);
 });

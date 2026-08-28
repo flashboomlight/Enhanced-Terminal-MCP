@@ -785,12 +785,17 @@ no-match、达到结果/遍历/响应预算、权限错误、外部 CLI unavaila
 - acceptance：features/2026-08-29-path-policy-no-follow/path-policy-no-follow-acceptance.md
 - 验收回写（2026-08-29）：新增 `src/path-policy.ts` 统一路径策略——读语义 real 解析重验（不存在放行给自然 ENOENT，契约不变）、写/删/移 no-follow（symlink 目标拒绝；delete 对链接仅移除链接层 `type:"link"`）、覆写原子 staging+rename（失败回退 truncate 写并告警）、state/temp 根替换检查；接入 files 五工具、manage 两工具、session cwd 恢复、ensureStateDir/ensureRoot。行为收紧：symlink→敏感/系统目录的读取从可读变 `PATH_FORBIDDEN`。门禁全绿（全量 53 文件 678 用例、latency 24/24、tools coverage 60.74/49.63/65.97/64.51）。归档 Zip Slip 与 set_cwd 入口校验分别归属 network-and-archive-safety 与 tool-wrapper-and-surface-contract。
 
-### 6. `secret-redaction-and-state-protection`
+### 6. `secret-redaction-and-state-protection`（状态：done）
 
 - 所属模块：secret-governance、session、audit、logger、cache
 - 依赖：`hardening-contract-and-profiles`、`path-policy-no-follow`，因为秘密落盘和状态文件本身也要使用安全路径与预算。
 - 交付：统一 redactor、大小写不敏感 env policy、session/history/prompt context 保护、strict streaming scan、secure file mode、cache 前扫描、ResultBoundary 和 log-field control-character escaping。
 - 验收：token/URL credentials/JWT/connection string/private key 不进入 session、audit、logger、cache、confirmation、prompt 或 error message/detail；`path`/`node_options` 变体不能绕过；超过扫描能力时 strict fail-closed；`environment_vars` 默认不缓存任意值。
+- 当前 feature：2026-08-29-secret-redaction-and-state-protection
+- 设计：features/2026-08-29-secret-redaction-and-state-protection/secret-redaction-and-state-protection-design.md
+- checklist：features/2026-08-29-secret-redaction-and-state-protection/secret-redaction-and-state-protection-checklist.yaml
+- acceptance：features/2026-08-29-secret-redaction-and-state-protection/secret-redaction-and-state-protection-acceptance.md
+- 验收回写（2026-08-29）：新增 `src/secret-governance.ts` 统一 redactor 与 env policy（g-flag 克隆不触碰流式 registry）；`fail()` 单点 ResultBoundary 覆盖全部 error 出口；logger/audit.record/usage-guide last_cmd/risk-gated confirmation/fatal stderr 接入净化；session 默认只持久化 envKeys 与 redacted history（value 持久化需 `MCP_SESSION_PERSIST_ENV_VALUES=1`，denied/sensitive 永不落盘），deny 判定大小写规范化关闭 `path`/`node_options` 变体；`scanContent` 增加 `complete` 语义，strict 下超扫描能力 read/write fail-closed（`RESOURCE_LIMIT`），不完整内容不入共享缓存；`environment_vars` 走 `MCP_ENV_VALUE_MODE`（默认 allowlist）并移出 `CACHEABLE_TOOLS`；session.json 改走 `atomicWriteFile`（0o600），audit/state/temp 目录 POSIX 权限收紧。行为收紧：env 变体注入、非白名单 env 值展示、strict 超能力读写、超大内容入缓存四处均从"放行"变"拒绝/掩码"。门禁全绿（全量 54 文件 709 用例、latency 24/24、tools coverage 60.76/49.56/65.97/64.6）。audit writer 轮换与 session revision writer 归 #8，capability 矩阵归 #9。
 
 ### 7. `network-and-archive-safety`
 
@@ -997,3 +1002,4 @@ git diff --check                     -> pass
 - 2026-08-28：完成 `process-supervisor-and-cancellation` 实现与 acceptance；修复 registry cleanup 竞态（close 与 termination promise 完成顺序不确定导致 `activeCount` 残留）、lint 三处与 cancel 测试 bounded 等待边界，代用户三轮反向审计后 12 checks 全部 passed、17 场景均有证据；items.yaml 与本主文档已回写为 `done`，解锁 `bounded-command-execution`。
 - 2026-08-28：完成 `bounded-command-execution` 实现与 acceptance（最小闭环达成）；新增 `src/command-budget.ts`，三个命令工具接入 finite/bounded schema 与 handler 二次校验，batch 建立 parent BudgetAccount（聚合预检、output 配额、wall-time deadline、parallel 共享 ledger）；审计修复 validator 字符计数与 boundedString 的 code point 同源差异；items.yaml 与本主文档已回写为 `done`。
 - 2026-08-29：完成 `path-policy-no-follow` 实现与 acceptance；新增 `src/path-policy.ts` 并统一接入 files/manage/session/state/temp——读语义 real 解析重验、写/删/移 no-follow、覆写原子 staging、state/temp 根防替换，关闭 SEC-03 的 symlink 与 TOCTOU 缺口（symlink→敏感目录读取收紧为拒绝）；items.yaml 与本主文档已回写为 `done`，解锁 `secret-redaction-and-state-protection` 与 `network-and-archive-safety`。
+- 2026-08-29：完成 `secret-redaction-and-state-protection` 实现与 acceptance；新增 `src/secret-governance.ts`（redactor + env policy + redactError），`fail()` 单点 ResultBoundary，logger/audit/prompt/confirmation/fatal 出口净化，session keys-only 持久化与 redacted history，env deny 大小写规范化，scan `complete` 语义 + strict fail-closed，`environment_vars` 值展示策略并移出缓存，session.json atomicWriteFile 与 POSIX 权限收紧，关闭 SEC-04/SEC-05 本范围缺口；items.yaml 与本主文档已回写为 `done`，解锁 `audit-health-and-state-writer`。

@@ -103,7 +103,7 @@ describe("session", () => {
     expect(JSON.parse(store.snapshot())).toEqual(obj);
   });
 
-  test("restores from persisted state", async () => {
+  test("restores cwd/history but drops env values by default (keys-only persistence)", async () => {
     const { SessionStore } = await import("../../src/session.js");
     const store = new SessionStore();
     store.setCwd(tmpStateDir);
@@ -111,12 +111,62 @@ describe("session", () => {
     store.pushHistory("cmd1");
     await store.flush();
 
+    const raw = await fs.readFile(path.join(tmpStateDir, "session.json"), "utf-8");
+    const data = JSON.parse(raw);
+    expect(data.envKeys).toEqual(["KEY"]);
+    expect(data.env).toBeUndefined(); // 默认不落 env value
+
     const { SessionStore: SessionStore2 } = await import("../../src/session.js");
     const store2 = new SessionStore2();
     await new Promise((r) => setTimeout(r, 50));
     expect(store2.getCwd()).toBe(tmpStateDir);
-    expect(store2.getEnv("KEY")).toBe("value");
+    expect(store2.getEnv("KEY")).toBeUndefined(); // value 不还原、不注入子进程
     expect(store2.lastCommand()).toBe("cmd1");
+  });
+
+  test("persists env values only under explicit opt-in and never for denied/sensitive keys", async () => {
+    const original = process.env.MCP_SESSION_PERSIST_ENV_VALUES;
+    process.env.MCP_SESSION_PERSIST_ENV_VALUES = "1";
+    try {
+      const { SessionStore } = await import("../../src/session.js");
+      const store = new SessionStore();
+      store.setEnv("MY_VAR", "ok-value");
+      store.setEnv("MY_TOKEN", "secret-value"); // sensitive 关键词：可入内存，但永不落盘
+      // denied key（大小写规范化）在 set 阶段即被拒绝，无法进入内存 env
+      expect(() => store.setEnv("path", "C:\\evil")).toThrow(/denied/);
+      await store.flush();
+
+      const raw = await fs.readFile(path.join(tmpStateDir, "session.json"), "utf-8");
+      const data = JSON.parse(raw);
+      expect(data.env).toEqual({ MY_VAR: "ok-value" });
+      expect([...data.envKeys].sort()).toEqual(["MY_TOKEN", "MY_VAR"].sort());
+    } finally {
+      if (original === undefined) delete process.env.MCP_SESSION_PERSIST_ENV_VALUES;
+      else process.env.MCP_SESSION_PERSIST_ENV_VALUES = original;
+    }
+  });
+
+  test("persists history through the redactor", async () => {
+    const { SessionStore } = await import("../../src/session.js");
+    const store = new SessionStore();
+    store.pushHistory('curl -H "Authorization: Bearer ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" https://example.com');
+    store.pushHistory("plain-cmd");
+    await store.flush();
+
+    const raw = await fs.readFile(path.join(tmpStateDir, "session.json"), "utf-8");
+    const data = JSON.parse(raw);
+    expect(data.history[data.history.length - 1]).toBe("plain-cmd");
+    expect(data.history[0]).not.toContain("ghp_AAAA");
+    expect(data.history[0]).toContain("[REDACTED]");
+  });
+
+  test("setEnv rejects denied keys case-insensitively (path/node_options variants)", async () => {
+    const { SessionStore } = await import("../../src/session.js");
+    const store = new SessionStore();
+    expect(() => store.setEnv("path", "C:\\evil")).toThrow(/denied/);
+    expect(() => store.setEnv("Node_Options", "--inspect")).toThrow(/denied/);
+    expect(() => store.setEnv("ld_preload", "/lib/evil.so")).toThrow(/denied/);
+    expect(store.getEnv("path")).toBeUndefined();
   });
 
   test("rejects restoring a cwd that resolves into a sensitive directory", async () => {

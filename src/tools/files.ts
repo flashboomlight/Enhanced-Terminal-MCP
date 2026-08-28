@@ -18,8 +18,7 @@ import { scanContent, shouldBlockSecretReads, shouldScanOnWrite } from "../scan.
 import { formatSize } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 
-/** 扫描内容字节数上限 —— 超过则跳过凭据扫描，避免 ReDoS / 大文件卡死 */
-const SCAN_MAX_BYTES = 4 * 1024 * 1024;
+/** 扫描上限常量已移至 scan.ts（SCAN_CONTENT_MAX_BYTES）；write_file 内容上限 */
 const WRITE_FILE_MAX_BYTES = 50 * 1024 * 1024;
 
 /** 统一处理 fs 错误：ENOENT -> PATH_NOT_FOUND，其余 -> EXECUTION_FAILED */
@@ -113,8 +112,8 @@ export function registerFileTools(server: McpServer) {
         const truncated = !reachedEnd;
         const output = collected.join("\n");
 
-        // MCP_SECRETS_SCAN=strict：读路径发现密钥则拒绝返回正文
-        if (shouldBlockSecretReads() && Buffer.byteLength(output, "utf-8") <= SCAN_MAX_BYTES) {
+        // MCP_SECRETS_SCAN=strict：读路径发现密钥拒绝返回正文；扫描不完整（超 4MiB 前缀）同样 fail-closed
+        if (shouldBlockSecretReads()) {
           const scan = scanContent(output);
           if (!scan.safe) {
             return fail(
@@ -125,6 +124,17 @@ export function registerFileTools(server: McpServer) {
                 param: "file_path",
                 suggestion: "Unset MCP_SECRETS_SCAN=strict to allow reading, or remove credentials from file",
                 detail: { findings: scan.findings },
+              },
+            );
+          }
+          if (!scan.complete) {
+            return fail(
+              ErrorCode.RESOURCE_LIMIT,
+              `Read blocked — content exceeds scanner capacity (scanned ${scan.scannedBytes} bytes) under MCP_SECRETS_SCAN=strict`,
+              {
+                retryable: false,
+                param: "file_path",
+                suggestion: "Reduce content size, or relax MCP_SECRETS_SCAN to allow unscannable reads",
               },
             );
           }
@@ -172,8 +182,8 @@ export function registerFileTools(server: McpServer) {
       const target = resolved.resolution.real;
       const existed = resolved.resolution.existed;
 
-      // 内容安全扫描（MCP_SECRETS_SCAN=off 跳过；超 4MB 跳过）
-      if (shouldScanOnWrite() && Buffer.byteLength(content, "utf-8") <= SCAN_MAX_BYTES) {
+      // 内容安全扫描（off 跳过；超 4MiB 只扫前缀，strict 下不完整即 fail-closed）
+      if (shouldScanOnWrite()) {
         const scan = scanContent(content);
         if (!scan.safe) {
           return fail(ErrorCode.PATH_SENSITIVE, `Content contains secrets: ${scan.findings.join(", ")}`, {
@@ -182,6 +192,17 @@ export function registerFileTools(server: McpServer) {
             suggestion: "Remove credentials before writing, or set MCP_SECRETS_SCAN=off",
             detail: { findings: scan.findings },
           });
+        }
+        if (!scan.complete && shouldBlockSecretReads()) {
+          return fail(
+            ErrorCode.RESOURCE_LIMIT,
+            `Write blocked — content exceeds scanner capacity (scanned ${scan.scannedBytes} bytes) under MCP_SECRETS_SCAN=strict`,
+            {
+              retryable: false,
+              param: "content",
+              suggestion: "Reduce content size, or relax MCP_SECRETS_SCAN to allow unscannable writes",
+            },
+          );
         }
       }
 

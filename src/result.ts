@@ -9,6 +9,10 @@
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod";
+import { redactDetail, redactText } from "./secret-governance.js";
+
+/** 错误 message/suggestion 的字符上限（ResultBoundary 出口限长） */
+const ERROR_TEXT_MAX_CHARS = 2000;
 
 // ====================================================================
 // 错误码枚举
@@ -138,9 +142,13 @@ export function success<T>(content: string, structured: T, meta?: Partial<ToolMe
   return { ok: true, content, structured, meta: finalMeta };
 }
 
+/**
+ * ResultBoundary：所有 ToolError 的 message/suggestion/detail 在此单点净化——
+ * 原始命令、URL credentials、秘密文本不出现在 error 出口；detail 另有逐串截断与总量上限。
+ */
 export function fail(
   code: ErrorCodeType,
-  message: string,
+  rawMessage: string,
   opts?: {
     retryable?: boolean;
     suggestion?: string;
@@ -150,6 +158,7 @@ export function fail(
     meta?: Partial<ToolMeta>;
   },
 ): ToolError {
+  const message = capErrorText(redactText(rawMessage));
   const meta = opts?.meta
     ? {
         ...opts.meta,
@@ -163,13 +172,20 @@ export function fail(
       code,
       message,
       retryable: opts?.retryable ?? false,
-      suggestion: opts?.suggestion,
+      suggestion: opts?.suggestion !== undefined ? capErrorText(redactText(opts.suggestion)) : undefined,
       param: opts?.param,
-      detail: opts?.detail,
+      detail: redactDetail(opts?.detail),
     },
     ...(meta ? { meta } : {}),
     structured: opts?.structured,
   };
+}
+
+/** code point 口径截断（与 boundedString 同源），超限尾部加省略号 */
+function capErrorText(text: string, maxChars: number = ERROR_TEXT_MAX_CHARS): string {
+  if (text.length <= maxChars) return text;
+  const points = Array.from(text);
+  return points.length <= maxChars ? text : `${points.slice(0, maxChars).join("")}…`;
 }
 
 // 常用错误快捷工厂

@@ -45,10 +45,10 @@ items:
   - slug: secret-redaction-and-state-protection
     description: 建立 streaming secret scan、命令/日志/error/result/prompt redaction、大小写不敏感 env policy 和安全 session/cache 持久化
     depends_on: [hardening-contract-and-profiles, path-policy-no-follow]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-29-secret-redaction-and-state-protection
     minimal_loop: false
-    notes: 默认不持久化 env value 和原始命令；strict profile 下扫描不完整不得视为 safe；logger 控制字符必须转义，environment_vars 默认不缓存任意值
+    notes: 已完成并通过 acceptance；新增 src/secret-governance.ts（redactor/env policy/redactError），fail() 单点 ResultBoundary，logger/audit/prompt/confirmation/fatal 出口净化，session 默认只持久化 envKeys 与 redacted history（value 持久化需 MCP_SESSION_PERSIST_ENV_VALUES=1 且 denied/sensitive 永不落盘），env deny 大小写规范化（path/node_options 变体关闭），scan 增加 complete 语义且 strict 超能力 fail-closed（RESOURCE_LIMIT），environment_vars 值展示策略（MCP_ENV_VALUE_MODE 默认 allowlist）并移出 CACHEABLE_TOOLS，session.json 走 atomicWriteFile、audit/state/temp POSIX 权限收紧。命令输出流式 matcher（secret-stream/secret-registry）零改动；audit writer 轮换与 session revision writer 归 audit-health-and-state-writer，capability 矩阵归 tool-wrapper-and-surface-contract
 
   - slug: network-and-archive-safety
     description: 为 download、redirect、network_info、compress 和 extract 增加 SSRF/DNS/proxy 防护、byte budget、archive manifest 和 zip bomb/Zip Slip/link-entry 防护

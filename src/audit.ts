@@ -5,6 +5,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { logger } from "./logger.js";
+import { atomicWriteFile } from "./path-policy.js";
+import { redactDetail, sanitizeLogField } from "./secret-governance.js";
 import { ensureStateMigration, getStateDir } from "./state-dir.js";
 import { envInt } from "./utils.js";
 
@@ -51,10 +53,10 @@ export class AuditLog {
     return this.logFilePathPromise;
   }
 
-  /** 写路径专用：audit 条目即将落盘，确保 logs 目录存在后返回路径 */
+  /** 写路径专用：audit 条目即将落盘，确保 logs 目录存在（POSIX 0o700）后返回路径 */
   private async ensureLogFilePath(): Promise<string> {
     const logFile = await this.resolveLogFilePath();
-    await fs.mkdir(path.dirname(logFile), { recursive: true });
+    await fs.mkdir(path.dirname(logFile), { recursive: true, mode: 0o700 });
     return logFile;
   }
 
@@ -67,7 +69,13 @@ export class AuditLog {
 
   record(entry: Omit<AuditEntry, "timestamp">): void {
     if (!this.shouldRecord(entry.success)) return;
-    this.queue.push({ ...entry, timestamp: new Date().toISOString() });
+    // 入队前完成净化：secret 原文/原始命令不以未脱敏形态进入内存队列或落盘
+    this.queue.push({
+      ...entry,
+      timestamp: new Date().toISOString(),
+      detail: redactDetail(entry.detail) as Record<string, unknown>,
+      error: entry.error !== undefined ? sanitizeLogField(entry.error) : undefined,
+    });
     this.scheduleFlush();
   }
 
@@ -89,7 +97,7 @@ export class AuditLog {
     try {
       const logFile = await this.ensureLogFilePath();
       const lines = `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`;
-      await fs.appendFile(logFile, lines, "utf-8");
+      await fs.appendFile(logFile, lines, { encoding: "utf-8", mode: 0o600 });
       await this.compact(logFile);
     } catch (e) {
       logger.warn("audit", "write-failed", String(e));
@@ -102,7 +110,8 @@ export class AuditLog {
       const raw = await fs.readFile(logFile, "utf-8");
       const lines = raw.split("\n").filter(Boolean);
       if (lines.length <= maxEntries) return;
-      await fs.writeFile(logFile, `${lines.slice(-maxEntries).join("\n")}\n`, "utf-8");
+      // 轮换重写走同目录 exclusive staging + rename（0o600），避免中途可见的部分文件
+      await atomicWriteFile(logFile, `${lines.slice(-maxEntries).join("\n")}\n`, "utf-8");
     } catch (e) {
       logger.warn("audit", "compact-failed", String(e));
     }

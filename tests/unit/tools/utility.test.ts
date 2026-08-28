@@ -32,6 +32,12 @@ describe("utility tools pure logic", () => {
     expect(validateEnvKey("VALID_KEY")).toBeNull();
   });
 
+  test("validateEnvKey rejects persistence deny list case-insensitively", () => {
+    expect(validateEnvKey("path")).toMatch(/denied/);
+    expect(validateEnvKey("Node_Options")).toMatch(/denied/);
+    expect(validateEnvKey("PATH")).toMatch(/denied/);
+  });
+
   test("validateEnvValue rejects oversized values", () => {
     expect(validateEnvValue("a".repeat(32769))).toBe("env value too long");
     expect(validateEnvValue("ok")).toBeNull();

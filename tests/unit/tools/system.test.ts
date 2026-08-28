@@ -74,7 +74,17 @@ describe("system tools decision paths (unit)", () => {
     expect(result?.content[0].text).toContain("*** (hidden)");
   });
 
-  test("environment_vars get returns plain values for non-sensitive names", async () => {
+  test("environment_vars get returns values for built-in allowlist keys, redacted", async () => {
+    process.env.PATH = process.env.PATH || "C:\\tools";
+    const result = await registerTools().get("environment_vars")?.handler({
+      action: "get",
+      name: "PATH",
+    });
+    expect(result?.isError).toBeFalsy();
+    expect(result?.structuredContent.value).toBe(process.env.PATH);
+  });
+
+  test("environment_vars get masks non-allowlisted keys by default (allowlist mode)", async () => {
     process.env.ETMCP_PLAIN_TEST_VAR = "plain-value";
     customEnv.ETMCP_PLAIN_TEST_VAR = process.env.ETMCP_PLAIN_TEST_VAR;
 
@@ -82,22 +92,67 @@ describe("system tools decision paths (unit)", () => {
       action: "get",
       name: "ETMCP_PLAIN_TEST_VAR",
     });
-
-    expect(result?.structuredContent.value).toBe("plain-value");
+    expect(result?.structuredContent.value).toBe("***");
+    expect(result?.content[0].text).toContain("*** (hidden)");
   });
 
-  test("environment_vars list masks sensitive keys but keeps others", async () => {
+  test("environment_vars get honors MCP_ENV_VALUE_ALLOWLIST extras and full mode", async () => {
+    process.env.ETMCP_PLAIN_TEST_VAR = "plain-value";
+    customEnv.ETMCP_PLAIN_TEST_VAR = process.env.ETMCP_PLAIN_TEST_VAR;
+    const originalMode = process.env.MCP_ENV_VALUE_MODE;
+    const originalAllowlist = process.env.MCP_ENV_VALUE_ALLOWLIST;
+
+    process.env.MCP_ENV_VALUE_ALLOWLIST = "etmcp_plain_test_var";
+    const allowlisted = await registerTools().get("environment_vars")?.handler({
+      action: "get",
+      name: "ETMCP_PLAIN_TEST_VAR",
+    });
+    expect(allowlisted?.structuredContent.value).toBe("plain-value");
+
+    process.env.MCP_ENV_VALUE_MODE = "full";
+    delete process.env.MCP_ENV_VALUE_ALLOWLIST;
+    const full = await registerTools().get("environment_vars")?.handler({
+      action: "get",
+      name: "ETMCP_PLAIN_TEST_VAR",
+    });
+    expect(full?.structuredContent.value).toBe("plain-value");
+
+    process.env.MCP_ENV_VALUE_MODE = "keys";
+    const keys = await registerTools().get("environment_vars")?.handler({
+      action: "get",
+      name: "ETMCP_PLAIN_TEST_VAR",
+    });
+    expect(keys?.structuredContent.value).toBe("***");
+
+    if (originalMode === undefined) delete process.env.MCP_ENV_VALUE_MODE;
+    else process.env.MCP_ENV_VALUE_MODE = originalMode;
+    if (originalAllowlist === undefined) delete process.env.MCP_ENV_VALUE_ALLOWLIST;
+    else process.env.MCP_ENV_VALUE_ALLOWLIST = originalAllowlist;
+  });
+
+  test("environment_vars list masks sensitive and non-allowlisted keys in default mode", async () => {
     process.env.ETMCP_TEST_TOKEN = "hide-me";
     process.env.ETMCP_TEST_VISIBLE = "show-me";
     customEnv.ETMCP_TEST_TOKEN = process.env.ETMCP_TEST_TOKEN;
     customEnv.ETMCP_TEST_VISIBLE = process.env.ETMCP_TEST_VISIBLE;
 
     const result = await registerTools().get("environment_vars")?.handler({ action: "list" });
-
     expect(result?.isError).toBeFalsy();
     const vars = result?.structuredContent.vars as Record<string, string>;
     expect(vars.ETMCP_TEST_TOKEN).toBe("***");
-    expect(vars.ETMCP_TEST_VISIBLE).toBe("show-me");
+    expect(vars.ETMCP_TEST_VISIBLE).toBe("***");
+
+    const originalMode = process.env.MCP_ENV_VALUE_MODE;
+    process.env.MCP_ENV_VALUE_MODE = "full";
+    try {
+      const full = await registerTools().get("environment_vars")?.handler({ action: "list" });
+      const fullVars = full?.structuredContent.vars as Record<string, string>;
+      expect(fullVars.ETMCP_TEST_TOKEN).toBe("***"); // sensitive 恒掩码
+      expect(fullVars.ETMCP_TEST_VISIBLE).toBe("show-me");
+    } finally {
+      if (originalMode === undefined) delete process.env.MCP_ENV_VALUE_MODE;
+      else process.env.MCP_ENV_VALUE_MODE = originalMode;
+    }
   });
 
   test("kill_process refuses critical system processes before any execution", async () => {

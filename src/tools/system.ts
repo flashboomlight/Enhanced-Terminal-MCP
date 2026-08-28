@@ -20,13 +20,11 @@ import {
 import { ManagedProcessError } from "../process-supervisor.js";
 import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
+import { envValueDisplayAllowed, getEnvValueMode, redactText, SENSITIVE_ENV_KEYWORDS } from "../secret-governance.js";
 import { validateHost } from "../security.js";
 import { getShellSpec, shellResolutionFail } from "../shell.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
-
-const SENSITIVE_ENV_KEYWORDS =
-  /(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|AUTH|PRIVATE_?KEY|CREDENTIAL|ENCRYPTION|PSW|JWT|OAUTH|CERT|LICENSE_KEY|DB_PASS)/i;
 
 export interface SystemToolDependencies {
   processIdentityProvider?: ProcessIdentityProvider;
@@ -273,12 +271,16 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
     },
     wrapHandler("environment_vars", async ({ action, name }: EnvironmentVarsInput): Promise<ToolResult> => {
       try {
+        // 值展示策略告警由消费方输出（secret-governance 不导入 logger）
+        const { warning } = getEnvValueMode();
+        if (warning) logger.warn("environment_vars", "bad-env-value-mode", warning);
+
         if (action === "get" && name) {
-          if (SENSITIVE_ENV_KEYWORDS.test(name)) {
+          if (SENSITIVE_ENV_KEYWORDS.test(name) || !envValueDisplayAllowed(name)) {
             return success(`${name}=*** (hidden)`, { value: "***" });
           }
-          const val = process.env[name] || "";
-          return success(`${name}=${val}`, { value: val });
+          const shown = redactText(process.env[name] || "");
+          return success(`${name}=${shown}`, { value: shown });
         }
 
         const vars: Record<string, string> = {};
@@ -287,7 +289,8 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
           .sort(([a], [b]) => a.localeCompare(b));
 
         for (const [k, v] of entries) {
-          vars[k] = SENSITIVE_ENV_KEYWORDS.test(k) ? "***" : String(v ?? "");
+          // 白名单外/敏感 key 掩码；展示值过 redactor
+          vars[k] = envValueDisplayAllowed(k) ? redactText(String(v ?? "")) : "***";
         }
 
         const allLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`);
