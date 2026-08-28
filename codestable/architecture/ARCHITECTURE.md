@@ -14,7 +14,7 @@ implements: [everything-search-optional]
 
 > 状态：current
 > 创建日期：2026-08-16（由 `cs-arch backfill` 按 v3.1.0 代码现状补全）
-> 最后核对：2026-08-29（M2 A+ 输出协议、M3 Everything 可选发布、M4 最终本地收口、hardening-contract-and-profiles、kill-process-identity、dependency-and-bootstrap-release、process-supervisor-and-cancellation、bounded-command-execution、path-policy-no-follow 与 secret-redaction-and-state-protection 均已完成验收；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口）
+> 最后核对：2026-08-29（M2 A+ 输出协议、M3 Everything 可选发布、M4 最终本地收口、hardening-contract-and-profiles、kill-process-identity、dependency-and-bootstrap-release、process-supervisor-and-cancellation、bounded-command-execution、path-policy-no-follow、secret-redaction-and-state-protection 与 network-and-archive-safety 均已完成验收；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口）
 
 ## 1. 项目简介
 
@@ -211,6 +211,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 - 2026-08-28：`bounded-command-execution` 完成验收（最小闭环达成）——新增 `src/command-budget.ts`，三个命令工具接入 `finiteInt`/`boundedString`/`boundedArray` schema 与 handler 层 `validateBoundedCommandInput` 二次校验；batch 建立 parent BudgetAccount（聚合输入预检 `RESOURCE_LIMIT` 零执行、output 逐条配额 `budget_output`、wall-time deadline `budget_deadline`、parallel 经 child() 共享 parent ledger）；`skip_reason` 扩展为四值枚举；门禁全绿（全量 52 文件 658 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 5/13。
 - 2026-08-29：`path-policy-no-follow` 完成验收——新增 `src/path-policy.ts` 统一路径策略并接入 files/manage/session/state/temp：读语义 real 解析重验、写/删/移 no-follow（symlink→敏感目录读取收紧为 `PATH_FORBIDDEN`）、覆写原子 staging+rename、state/temp 根防替换（关闭审计 SEC-03）；门禁全绿（全量 53 文件 678 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 6/13。
 - 2026-08-29：`secret-redaction-and-state-protection` 完成验收——新增 `src/secret-governance.ts`（统一 redactor + env policy + `redactError`），`fail()` 单点 ResultBoundary 覆盖全部 error 出口，logger/audit/prompt/confirmation/fatal 出口净化（控制字符转义 + 限长 + `[REDACTED]`）；session 默认只持久化 envKeys 与 redacted history（value 持久化需 `MCP_SESSION_PERSIST_ENV_VALUES=1`，denied/sensitive 永不落盘），env deny 大小写规范化关闭 `path`/`node_options` 变体；`scanContent` 增加 `complete` 语义、strict 超能力 fail-closed（`RESOURCE_LIMIT`）、不完整内容不入缓存；`environment_vars` 走 `MCP_ENV_VALUE_MODE`（默认 allowlist）并移出 `CACHEABLE_TOOLS`；session.json 走 `atomicWriteFile`，audit/state/temp POSIX 权限收紧（关闭审计 SEC-04/SEC-05 本范围缺口）；门禁全绿（全量 54 文件 709 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 7/13。
+- 2026-08-29：`network-and-archive-safety` 完成验收——新增 `src/network-policy.ts`（IP 分类矩阵、SSRF deny-private/allow-private 策略、直连已验证 IP + servername=SNI 关闭 DNS rebinding、redirect 逐跳重验、字节预算与绝对 deadline 跨重试共享、代理变量零读取）与 `src/zip-policy.ts`（EOCD/ZIP64/CD manifest、Zip Slip/驱动器号/保留设备名/链接设备加密条目拒绝、manifest 预检 + 实时计数双路展开预算、压缩比守卫、staging 两阶段解压零残留）；download/extract 从 `Invoke-WebRequest`/`curl`/`Expand-Archive` 换为纯 Node 实现（零新增依赖），compress spawn 前源树预算预演，`network_info` ping/dns 接入 egress 校验，9 个配置项进 README（关闭审计 REL-04/SEC-07 本范围缺口）；门禁全绿（全量 56 文件 736 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 8/13。
 
 ## 7. 规划入口（非现状）
 

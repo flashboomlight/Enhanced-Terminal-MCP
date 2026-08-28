@@ -797,12 +797,17 @@ no-match、达到结果/遍历/响应预算、权限错误、外部 CLI unavaila
 - acceptance：features/2026-08-29-secret-redaction-and-state-protection/secret-redaction-and-state-protection-acceptance.md
 - 验收回写（2026-08-29）：新增 `src/secret-governance.ts` 统一 redactor 与 env policy（g-flag 克隆不触碰流式 registry）；`fail()` 单点 ResultBoundary 覆盖全部 error 出口；logger/audit.record/usage-guide last_cmd/risk-gated confirmation/fatal stderr 接入净化；session 默认只持久化 envKeys 与 redacted history（value 持久化需 `MCP_SESSION_PERSIST_ENV_VALUES=1`，denied/sensitive 永不落盘），deny 判定大小写规范化关闭 `path`/`node_options` 变体；`scanContent` 增加 `complete` 语义，strict 下超扫描能力 read/write fail-closed（`RESOURCE_LIMIT`），不完整内容不入共享缓存；`environment_vars` 走 `MCP_ENV_VALUE_MODE`（默认 allowlist）并移出 `CACHEABLE_TOOLS`；session.json 改走 `atomicWriteFile`（0o600），audit/state/temp 目录 POSIX 权限收紧。行为收紧：env 变体注入、非白名单 env 值展示、strict 超能力读写、超大内容入缓存四处均从"放行"变"拒绝/掩码"。门禁全绿（全量 54 文件 709 用例、latency 24/24、tools coverage 60.76/49.56/65.97/64.6）。audit writer 轮换与 session revision writer 归 #8，capability 矩阵归 #9。
 
-### 7. `network-and-archive-safety`
+### 7. `network-and-archive-safety`（状态：done）
 
 - 所属模块：network-archive-policy、archive tools
 - 依赖：`hardening-contract-and-profiles`、`path-policy-no-follow`，因为网络输出最终进入受保护文件路径和 archive staging。
 - 交付：SSRF/redirect/DNS-rebinding/proxy policy、download byte limit、TLS/timeout/cancel/总 deadline、archive manifest、特殊 link entry、Zip Slip 和 zip bomb 预算；覆盖 `network_info` egress。
 - 验收：localhost/private/link-local/metadata、DNS 变化、未验证 proxy、redirect 内网目标、超大下载、恶意 member path、symlink/hardlink/device entry、超大展开和高压缩比均被阻止，失败不残留 partial artifact。
+- 当前 feature：2026-08-29-network-and-archive-safety
+- 设计：features/2026-08-29-network-and-archive-safety/network-and-archive-safety-design.md
+- checklist：features/2026-08-29-network-and-archive-safety/network-and-archive-safety-checklist.yaml
+- acceptance：features/2026-08-29-network-and-archive-safety/network-and-archive-safety-acceptance.md
+- 验收回写（2026-08-29）：新增 `src/network-policy.ts`（IP 分类矩阵唯一来源；deny-private/allow-private 按 surface 拆分默认，显式配置统一两 surface；直连已验证 IP + servername=SNI 关闭 DNS rebinding；redirect 每跳重新解析校验；字节预算与绝对 deadline 跨重试共享；代理变量零读取）与 `src/zip-policy.ts`（EOCD/ZIP64/CD manifest；成员路径/kind/加密/预算全量校验；staging 两阶段解压 + 实时计数，CD 谎报与实际流双路独立生效；失败零残留）。download/extract 从外部命令换为纯 Node 实现（零新增依赖），compress spawn 前源树预算预演，network_info ping/dns 接入 egress 校验；9 个配置项拍板进 README。审计修复：validateTarget 非法配置误判致命（改回落+告警回传）、取消错误在 res 流退化为 ECONNRESET 的映射缺陷、req error 先于流清理的竞态。门禁全绿（全量 56 文件 736 用例、latency 24/24、tools coverage 58.27/47.88/65/61.78）。capability 矩阵归 #9。
 
 ### 8. `audit-health-and-state-writer`
 
@@ -1003,3 +1008,4 @@ git diff --check                     -> pass
 - 2026-08-28：完成 `bounded-command-execution` 实现与 acceptance（最小闭环达成）；新增 `src/command-budget.ts`，三个命令工具接入 finite/bounded schema 与 handler 二次校验，batch 建立 parent BudgetAccount（聚合预检、output 配额、wall-time deadline、parallel 共享 ledger）；审计修复 validator 字符计数与 boundedString 的 code point 同源差异；items.yaml 与本主文档已回写为 `done`。
 - 2026-08-29：完成 `path-policy-no-follow` 实现与 acceptance；新增 `src/path-policy.ts` 并统一接入 files/manage/session/state/temp——读语义 real 解析重验、写/删/移 no-follow、覆写原子 staging、state/temp 根防替换，关闭 SEC-03 的 symlink 与 TOCTOU 缺口（symlink→敏感目录读取收紧为拒绝）；items.yaml 与本主文档已回写为 `done`，解锁 `secret-redaction-and-state-protection` 与 `network-and-archive-safety`。
 - 2026-08-29：完成 `secret-redaction-and-state-protection` 实现与 acceptance；新增 `src/secret-governance.ts`（redactor + env policy + redactError），`fail()` 单点 ResultBoundary，logger/audit/prompt/confirmation/fatal 出口净化，session keys-only 持久化与 redacted history，env deny 大小写规范化，scan `complete` 语义 + strict fail-closed，`environment_vars` 值展示策略并移出缓存，session.json atomicWriteFile 与 POSIX 权限收紧，关闭 SEC-04/SEC-05 本范围缺口；items.yaml 与本主文档已回写为 `done`，解锁 `audit-health-and-state-writer`。
+- 2026-08-29：完成 `network-and-archive-safety` 实现与 acceptance；新增 `src/network-policy.ts` 与 `src/zip-policy.ts`，download/extract 换纯 Node 实现并建立 SSRF 校验、直连已验证 IP、逐跳 redirect 重验、双路展开预算与 staging 两阶段解压，compress 增加源树预算预演，network_info 接入 egress 校验，关闭 REL-04/SEC-07 本范围缺口；items.yaml 与本主文档已回写为 `done`，解锁 `audit-health-and-state-writer` 与 `tool-wrapper-and-surface-contract`。

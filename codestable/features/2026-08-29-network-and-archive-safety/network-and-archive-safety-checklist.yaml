@@ -1,0 +1,62 @@
+---
+doc_type: feature-checklist
+feature: 2026-08-29-network-and-archive-safety
+roadmap: production-hardening
+roadmap_item: network-and-archive-safety
+status: done
+created: "2026-08-29"
+
+steps:
+  - action: "新增 src/network-policy.ts：URL 解析/凭据拒绝、IP 分类矩阵、SSRF 模式解析、resolveTarget、直连已验证 IP 的 http/https 客户端、逐跳 redirect 循环、流式 staging 字节计数/deadline/cancel"
+    exit_signal: "deny-private 拒绝 restricted 全类；连接目标必为已校验地址；代理环境变量零读取；所有失败路径清理 staging"
+    status: done
+  - action: "新增 src/zip-policy.ts：EOCD/ZIP64/CD manifest 解析、成员路径/kind/加密/预算校验、两阶段 staging 解压与实时计数"
+    exit_signal: "阶段一零写入全量校验；实时计数独立于 CD 声明生效；失败必清 staging；解压侧只产生普通文件/目录"
+    status: done
+  - action: "archive.ts 三工具接线：path-policy 读写语义、download 走 network-policy、extract 走 zip-policy、compress 源树预算预演"
+    exit_signal: "spawn 前拒绝超预算；schema 增 bounds；错误码映射 SSRF_BLOCKED/ARCHIVE_LIMIT/RESOURCE_LIMIT/TIMEOUT/CANCELLED"
+    status: done
+  - action: "system.ts network_info ping/dns 接入 validateTarget egress 校验"
+    exit_signal: "默认模式 localhost 诊断不受影响；deny-private 下 restricted 目标拒绝"
+    status: done
+  - action: "新增 network-policy/zip-policy 单测（含恶意 zip 构造器）并更新 archive 单测与 README 配置表"
+    exit_signal: "验收场景 1-9 均有对应断言"
+    status: done
+  - action: "定向回归、全量门禁、多轮反向审计与 CodeStable 回写"
+    exit_signal: "全量 test/latency/coverage 达标；security.ts 零改动；roadmap/audit/architecture 回写"
+    status: done
+
+checks:
+  - item: "download 默认拒绝 loopback/private/link-local/metadata/CGNAT/IPv6 restricted 目标；allow-private 时本地服务器下载成功"
+    source: "设计 2.1 / 验收场景 1"
+    status: done
+  - item: "含凭据与非 http/https 的 URL 拒绝（URL_INVALID）"
+    source: "设计 2.1 / 验收场景 2"
+    status: done
+  - item: "redirect 逐跳重验：公网→内网跳转被拒、跳数超限 RESOURCE_LIMIT、allow-private 下本地链允许"
+    source: "设计 2.1 / 验收场景 3"
+    status: done
+  - item: "下载超字节预算/超 deadline/取消三路径均中止且无 staging 残留"
+    source: "设计 2.1 / 验收场景 4"
+    status: done
+  - item: "extract 拒绝 traversal/驱动器号/绝对路径/UNC/保留设备名成员与 symlink/device/加密 entry，零写入"
+    source: "设计 2.2 / 验收场景 5"
+    status: done
+  - item: "zip bomb：CD 预检拒总量超限；CD 谎报时实时计数拦截；高压缩比守卫生效；失败清理 staging"
+    source: "设计 2.2 / 验收场景 6"
+    status: done
+  - item: "正常 zip（stored+deflate、嵌套目录、PS 反斜杠名）解压成功且计数正确；local header 名与 CD 不一致拒绝"
+    source: "设计 2.2 / 验收场景 7"
+    status: done
+  - item: "compress 源树超预算 spawn 前拒绝；正常压缩与 e2e compress→extract 自兼容"
+    source: "设计 2.3 / 验收场景 8"
+    status: done
+  - item: "network_info egress：deny-private 下 restricted 拒绝、默认模式诊断不受影响"
+    source: "设计 2.3 / 验收场景 9"
+    status: done
+  - item: "反向检查：IP 分类唯一来源、连接目标必为已校验地址、双路预算独立、SSRF forbidden 段不可经 allow-private 放行"
+    source: "设计 6 反向检查"
+    status: done
+  - item: "build、tsc、lint、全量 test、latency、tools coverage、git diff --check、YAML 校验通过；security.ts 零改动"
+    source: "设计 验收场景 10"
+    status: done

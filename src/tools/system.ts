@@ -5,6 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { boundedString, finiteInt, type RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
+import { getSsrfMode, validateTarget } from "../network-policy.js";
 import { getNetworkSpec, getProcessListSpec, getSystemInfoSpec } from "../platform.js";
 import {
   defaultProcessIdentityProvider,
@@ -235,6 +236,10 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
         if ((act === "ping" || act === "dns") && target) {
           const hostErr = validateHost(target);
           if (hostErr) return fail(ErrorCode.HOST_INVALID, hostErr, { retryable: true, param: "target" });
+          // egress 校验（SEC-07）：目标经 DNS/IP 分类策略判定；默认 allow-private 保持诊断可用
+          const egress = await validateTarget(target, "network_info");
+          if (!egress.ok) return egress.result;
+          if (egress.value.warning) logger.warn("network_info", "bad-ssrf-mode", egress.value.warning);
         }
         const spec = getNetworkSpec(act, target);
         const result = await safeExecFile(spec.file, spec.args, {

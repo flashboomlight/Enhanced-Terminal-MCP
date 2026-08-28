@@ -53,10 +53,10 @@ items:
   - slug: network-and-archive-safety
     description: 为 download、redirect、network_info、compress 和 extract 增加 SSRF/DNS/proxy 防护、byte budget、archive manifest 和 zip bomb/Zip Slip/link-entry 防护
     depends_on: [hardening-contract-and-profiles, path-policy-no-follow]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-29-network-and-archive-safety
     minimal_loop: false
-    notes: redirect 每跳重新校验；DNS 每次连接校验或绑定；下载和解压必须使用 staging、总 deadline、实际 expanded bytes 和成员预算
+    notes: 已完成并通过 acceptance；新增 src/network-policy.ts（SSRF 分类矩阵 deny-private/allow-private、直连已验证 IP 关闭 DNS rebinding、逐跳 redirect 重验、字节/双路 deadline 预算跨重试共享、代理变量零读取）与 src/zip-policy.ts（EOCD/ZIP64/CD manifest、Zip Slip/驱动器号/保留设备名/链接设备加密条目拒绝、双路展开预算+压缩比守卫、staging 两阶段解压零残留）；download/extract 换纯 Node 实现（零新增依赖），compress spawn 前源树预算预演，network_info ping/dns 接入 egress 校验；9 个配置项见 README；capability 矩阵归 tool-wrapper-and-surface-contract
 
   - slug: audit-health-and-state-writer
     description: 修复 session/audit/temp/cache 的并发、失败恢复、轮换、权限、bounded queue 和 truthful health 状态

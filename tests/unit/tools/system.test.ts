@@ -155,6 +155,19 @@ describe("system tools decision paths (unit)", () => {
     }
   });
 
+  test("network_info ping target is rejected by SSRF policy in deny-private mode", async () => {
+    const original = process.env.MCP_SSRF_MODE;
+    process.env.MCP_SSRF_MODE = "deny-private";
+    try {
+      const result = await registerTools().get("network_info")?.handler({ action: "ping", target: "127.0.0.1" });
+      expect(result?.isError).toBe(true);
+      expect(result?.structuredContent.error).toMatchObject({ code: "SSRF_BLOCKED", param: "url" });
+    } finally {
+      if (original === undefined) delete process.env.MCP_SSRF_MODE;
+      else process.env.MCP_SSRF_MODE = original;
+    }
+  });
+
   test("kill_process refuses critical system processes before any execution", async () => {
     const result = await registerTools().get("kill_process")?.handler({ pid: 4 });
 

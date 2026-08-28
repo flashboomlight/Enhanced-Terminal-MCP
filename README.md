@@ -103,6 +103,15 @@ The source checkout and npm consumer paths are intentionally separate: setup.bat
 | `MCP_COMMAND_MAX_STDERR_BYTES` | `1048576` | Max stderr bytes retained per command |
 | `MCP_TEMP_MAX_TOTAL_BYTES` | `1073741824` | Max total temp bytes before LRU eviction kicks in |
 | `ENHANCED_TERMINAL_ES_PATH` | — | Explicit path to a fixed-SHA-256 Everything CLI (`es.exe`). Takes priority over `<state-dir>/tools/es.exe`; an invalid explicit path fails closed. `search_files` falls back only when the implicit state binary is unavailable; `everything_search` returns structured installation detail. |
+| `MCP_SSRF_MODE` | surface default | `deny-private` / `allow-private`. Unset: `download_file` uses `deny-private` (loopback/private/link-local/metadata targets blocked, incl. `169.254.169.254`), `network_info` uses `allow-private` (diagnostics unaffected). Explicit values apply to both surfaces. Forbidden addresses (unspecified/multicast/reserved) are always blocked. Proxy env vars are never used. |
+| `MCP_DOWNLOAD_MAX_BYTES` | `104857600` | Max bytes actually received per download (100 MiB); shared across retries. Exceeding aborts the stream and removes the staging file. |
+| `MCP_DOWNLOAD_TIMEOUT_MS` | `120000` | Absolute download deadline (covers the whole redirect chain and retries). |
+| `MCP_DOWNLOAD_MAX_REDIRECTS` | `5` | Max redirect hops; every hop is re-resolved and re-validated against SSRF policy. |
+| `MCP_ARCHIVE_MAX_MEMBERS` | `10000` | Max archive members for extraction manifests and compress source pre-walks. |
+| `MCP_ARCHIVE_MAX_MEMBER_BYTES` | `268435456` | Max expanded bytes per archive member (256 MiB); enforced against the manifest AND the actual extracted stream. |
+| `MCP_ARCHIVE_MAX_EXPANDED_BYTES` | `1073741824` | Max total expanded bytes per extraction (1 GiB); enforced twice (manifest pre-check + live counting). |
+| `MCP_ARCHIVE_MAX_INPUT_BYTES` | `1073741824` | Max total source bytes for `compress_archive` (1 GiB); rejected before spawning the compressor. |
+| `MCP_ARCHIVE_MAX_RATIO` | `200` | Max expanded/compressed ratio, applied only to members expanding beyond 64 MiB (zip bomb guard). |
 | `ENHANCED_TERMINAL_DISABLE_FILE_INFO` | — | Set to `1` to disable the `file_info` tool; the tool surface drops from 27 to 26 tools. |
 
 ### Windows Default Shell (pwsh 7)

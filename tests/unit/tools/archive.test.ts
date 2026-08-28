@@ -50,6 +50,26 @@ describe("archive tools error mapping (unit)", () => {
     expect(result?.structuredContent.error).toMatchObject({ code: "ARCHIVE_FAILED" });
   });
 
+  test("compress_archive rejects oversized source before spawning", async () => {
+    const original = process.env.MCP_ARCHIVE_MAX_INPUT_BYTES;
+    process.env.MCP_ARCHIVE_MAX_INPUT_BYTES = "10";
+    try {
+      const bigSource = path.join(workDir, "big.bin");
+      await fs.writeFile(bigSource, Buffer.alloc(100, 0x61));
+      const tools = registerTools();
+      const result = await tools.get("compress_archive")?.handler({
+        source_path: bigSource,
+        output_path: path.join(workDir, "out.zip"),
+      });
+      expect(result?.isError).toBe(true);
+      expect(result?.structuredContent.error).toMatchObject({ code: "RESOURCE_LIMIT" });
+      await expect(fs.access(path.join(workDir, "out.zip"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      if (original === undefined) delete process.env.MCP_ARCHIVE_MAX_INPUT_BYTES;
+      else process.env.MCP_ARCHIVE_MAX_INPUT_BYTES = original;
+    }
+  });
+
   test("extract_archive reports a structured error for a missing archive", async () => {
     const tools = registerTools();
     const result = await tools.get("extract_archive")?.handler({
