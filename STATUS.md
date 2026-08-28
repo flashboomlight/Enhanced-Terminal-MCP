@@ -4,8 +4,8 @@
 > **维护规则**：每个 roadmap feature 收口（commit 落库 + 记忆更新）后，必须同步更新本文件的进度表、HEAD、下一步与坑清单。
 
 - **快照时间**：2026-08-29
-- **当前 HEAD**：`01151f3`（工作树 clean）
-- **最近一次全量回归**：`pnpm run gate` EXIT=0（63 文件 786 用例、latency 24/24、tools coverage 59.39/49.79/67.32/63.16 达标）
+- **当前 HEAD**：`1308020`（工作树 clean）
+- **最近一次全量回归**：`pnpm run gate` EXIT=0（66 文件 835 用例、latency 24/24、tools coverage 64.72/54.39/71.42/68.52 达标）
 
 ## 1. 项目一句话
 
@@ -15,7 +15,7 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 
 **生产硬化 roadmap**（`codestable/roadmap/2026-08-28-production-hardening/`，13 条子 feature 带 depends_on DAG），源自生产就绪审计 `codestable/compound/2026-08-28-explore-production-readiness-audit.md`（SEC/REL/PRO/OPS/SEARCH 编号与条目一一对应）。目标：把项目收敛为 `local-trusted-shell`（默认）与 `sandboxed-production` 两种显式 profile，补齐输入预算、进程治理、路径/秘密/网络策略、状态可观测性和发布门禁。
 
-## 3. 当前进度（10/13 done）
+## 3. 当前进度（11/13 done）
 
 | # | slug | 状态 | commit | 关闭的审计项 |
 |---|---|---|---|---|
@@ -28,9 +28,9 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 | 7 | network-and-archive-safety | done | `22535f4` | REL-04/SEC-07（SSRF/zip） |
 | 8 | audit-health-and-state-writer | done | `01151f3` | OPS-01/OPS-02、lock fencing、truthful health |
 | 9 | tool-wrapper-and-surface-contract | done | `3397c52` | REL-05/PRO-01/PRO-02、SEC-06 capability 部分 |
-| 10 | search-and-adaptive-correctness | **planned（下一步）** | — | SEARCH-01/02、SYS-01、PERF-01 |
+| 10 | search-and-adaptive-correctness | done | `1308020` | SEARCH-01/02、SYS-01、PERF-01 |
 | 11 | dependency-and-bootstrap-release | done | `268cbad` | SEC-02、REL-01/REL-06 |
-| 12 | security-and-mcp-conformance-gates | planned（等 #10） | — | canonical CI gate、conformance、hostile-input |
+| 12 | security-and-mcp-conformance-gates | **planned（依赖已全部满足，下一步）** | — | canonical CI gate、conformance、hostile-input |
 | 13 | docs-and-architecture-closeout | planned（等 #12） | — | DOC-01（v3.1/28 残留文字统一等） |
 
 各条目的设计/checklist/acceptance 三件套在 `codestable/features/YYYY-MM-DD-{slug}/`；审计文档 §6.1–§6.10 有每条的实施状态回写。
@@ -43,9 +43,8 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 
 ## 5. 下一步（按序）
 
-1. **#10 `search-and-adaptive-correctness`**（依赖 #3+#9 已满足，可立即开工）：`everything_search` 错误/超时/maxBuffer 处理、native fallback 的 partial-result 契约（§5.10）、目录边界与 Unix process filter 修复、adaptive timeout 真实 P95 或明确改名 average heuristic。
-2. **#12 `security-and-mcp-conformance-gates`**（等 #10；届时其依赖全部满足）：hostile-input、MCP conformance、跨平台 smoke、canonical CI gate、action pinning、sandboxed capability e2e（#8/#9 遗留）、REL-09 transport close/fatal handler 统一收口。
-3. **#13 `docs-and-architecture-closeout`**（等 #12）：统一 v4.0.0/27/26 的全部残留文字（usage-guide "NEW in v3.1" 段、SECURITY/依赖维护入口）、现状档案回写。
+1. **#12 `security-and-mcp-conformance-gates`**（依赖已全部满足，可立即开工）：hostile-input、MCP conformance、跨平台 smoke、canonical CI gate、action pinning、sandboxed capability e2e（#8/#9 遗留）、REL-09 transport close/fatal handler 统一收口。
+2. **#13 `docs-and-architecture-closeout`**（等 #12）：统一 v4.0.0/27/26 的全部残留文字（usage-guide "NEW in v3.1" 段、SECURITY/依赖维护入口）、现状档案回写。
 
 ## 6. 关键约束与坑（踩过一次的，勿再踩）
 
@@ -58,6 +57,7 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 - **vitest 输出解析坑**：输出带 ANSI 码，`grep "Tests  "` 匹配不到要用宽松模式；`grep failed` 会误中测试名（如 "reads a failed command cache"）。
 - **机器特定路径**：pnpm store 在 `E:/pnpm/v11`（机器配置，不得写进仓库文件/发布物）。
 - **已知遗留（非阻塞）**：cmd 链路无法携带带引号空格路径（修 spawnStream 需独立 issue）；SDK 1.30 升级等生态；README/AGENTS 中 #13 未收口的文字由 #13 统一处理。
+- **全量测试高负载 flake**：lock-lease heartbeat 时序与 paging Windows rename EPERM 为既有 flake（非 #10 改动面，归 #12 评估加固），单跑与复跑均绿——遇到先复跑确认，再排查看改动面。
 
 ## 7. 权威文档索引
 
