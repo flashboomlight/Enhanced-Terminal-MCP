@@ -49,6 +49,14 @@ function freshState(): SessionState {
 export class SessionStore {
   private state: SessionState = freshState();
   private dirty = false;
+  /** 变更计数：写盘前后比对，发现"写盘 await 期间的新变更"并触发补写（不丢最新状态） */
+  private revision = 0;
+  private persistFailures = 0;
+  private lastPersistSuccessAt = 0;
+  private lastPersistFailureAt = 0;
+  /** 单飞行保存链：debounce / 补写 / flush 的落盘任务串行，杜绝并发 rename 乱序 */
+  private saveChain: Promise<void> = Promise.resolve();
+  private resaveTimer: ReturnType<typeof setTimeout> | null = null;
   /** 加载完成 promise —— index 启动时 await，确保接受请求前 state 已从磁盘恢复 */
   readonly loaded: Promise<void>;
 
@@ -133,6 +141,7 @@ export class SessionStore {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private markDirty(): void {
     this.dirty = true;
+    this.revision++;
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
@@ -140,42 +149,94 @@ export class SessionStore {
     }, 5000);
   }
 
-  /** 立即持久化（关闭时调用） */
+  /** 立即持久化（关闭时调用）；返回链任务，等待链上所有在途保存完成 */
   async flush(): Promise<void> {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
+    if (this.resaveTimer) {
+      clearTimeout(this.resaveTimer);
+      this.resaveTimer = null;
+    }
     if (this.dirty) await this.saveToDisk();
+    await this.saveChain;
   }
 
-  private async saveToDisk(): Promise<void> {
+  /** 会话持久化健康面（truthful health）：失败比成功更近 → degraded */
+  health(): { state: "healthy" | "degraded"; persistFailures: number; dirty: boolean } {
+    return {
+      state: this.lastPersistFailureAt > this.lastPersistSuccessAt ? "degraded" : "healthy",
+      persistFailures: this.persistFailures,
+      dirty: this.dirty,
+    };
+  }
+
+  /**
+   * 快照构建先于任何 await：捕获当前 revision 与状态；
+   * 落盘经单飞行串行链，写盘期间的新变更由 persistSnapshot 的 revision 比对补写。
+   */
+  private saveToDisk(): Promise<void> {
+    const revAtSnapshot = this.revision;
+    const data = this.buildPersistData();
+    const task = this.saveChain.then(() => this.persistSnapshot(data, revAtSnapshot));
+    this.saveChain = task.catch(() => {});
+    return task;
+  }
+
+  /** 序列化当前状态（SEC-04 持久化边界），不触盘 */
+  private buildPersistData(): Record<string, unknown> {
+    // SEC-04：默认只持久化 env key；value 仅在显式 opt-in 且该 key 允许（非 denied/sensitive）时落盘
+    const envKeys = Object.keys(this.state.env);
+    const data: Record<string, unknown> = {
+      cwd: this.state.cwd,
+      envKeys,
+      history: this.state.history.slice(-20).map((cmd) => redactCommand(cmd)), // 只保留最近 20 条且经 redactor
+      createdAt: this.state.createdAt,
+    };
+    if (envKeys.some((k) => persistentEnvValueAllowed(k))) {
+      const persistedEnv: Record<string, string> = {};
+      for (const k of envKeys) {
+        if (persistentEnvValueAllowed(k)) persistedEnv[k] = this.state.env[k];
+      }
+      data.env = persistedEnv;
+    }
+    return data;
+  }
+
+  private async persistSnapshot(data: Record<string, unknown>, revAtSnapshot: number): Promise<void> {
     try {
       // session.json 是真实产生物：落盘前才确保目录存在（启动/恢复读取不创建）
       await ensureStateDir();
       const stateFile = await getStateFilePath();
-      // SEC-04：默认只持久化 env key；value 仅在显式 opt-in 且该 key 允许（非 denied/sensitive）时落盘
-      const envKeys = Object.keys(this.state.env);
-      const data: Record<string, unknown> = {
-        cwd: this.state.cwd,
-        envKeys,
-        history: this.state.history.slice(-20).map((cmd) => redactCommand(cmd)), // 只保留最近 20 条且经 redactor
-        createdAt: this.state.createdAt,
-      };
-      if (envKeys.some((k) => persistentEnvValueAllowed(k))) {
-        const persistedEnv: Record<string, string> = {};
-        for (const k of envKeys) {
-          if (persistentEnvValueAllowed(k)) persistedEnv[k] = this.state.env[k];
-        }
-        data.env = persistedEnv;
-      }
       // 原子落盘：同目录 exclusive staging + rename，POSIX mode 0o600
       await atomicWriteFile(stateFile, JSON.stringify(data, null, 2), "utf-8");
-      this.dirty = false;
+      this.lastPersistSuccessAt = Date.now();
+      if (this.revision !== revAtSnapshot) {
+        // 写盘期间发生了新变更：保持 dirty 并安排立即补写（不再等 5s 去抖）
+        this.dirty = true;
+        this.scheduleImmediateResave();
+      } else {
+        this.dirty = false;
+      }
       logger.info("session", "persisted", stateFile);
     } catch (e) {
+      this.persistFailures++;
+      this.lastPersistFailureAt = Date.now();
+      // 未落盘的快照仍是脏的：保留 dirty，由下一次 markDirty / flush 重试
+      this.dirty = true;
       logger.warn("session", "persist-failed", String(e));
     }
+  }
+
+  /** 补写去抖（100ms）：写后 revision 落后时尽快收敛，同时合并窗口内的密集变更 */
+  private scheduleImmediateResave(): void {
+    if (this.resaveTimer) return;
+    this.resaveTimer = setTimeout(() => {
+      this.resaveTimer = null;
+      if (this.dirty) this.saveToDisk();
+    }, 100);
+    this.resaveTimer.unref?.();
   }
 
   private async loadFromDisk(): Promise<void> {

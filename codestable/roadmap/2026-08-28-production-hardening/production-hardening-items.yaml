@@ -61,10 +61,10 @@ items:
   - slug: audit-health-and-state-writer
     description: 修复 session/audit/temp/cache 的并发、失败恢复、轮换、权限、bounded queue 和 truthful health 状态
     depends_on: [secret-redaction-and-state-protection, process-supervisor-and-cancellation]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-29-audit-health-and-state-writer
     minimal_loop: false
-    notes: 包括 session revision writer、带 lease/fencing 的 migration/temp lock、跨进程 temp quota、audit serialized writer/durable spool/bounded queue 和 oversized cache entry
+    notes: 已完成并通过 acceptance；新增 src/lock-lease.ts（owner/lease heartbeat/fencing token、staging+rename 原子接管、token 校验释放）统一 temp lock 与 migration lock——心跳存活的长持锁不再被 mtime 接管，崩溃 owner 立即接管，corrupt/未知迁移锁保持 fail-closed（4.5 协议兼容）；audit 改单飞行写链（失败保留 + 5s 退避重试，连续 3 次 health failed），record/flush/health 落 §5.7 契约，entry/queue 字节上限（截断骨架/丢最旧计 dropped）+ 按大小轮换 audit.jsonl.N（既有条数 compact 保留）；session revision writer 以 revision 比对修复写窗口 dirty 竞态（写后必补写）并串行化并发保存；temp 跨进程配额经 temp/.quota.json ledger 互见 outstanding（本进程取内存 live 值防双计、死 pid 残留回收、协调文件不计容量）；LRU 超 maxEntryBytes 拒绝入缓存并计数；health://status 从恒 ok 改为 healthy/degraded/failed + components{audit,temp,process,session} 聚合（temp 连续 ≥3 次锁失败才 degraded）。新增配置 5 项见 README。门禁全绿（全量 63 文件 786 用例、latency 24/24、tools coverage 59.39/49.79/67.32/63.16）。durable spool 与时间轮换按 §5.7 二选一明确不做；按时间轮换若需另立 issue
 
   - slug: tool-wrapper-and-surface-contract
     description: 统一 wrapHandler 异常兜底、MCP request context/cancellation、action schema、structured result/response budget 和真实启用工具数量

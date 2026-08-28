@@ -10,6 +10,7 @@ import { toolCache } from "../cache.js";
 import { injectContext } from "../context.js";
 import { logger } from "../logger.js";
 import { processPool } from "../pool.js";
+import { processSupervisor } from "../process-supervisor.js";
 import { ErrorCode, fail, success, type ToolResult, withErrorSchema } from "../result.js";
 import { getSafetyMode, getSafetyProtocolVersion, supportsFormElicitation } from "../safeguard.js";
 import { validateEnvKeyPolicy } from "../secret-governance.js";
@@ -96,9 +97,30 @@ export function formatTelemetryText(
     reserved_bytes: number;
   },
   auditSummary: { mode: string; enabled: boolean },
+  auditState?: string,
 ): string {
   const recentText = recentCalls.map((m) => `  ${m.toolName}: ${m.latency_ms}ms ${m.ok ? "OK" : "FAIL"}`).join("\n");
-  return `Uptime: ${summary.uptime_minutes}min | Calls: ${summary.total_calls} | Avg: ${summary.avg_latency_ms}ms | Errors: ${summary.error_rate} | Cache: ${summary.cache_hit_rate}\n\nTemp dirs: ${tempStats.total_dirs}, temp size: ${tempStats.total_size_bytes} bytes, removed: ${tempStats.removed_count}\nAudit: mode=${auditSummary.mode}, enabled=${auditSummary.enabled}\n\nRecent ${recentCalls.length}:\n${recentText}`;
+  const auditLine = auditState
+    ? `Audit: mode=${auditSummary.mode}, enabled=${auditSummary.enabled}, state=${auditState}`
+    : `Audit: mode=${auditSummary.mode}, enabled=${auditSummary.enabled}`;
+  return `Uptime: ${summary.uptime_minutes}min | Calls: ${summary.total_calls} | Avg: ${summary.avg_latency_ms}ms | Errors: ${summary.error_rate} | Cache: ${summary.cache_hit_rate}\n\nTemp dirs: ${tempStats.total_dirs}, temp size: ${tempStats.total_size_bytes} bytes, removed: ${tempStats.removed_count}\n${auditLine}\n\nRecent ${recentCalls.length}:\n${recentText}`;
+}
+
+/**
+ * truthful health 聚合（production-hardening #8）：
+ * 任一组件 failed → failed；任一 degraded → degraded；否则 healthy。
+ * 组件：audit 写入面 / temp 容量与清理锁 / process 终止失败 / session 持久化。
+ */
+export function computeHealthStatus(components: {
+  audit: { state: string };
+  temp: { state: string };
+  process: { state: string };
+  session: { state: string };
+}): "healthy" | "degraded" | "failed" {
+  const states = [components.audit.state, components.temp.state, components.process.state, components.session.state];
+  if (states.includes("failed")) return "failed";
+  if (states.includes("degraded")) return "degraded";
+  return "healthy";
 }
 
 export function registerUtilityTools(server: McpServer) {
@@ -132,6 +154,9 @@ export function registerUtilityTools(server: McpServer) {
           audit: z.object({
             mode: z.string(),
             enabled: z.boolean(),
+            state: z.string(),
+            queued: z.number(),
+            dropped: z.number(),
           }),
         }),
       ),
@@ -143,7 +168,7 @@ export function registerUtilityTools(server: McpServer) {
       const recentCalls = telemetry.recent(n);
       const tempStats = await tempManager.stats();
       const auditSummary = audit.summary();
-      const text = formatTelemetryText(s, recentCalls, tempStats, auditSummary);
+      const text = formatTelemetryText(s, recentCalls, tempStats, auditSummary, auditSummary.state);
       return success(text, {
         summary: text,
         uptime_minutes: s.uptime_minutes,
@@ -458,6 +483,20 @@ export function registerUtilityTools(server: McpServer) {
     const s = telemetry.summary();
     const tempStats = await tempManager.stats();
     const auditSummary = audit.summary();
+    const auditHealth = audit.health();
+    const tempHealth = tempManager.health();
+    const sessionHealth = session.health();
+    // truthful health（roadmap §5.7）：process 组件以终止失败为准——曾有 child 无法保证被清理即 degraded
+    const processHealth = {
+      state: processSupervisor.getTerminationFailureCount() > 0 ? ("degraded" as const) : ("healthy" as const),
+      terminationFailures: processSupervisor.getTerminationFailureCount(),
+    };
+    const status = computeHealthStatus({
+      audit: { state: auditHealth.state },
+      temp: { state: tempHealth.state },
+      process: { state: processHealth.state },
+      session: { state: sessionHealth.state },
+    });
     const auditLogFile = await audit.getLogFilePath();
     const stateDir = getStateDirSync();
     return {
@@ -466,13 +505,19 @@ export function registerUtilityTools(server: McpServer) {
           uri: "health://status",
           text: JSON.stringify(
             {
-              status: "ok",
+              status,
               version: VERSION,
               timestamp: new Date().toISOString(),
               safety_protocol_version: getSafetyProtocolVersion(),
               safety_mode: getSafetyMode(),
               elicitation_supported: supportsFormElicitation(),
               state_dir: stateDir,
+              components: {
+                audit: auditHealth,
+                temp: tempHealth,
+                process: processHealth,
+                session: sessionHealth,
+              },
               metrics: {
                 uptime_minutes: s.uptime_minutes,
                 total_calls: s.total_calls,

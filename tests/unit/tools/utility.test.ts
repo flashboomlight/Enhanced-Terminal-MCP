@@ -4,6 +4,7 @@
 
 import { describe, expect, test } from "vitest";
 import {
+  computeHealthStatus,
   formatCacheInvalidateMessage,
   formatPoolStatsMessage,
   formatTelemetryText,
@@ -124,5 +125,49 @@ describe("session_state action-dependent validation", () => {
 
     expect(result?.isError).toBe(true);
     expect(result?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "value" });
+  });
+});
+
+describe("truthful health aggregation", () => {
+  const components = (audit: string, temp = "healthy", process = "healthy", session = "healthy") => ({
+    audit: { state: audit },
+    temp: { state: temp },
+    process: { state: process },
+    session: { state: session },
+  });
+
+  test("all healthy components aggregate to healthy", () => {
+    expect(computeHealthStatus(components("healthy"))).toBe("healthy");
+  });
+
+  test("any degraded component aggregates to degraded", () => {
+    expect(computeHealthStatus(components("degraded"))).toBe("degraded");
+    expect(computeHealthStatus(components("healthy", "degraded"))).toBe("degraded");
+    expect(computeHealthStatus(components("healthy", "healthy", "degraded"))).toBe("degraded");
+    expect(computeHealthStatus(components("healthy", "healthy", "healthy", "degraded"))).toBe("degraded");
+  });
+
+  test("failed dominates degraded", () => {
+    expect(computeHealthStatus(components("degraded", "degraded", "failed", "degraded"))).toBe("failed");
+    expect(computeHealthStatus(components("failed"))).toBe("failed");
+  });
+
+  test("telemetry text includes the audit state", () => {
+    const text = formatTelemetryText(
+      { uptime_minutes: 1, total_calls: 2, avg_latency_ms: 3, error_rate: "0%", cache_hit_rate: "0%" },
+      [],
+      {
+        total_dirs: 0,
+        total_size_bytes: 0,
+        oldest_dir_ms: 0,
+        newest_dir_ms: 0,
+        removed_count: 0,
+        active_dirs: 0,
+        reserved_bytes: 0,
+      },
+      { mode: "errors", enabled: true },
+      "healthy",
+    );
+    expect(text).toContain("state=healthy");
   });
 });

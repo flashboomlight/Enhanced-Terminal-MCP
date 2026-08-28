@@ -105,7 +105,12 @@ async function main() {
         logger.warn("server", "session-flush-failed", String(error));
       }
       try {
-        await audit.flush();
+        // audit flush 不再丢条目：deadline 内没写完的滞留条目必须可见（exitCode 1）
+        const report = await audit.flush(3000);
+        if (!report.clean) {
+          process.exitCode = 1;
+          logger.warn("server", "audit-flush-incomplete", JSON.stringify(report));
+        }
       } catch (error) {
         process.exitCode = 1;
         logger.warn("server", "audit-flush-failed", String(error));

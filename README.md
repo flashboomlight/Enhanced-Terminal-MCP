@@ -94,14 +94,19 @@ The source checkout and npm consumer paths are intentionally separate: setup.bat
 | `MCP_POWERSHELL_PATH` | — | Explicit path to a pwsh 7 / PowerShell executable. Takes highest priority; invalid path is a hard error (no silent fallback). |
 | `MCP_STATE_DIR` | `<project-root>/.etmcp` | State directory for session, audit logs, and temp files. With the default root, legacy `<project-root>/.enhanced-terminal-mcp` `session.json`/`logs/audit.jsonl` are migrated; `temp` and unknown files are never migrated. Setting this override disables automatic legacy migration. |
 | `MCP_AUDIT_MODE` | `errors` | Audit mode: `off` / `errors` / `all` |
-| `MCP_AUDIT_MAX_ENTRIES` | `10000` | Max audit log entries to retain |
+| `MCP_AUDIT_MAX_ENTRIES` | `10000` | Max audit log entries retained via entry-count compaction (also the `recent()` read window) |
+| `MCP_AUDIT_QUEUE_MAX_ENTRIES` | `2000` | Max entries in the in-memory audit queue; overflow drops the oldest and increments the observable `dropped` counter |
+| `MCP_AUDIT_QUEUE_MAX_BYTES` | `4194304` | Byte cap on the in-memory audit queue (4 MiB); overflow drops the oldest and increments `dropped` |
+| `MCP_AUDIT_MAX_ENTRY_BYTES` | `65536` | Byte cap per serialized audit entry (64 KiB); oversized entries keep an `{truncated: true}` skeleton instead of being dropped |
+| `MCP_AUDIT_MAX_FILE_BYTES` | `8388608` | Audit file size cap (8 MiB); the file rotates to `audit.jsonl.1` after a successful write that crosses the limit |
+| `MCP_AUDIT_MAX_ROTATIONS` | `1` | Rotated audit generations to keep (`audit.jsonl.1` … `.N`); `0` deletes the rotated file instead |
 | `MCP_COMMAND_MAX_OUTPUT_BYTES` | `52428800` | Max captured stdout bytes retained per command before the result is flagged `truncated` and spilled to the page cache; see `MCP_COMMAND_MEMORY_OUTPUT_BYTES` for the in-memory spill threshold |
 | `MCP_TEMP_TTL_MS` | `3600000` | Temp directory TTL in milliseconds |
 | `MCP_MAX_TEMP_DIRS` | `100` | Max temp directories before LRU eviction |
 | `MCP_TEMP_CLEANUP_INTERVAL_MS` | `300000` | Auto cleanup polling interval in milliseconds |
 | `MCP_COMMAND_MEMORY_OUTPUT_BYTES` | `1048576` | In-memory retention threshold per command; output beyond this spills to the page cache (`paged=true`) |
 | `MCP_COMMAND_MAX_STDERR_BYTES` | `1048576` | Max stderr bytes retained per command |
-| `MCP_TEMP_MAX_TOTAL_BYTES` | `1073741824` | Max total temp bytes before LRU eviction kicks in |
+| `MCP_TEMP_MAX_TOTAL_BYTES` | `1073741824` | Max total temp bytes before LRU eviction kicks in. Outstanding reservations are shared across server processes via `<state-dir>/temp/.quota.json` (stale entries of dead processes are recycled automatically); coordination files (`.quota.json`, `.temp.lock`) do not count toward the payload budget |
 | `ENHANCED_TERMINAL_ES_PATH` | — | Explicit path to a fixed-SHA-256 Everything CLI (`es.exe`). Takes priority over `<state-dir>/tools/es.exe`; an invalid explicit path fails closed. `search_files` falls back only when the implicit state binary is unavailable; `everything_search` returns structured installation detail. |
 | `MCP_SSRF_MODE` | surface default | `deny-private` / `allow-private`. Unset: `download_file` uses `deny-private` (loopback/private/link-local/metadata targets blocked, incl. `169.254.169.254`), `network_info` uses `allow-private` (diagnostics unaffected). Explicit values apply to both surfaces. Forbidden addresses (unspecified/multicast/reserved) are always blocked. Proxy env vars are never used. |
 | `MCP_DOWNLOAD_MAX_BYTES` | `104857600` | Max bytes actually received per download (100 MiB); shared across retries. Exceeding aborts the stream and removes the staging file. |
@@ -186,7 +191,7 @@ For interactive personal-agent use, the recommended profile is `MCP_SAFETY_MODE=
 | `pool_stats` | Process pool status (currently inactive; no worker pool is active) |
 
 ### Resources
-- `health://status` — JSON health check with version, metrics, cache, session, temp, and audit info
+- `health://status` — JSON health check with version, metrics, cache, session, temp, and audit info. `status` is `healthy` / `degraded` / `failed` (never a fixed `ok`), aggregated from four components (`components.audit` writer failures/queue drops, `components.temp` capacity rejections/cleanup lock failures, `components.process` child-termination failures, `components.session` persistence failures)
 - `audit://log` — Recent structured audit entries (default limit: 50)
 - `audit://log?limit=N` — Recent structured audit entries with a requested limit (clamped to 1–1000)
 

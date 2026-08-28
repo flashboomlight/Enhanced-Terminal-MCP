@@ -16,6 +16,7 @@ import { createReadStream, realpathSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { LockLeaseTimeoutError, withFencedLock } from "./lock-lease.js";
 import { logger } from "./logger.js";
 import { assertSafeStateRoot } from "./path-policy.js";
 
@@ -32,8 +33,9 @@ const PROJECT_ROOT = (() => {
 const DEFAULT_STATE_DIR_NAME = ".etmcp";
 const LEGACY_STATE_DIR_NAME = ".enhanced-terminal-mcp";
 const LOCK_FILE_NAME = ".migration.lock";
-const LOCK_RETRY_COUNT = 50;
-const LOCK_RETRY_INTERVAL_MS = 100;
+/** 迁移锁：活 owner 永不强抢（staleMs 设为不可达阈值），owner 已死才立即接管；等待上限 5s */
+const MIGRATION_LOCK_TIMEOUT_MS = 5000;
+const MIGRATION_LOCK_STALE_MS = 86_400_000;
 
 /** 迁移失败标识：启动流程见到此标识必须停止启动 */
 export const STATE_MIGRATION_FAILED = "STATE_MIGRATION_FAILED";
@@ -222,20 +224,32 @@ async function validateJsonl(file: string): Promise<void> {
   }
 }
 
-async function acquireLock(lockPath: string): Promise<void> {
-  for (let attempt = 0; attempt <= LOCK_RETRY_COUNT; attempt++) {
-    try {
-      const handle = await fs.open(lockPath, "wx");
-      await handle.close();
-      return;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw migrationError(`迁移锁创建失败: ${lockPath} (${String(e)})`);
-      }
-      await new Promise((r) => setTimeout(r, LOCK_RETRY_INTERVAL_MS));
+/**
+ * 迁移锁事务：owner liveness 判定——崩溃进程遗留的锁（含旧版空文件）立即接管，
+ * 活 owner 的迁移绝不强抢；等待超时（5s）抛 LockLeaseTimeoutError，由调用方转
+ * STATE_MIGRATION_FAILED fail-closed。锁覆盖整个迁移事务，token 校验释放。
+ */
+async function withMigrationLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await withFencedLock(
+      lockPath,
+      {
+        timeoutMs: MIGRATION_LOCK_TIMEOUT_MS,
+        staleMs: MIGRATION_LOCK_STALE_MS,
+        heartbeatMs: 0,
+        takeoverOnDeadOwner: true,
+        takeoverOnCorrupt: false,
+        onStale: (prev) =>
+          logger.warn("state-dir", "migration-lock-takeover", `${lockPath} prev=${JSON.stringify(prev)}`),
+      },
+      async () => fn(),
+    );
+  } catch (e) {
+    if (e instanceof LockLeaseTimeoutError) {
+      throw migrationError(`迁移锁获取超时: ${lockPath}`);
     }
+    throw e;
   }
-  throw migrationError(`迁移锁获取超时: ${lockPath}`);
 }
 
 /**
@@ -409,14 +423,11 @@ export async function runStateMigration(projectRoot: string, stateDir: string): 
 
   await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
   const lockPath = join(stateDir, LOCK_FILE_NAME);
-  await acquireLock(lockPath);
-  try {
+  await withMigrationLock(lockPath, async () => {
     await migrateSessionJson(legacyRoot, stateDir);
     await migrateAuditJsonl(legacyRoot, stateDir);
     // 仅空目录才可移除（rmdir 对非空目录必然失败）；非空（temp/未知文件/被跳过的源）时保留
     await fs.rmdir(join(legacyRoot, "logs")).catch(() => {});
     await fs.rmdir(legacyRoot).catch(() => {});
-  } finally {
-    await fs.rm(lockPath, { force: true }).catch(() => {});
-  }
+  });
 }

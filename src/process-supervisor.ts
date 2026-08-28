@@ -194,6 +194,8 @@ export class ProcessSupervisor {
   private readonly killTreeImpl: (pid: number) => Promise<boolean>;
   private shuttingDown = false;
   private shutdownPromise: Promise<import("./hardening-contract.js").ShutdownReport> | null = null;
+  /** truthful health：SIGKILL 后仍未退出的终止失败累计（health 聚合 degraded 信号） */
+  private terminationFailureCount = 0;
 
   constructor(options: ProcessSupervisorOptions = {}) {
     this.maxActiveProcesses = options.maxActiveProcesses ?? DEFAULT_MAX_ACTIVE_PROCESSES;
@@ -208,6 +210,11 @@ export class ProcessSupervisor {
   /** 返回当前活跃 child 数量和配置上限。 */
   get activeCount(): number {
     return this.active.size;
+  }
+
+  /** 终止失败累计（force kill 后仍未退出）；>0 表示曾有 child 无法保证被清理 */
+  getTerminationFailureCount(): number {
+    return this.terminationFailureCount;
   }
 
   /** 返回当前 supervisor 的活跃快照，按启动时间和 PID 稳定排序。 */
@@ -483,6 +490,7 @@ export class ProcessSupervisor {
     this.sendUnixOrChildSignal(child, entry.snapshot, "SIGKILL");
     if (!(await waitForExit(child, this.forceWaitMs))) {
       entry.state.terminationFailed = true;
+      this.terminationFailureCount++;
       safeCallback(entry.options.onTerminationFailed);
       return { exited: false, forced: true, failed: true, reason };
     }

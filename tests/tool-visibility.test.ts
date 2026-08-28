@@ -38,8 +38,11 @@ async function collectSurface(client: Client) {
   const prompt = await client.getPrompt({ name: "usage-guide" });
   const healthResource = await client.readResource({ uri: "health://status" });
   const health = JSON.parse((healthResource.contents[0] as { text: string }).text) as {
+    status: string;
+    components: Record<string, { state: string }>;
     tools: { enabled: number; disabled: number };
   };
+  const telemetry = await client.callTool({ name: "telemetry_report", arguments: {} });
   const pool = await client.callTool({ name: "pool_stats", arguments: {} });
   const missingCwd = await client.callTool({ name: "session_state", arguments: { action: "set_cwd" } });
 
@@ -49,6 +52,9 @@ async function collectSurface(client: Client) {
     names: tools.tools.map((tool) => tool.name),
     promptText,
     health,
+    auditStateText: (
+      (telemetry.content as Array<{ type: string; text?: string }> | undefined)?.[0]?.text ?? ""
+    ).includes("state="),
     poolActive: (pool.structuredContent as { active?: boolean } | undefined)?.active,
     missingCwdIsError: missingCwd.isError === true,
     missingCwdCode: (missingCwd.structuredContent as { error?: { code?: string } } | undefined)?.error?.code,
@@ -64,6 +70,10 @@ describe("tool surface consistency (27/26)", () => {
     expect(surface.names).not.toContain("delete_preview");
     expect(surface.promptText).toContain("provides 27 tools");
     expect(surface.health.tools).toEqual({ enabled: 27, disabled: 0 });
+    // truthful health（production-hardening #8）：status 不再恒为 ok，四组件齐全
+    expect(["healthy", "degraded", "failed"]).toContain(surface.health.status);
+    expect(Object.keys(surface.health.components).sort()).toEqual(["audit", "process", "session", "temp"]);
+    expect(surface.auditStateText).toBe(true);
     expect(surface.poolActive).toBe(false);
     expect(surface.missingCwdIsError).toBe(true);
     expect(surface.missingCwdCode).toBe("VALIDATION_ERROR");

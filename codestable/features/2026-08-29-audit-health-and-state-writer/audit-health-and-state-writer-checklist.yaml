@@ -1,0 +1,77 @@
+---
+doc_type: feature-checklist
+feature: 2026-08-29-audit-health-and-state-writer
+roadmap: production-hardening
+roadmap_item: audit-health-and-state-writer
+status: done
+created: "2026-08-29"
+
+steps:
+  - action: "新增 src/lock-lease.ts（owner/lease heartbeat/fencing token、staging+rename 原子接管、token 校验释放、migration 死 owner 接管），temp-manager.withTempLock 与 state-dir.migration lock 换用并保持既有错误类型"
+    exit_signal: "两处手写锁零残留；TempLockTimeoutError 语义兼容；长持锁心跳存活不被接管"
+    status: done
+  - action: "audit serialized writer：单飞行写链、失败保留队列退避重试、entry/queue 三层 byte 上限（截断/丢最旧）、按大小轮换 audit.jsonl.N、record/flush/health 落 §5.7 契约"
+    exit_signal: "写失败条目不丢且 health 可见；record 返回 {accepted,queued,dropped}；flush 返回 FlushReport"
+    status: done
+  - action: "session revision writer：revision 计数、快照先于 await 构建、写后 revision 比对决定 dirty、单飞行 saveChain 串行化 debounce/flush"
+    exit_signal: "写入期间新变更必补写；并发保存不交错乱序"
+    status: done
+  - action: "TempManager 跨进程配额：root/.quota.json ledger（锁内读写、死 pid 回收）、reserve/release/finalize/discard 接线、capacityExceeded 健康信号"
+    exit_signal: "同 root 双实例互见 outstanding，超限抛 TempCapacityExceeded"
+    status: done
+  - action: "LRU oversized entry 保护：maxEntryBytes 派生上限、set 拒绝并计数、stats 增 oversizedRejected"
+    exit_signal: "超大 entry 不再排空缓存后强插"
+    status: done
+  - action: "truthful health：supervisor 终止失败计数、session/temp health 面、utility.computeHealthStatus 聚合 healthy|degraded|failed + components，health://status 与 telemetry_report 更新"
+    exit_signal: "status 不再恒为 ok；四组件退化均有证据路径"
+    status: done
+  - action: "state permissions 复核与单测补全（lock-lease/audit-writer/session-revision/temp-quota/cache-oversized/health 聚合）+ README/CHANGELOG 同步"
+    exit_signal: "设计 §6 测试矩阵逐条有断言；配置表与文档一致"
+    status: done
+  - action: "定向回归、全量门禁（build/tsc/lint/test/latency/tools coverage）、多轮反向审计与 CodeStable 回写"
+    exit_signal: "全门禁 EXIT=0；roadmap/items/architecture/audit explore 回写；YAML 校验通过"
+    status: done
+
+checks:
+  - item: "stale 接管仅在 heartbeat 缺失超 staleMs 时发生；持锁方心跳存活的长操作不被接管（fencing 语义 §5.8）"
+    source: "设计 3.1 / G6"
+    status: done
+  - item: "接管保留并递增 fence；fence 丢失（assertFence）抛错且破坏性删除前强制校验"
+    source: "设计 3.1"
+    status: done
+  - item: "释放 token 校验：不误删他人锁；损坏锁文件按 stale 处理"
+    source: "设计 3.1"
+    status: done
+  - item: "migration lock：owner pid 已死（ESRCH）立即接管，活 owner 按超时 fail-closed"
+    source: "设计 3.1 / G7"
+    status: done
+  - item: "audit 写失败：条目保留队列退避重试，连续失败 3 次 health=failed，FlushReport clean=false"
+    source: "设计 3.3 / OPS-01"
+    status: done
+  - item: "audit 队列条数/字节超限丢最旧 + dropped 计数 + health degraded；record 返回契约字段"
+    source: "设计 3.3"
+    status: done
+  - item: "单条 entry 超 MCP_AUDIT_MAX_ENTRY_BYTES 截断 detail/error 保留骨架仍记录"
+    source: "设计 3.3"
+    status: done
+  - item: "文件超 MCP_AUDIT_MAX_FILE_BYTES 轮换 audit.jsonl.1（保留 MCP_AUDIT_MAX_ROTATIONS 代，mode 0o600）"
+    source: "设计 3.3 / G4"
+    status: done
+  - item: "session：写盘 await 期间 markDirty → 写后补写，磁盘为最新 revision；chain 串行化并发保存"
+    source: "设计 3.2 / G1"
+    status: done
+  - item: "temp 跨进程配额：双实例互见 outstanding、超限拒绝、死 pid ledger 残留回收、容量拒绝进入 health"
+    source: "设计 3.4 / G8"
+    status: done
+  - item: "cache：>maxEntryBytes 拒绝入缓存 + oversizedRejected 计数；正常条目不受影响"
+    source: "设计 3.5 / G9"
+    status: done
+  - item: "health://status status∈{healthy,degraded,failed} 且 components{audit,temp,process,session} 齐全；audit/temp/process/session 任一退化可观测"
+    source: "设计 3.6 / G5/G10"
+    status: done
+  - item: "新配置 5 项严格整数解析（非法回落默认 + warn）且 README 配置表同步"
+    source: "设计 4"
+    status: done
+  - item: "工具数 27 不回归；工具 I/O 契约与既有错误码零变化；audit/session 文件格式兼容"
+    source: "设计 8"
+    status: done

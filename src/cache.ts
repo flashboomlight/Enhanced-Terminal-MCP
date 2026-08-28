@@ -40,14 +40,18 @@ export class LRUCache<T> {
   private readonly defaultTTL: number;
   /** 近似内存上限（字节）；0 = 不限制 */
   private readonly maxMemoryBytes: number;
+  /** 单条 entry 字节上限：超过即拒绝入缓存（oversized 保护），避免排空全部热条目后仍强插 */
+  private readonly maxEntryBytes: number;
   private totalBytes = 0;
   private hits = 0;
   private misses = 0;
+  private oversizedRejected = 0;
 
   constructor(maxSize = 128, defaultTTLms = 30000, maxMemoryBytes = 32 * 1024 * 1024) {
     this.maxSize = maxSize;
     this.defaultTTL = defaultTTLms;
     this.maxMemoryBytes = maxMemoryBytes;
+    this.maxEntryBytes = Math.max(1, Math.floor(maxMemoryBytes / 2));
   }
 
   /** 构造缓存键：工具名 + 参数 JSON（键序归一化，对参数对象 key 排序后再 stringify） */
@@ -78,6 +82,11 @@ export class LRUCache<T> {
   set(key: string, value: T, ttlMs?: number): void {
     const ttl = ttlMs ?? this.defaultTTL;
     const bytes = approxValueBytes(value);
+    // oversized 保护：单条超过 maxEntryBytes 直接拒绝，不清热条目、不破坏内存预算
+    if (bytes > this.maxEntryBytes) {
+      this.oversizedRejected++;
+      return;
+    }
     const existing = this.cache.get(key);
     if (existing) {
       this.totalBytes -= existing.approxBytes;
@@ -154,6 +163,8 @@ export class LRUCache<T> {
       maxSize: this.maxSize,
       approxBytes: this.totalBytes,
       maxMemoryBytes: this.maxMemoryBytes,
+      maxEntryBytes: this.maxEntryBytes,
+      oversizedRejected: this.oversizedRejected,
       hits: this.hits,
       misses: this.misses,
       hitRate: this.hits + this.misses > 0 ? `${((this.hits / (this.hits + this.misses)) * 100).toFixed(1)}%` : "N/A",

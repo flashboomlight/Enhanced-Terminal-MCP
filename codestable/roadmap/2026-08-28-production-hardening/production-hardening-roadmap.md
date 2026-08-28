@@ -809,12 +809,17 @@ no-match、达到结果/遍历/响应预算、权限错误、外部 CLI unavaila
 - acceptance：features/2026-08-29-network-and-archive-safety/network-and-archive-safety-acceptance.md
 - 验收回写（2026-08-29）：新增 `src/network-policy.ts`（IP 分类矩阵唯一来源；deny-private/allow-private 按 surface 拆分默认，显式配置统一两 surface；直连已验证 IP + servername=SNI 关闭 DNS rebinding；redirect 每跳重新解析校验；字节预算与绝对 deadline 跨重试共享；代理变量零读取）与 `src/zip-policy.ts`（EOCD/ZIP64/CD manifest；成员路径/kind/加密/预算全量校验；staging 两阶段解压 + 实时计数，CD 谎报与实际流双路独立生效；失败零残留）。download/extract 从外部命令换为纯 Node 实现（零新增依赖），compress spawn 前源树预算预演，network_info ping/dns 接入 egress 校验；9 个配置项拍板进 README。审计修复：validateTarget 非法配置误判致命（改回落+告警回传）、取消错误在 res 流退化为 ECONNRESET 的映射缺陷、req error 先于流清理的竞态。门禁全绿（全量 56 文件 736 用例、latency 24/24、tools coverage 58.27/47.88/65/61.78）。capability 矩阵归 #9。
 
-### 8. `audit-health-and-state-writer`
+### 8. `audit-health-and-state-writer`（状态：done）
 
 - 所属模块：state-observability、session、audit、temp、cache
 - 依赖：`secret-redaction-and-state-protection`、`process-supervisor-and-cancellation`，因为 writer/health 必须知道脱敏状态和 active process 状态。
 - 交付：session revision writer、migration/temp lease heartbeat + fencing/stale-lock recovery、audit serialized writer/rotation/retry、bounded audit queue/durable spool、TempManager cross-process quota、LRU oversized entry 保护、state permissions 和 degraded health。
 - 验收：并发写不丢最新 session；audit 写失败可见且不静默丢记录；entry/queue/file 大小受限；跨进程 temp quota 不超限且长操作不会被错误接管；health 不再无条件报告 ok。
+- 当前 feature：2026-08-29-audit-health-and-state-writer
+- 设计：features/2026-08-29-audit-health-and-state-writer/audit-health-and-state-writer-design.md
+- checklist：features/2026-08-29-audit-health-and-state-writer/audit-health-and-state-writer-checklist.yaml
+- acceptance：features/2026-08-29-audit-health-and-state-writer/audit-health-and-state-writer-acceptance.md
+- 验收回写（2026-08-29）：新增 `src/lock-lease.ts` 统一 temp/migration 锁的 owner/heartbeat/fencing 语义（staging+rename 原子接管保留 fence；心跳存活的长持锁不再被 mtime 接管；dead-owner 立即接管；corrupt 迁移锁按 4.5 协议保持 fail-closed，`takeoverOnCorrupt` 区分两 surface）；audit 改单飞行写链——写失败保留条目退避重试不再静默丢（连续 3 次 health failed），`record()/flush()/health()` 落 §5.7 契约，entry 截断/queue 丢最旧计 dropped/文件按大小轮换 `audit.jsonl.N`（既有条数 compact 保留）；session revision writer 以 revision 比对修复写窗口 dirty 竞态并串行化并发保存；temp 跨进程配额经 `.quota.json` ledger 互见 outstanding（本进程取内存 live 值防双计；release 延迟同步防嵌套抢锁自死锁；协调文件不计容量）；LRU 超限 entry 拒绝 + 计数；`health://status` 从恒 `ok` 改为 `healthy|degraded|failed` + components 四组件聚合（temp 连续 ≥3 次锁失败才 degraded）。durable spool / 时间轮换按 §5.7 二选一明确不做。门禁全绿（全量 63 文件 786 用例、latency 24/24、tools coverage 59.39/49.79/67.32/63.16）。
 
 ### 9. `tool-wrapper-and-surface-contract`（状态：done）
 
@@ -1015,3 +1020,4 @@ git diff --check                     -> pass
 - 2026-08-29：完成 `secret-redaction-and-state-protection` 实现与 acceptance；新增 `src/secret-governance.ts`（redactor + env policy + redactError），`fail()` 单点 ResultBoundary，logger/audit/prompt/confirmation/fatal 出口净化，session keys-only 持久化与 redacted history，env deny 大小写规范化，scan `complete` 语义 + strict fail-closed，`environment_vars` 值展示策略并移出缓存，session.json atomicWriteFile 与 POSIX 权限收紧，关闭 SEC-04/SEC-05 本范围缺口；items.yaml 与本主文档已回写为 `done`，解锁 `audit-health-and-state-writer`。
 - 2026-08-29：完成 `tool-wrapper-and-surface-contract` 实现与 acceptance；新增 `src/tool-registry.ts` 真实启用计数与 `capabilityGate` 五披露面接线，wrapHandler 建立 INTERNAL_ERROR/CANCELLED 异常边界与 MCP_RESPONSE_MAX_BYTES 响应兜底，三个 action 工具缺参显式拒绝并删除隐式默认 ping/lookup（关闭审计 REL-05/PRO-01/PRO-02 与 SEC-06 capability 部分）；items.yaml 与本主文档已回写为 `done`，解锁 `search-and-adaptive-correctness`。
 - 2026-08-29：完成 `network-and-archive-safety` 实现与 acceptance；新增 `src/network-policy.ts` 与 `src/zip-policy.ts`，download/extract 换纯 Node 实现并建立 SSRF 校验、直连已验证 IP、逐跳 redirect 重验、双路展开预算与 staging 两阶段解压，compress 增加源树预算预演，network_info 接入 egress 校验，关闭 REL-04/SEC-07 本范围缺口；items.yaml 与本主文档已回写为 `done`，解锁 `audit-health-and-state-writer` 与 `tool-wrapper-and-surface-contract`。
+- 2026-08-29：完成 `audit-health-and-state-writer` 实现与 acceptance；新增 `src/lock-lease.ts`（temp/migration 锁统一 owner/heartbeat/fencing，长持锁不被接管、崩溃 owner 自动恢复、未知迁移锁 fail-closed），audit serialized writer（失败保留重试 + 三层字节上限 + 按大小轮换 + §5.7 契约面）、session revision writer（写窗口变更必补写）、temp 跨进程配额 ledger、LRU oversized 拒绝、truthful health 四组件聚合（关闭审计 OPS-01/OPS-02 与 §8.2 "audit writer failure / state writer race / lock fencing" 行）；items.yaml 与本主文档已回写为 `done`，`search-and-adaptive-correctness` 与 `security-and-mcp-conformance-gates` 的依赖进一步收敛。

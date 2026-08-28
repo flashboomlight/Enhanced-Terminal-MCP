@@ -177,11 +177,15 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 `tool-wrapper-and-surface-contract` 已完成实现与 acceptance，roadmap item 已回写为 `done`，验收报告为 `codestable/features/2026-08-29-tool-wrapper-and-surface-contract/tool-wrapper-and-surface-contract-acceptance.md`。已落地：`src/tool-registry.ts` 以 SDK `RegisteredTool.enabled` 为唯一真源的真实启用计数（banner/health 新增 `tools.enabled/disabled`/usage-guide/safety-info 与 `tools/list` 27/26 三面同源，关闭 PRO-01）；`wrapHandler` try/catch 边界（取消逃逸→`CANCELLED`，其余经 `redactError`→`INTERNAL_ERROR`，telemetry 记录、错误不入缓存，关闭 REL-05）；`MCP_RESPONSE_MAX_BYTES`（默认 2 MiB）响应字节兜底（超限→`RESOURCE_LIMIT`）；session_state/environment_vars/network_info 缺参 handler 层显式 `VALIDATION_ERROR`，隐式 ping 127.0.0.1/localhost 默认删除；`capabilityGate` 接线五个披露面（SEC-06 capability 矩阵部分，local 零行为变化）；PRO-02 以 e2e 断言 `pool_stats.active=false` 固化。设计期发现 SDK 1.29 `normalizeObjectSchema` 对 v3 ZodEffects 返回 undefined 会把 inputSchema 广告成空 schema，故 action 收紧不使用 schema refine；该约束影响后续需要 discriminated union 入参的 feature。门禁全绿（全量 58 文件 752 用例、latency 24/24、tools coverage 59.41/49.52/67/63.31）。
 
+#### 6.10 audit-health-and-state-writer 实施状态
+
+`audit-health-and-state-writer` 已完成实现与 acceptance，roadmap item 已回写为 `done`，验收报告为 `codestable/features/2026-08-29-audit-health-and-state-writer/audit-health-and-state-writer-acceptance.md`。已落地：`src/lock-lease.ts` 统一 temp lock 与 migration lock 的 owner/lease heartbeat/fencing token 语义（staging+rename 原子接管并保留 fence 单调；心跳存活的长持锁不再被 mtime 判 stale 接管——关闭 OPS-02 的"长操作被并发接管"；崩溃 owner 经 `process.kill(pid,0)` liveness 立即接管；corrupt/未知迁移锁保持 fail-closed，兼容 4.5 协议既有契约）；audit serialized writer（单飞行写链，写失败保留队列 5s 退避重试不再 splice 后静默丢，连续 3 次 health failed——关闭 OPS-01 的丢失与假 ok；`record()/flush()/health()` 落 §5.7 契约；entry 截断/queue 丢最旧计 dropped/文件按 `MCP_AUDIT_MAX_FILE_BYTES` 轮换 `audit.jsonl.N`）；session revision writer（revision 比对修复写窗口 dirty 竞态，写后必补写；单飞行 chain 串行化并发保存）；TempManager 跨进程配额（`.quota.json` ledger 在 tempLock 内互见 outstanding，本进程取内存 live 值防双计，死 pid 残留回收，协调文件不计容量）；LRU 超单条上限的 entry 拒绝入缓存并计数；`health://status` 从恒 `ok` 改为 `healthy|degraded|failed` + `components{audit,temp,process,session}` 聚合（temp 需连续 ≥3 次 cleanup 锁失败才 degraded，避免瞬时竞争误报）。实现期审计修复三处关键缺陷：同进程 ledger 双计、release 嵌套抢锁自死锁、协调文件挤占容量预算。门禁全绿（全量 63 文件 786 用例、latency 24/24、tools coverage 59.39/49.79/67.32/63.16）。OPS-01/OPS-02 与 §8.2 "audit writer failure / state writer race / lock fencing" 行闭合；REL-09 剩余的 transport close/fatal handler 统一收口仍归属 conformance gate。
+
 ### 7. 推荐修复顺序
 
 这是执行建议，不是对产品边界的替代决策：
 
-1. **Release stop**：`kill_process` identity、SEC-02 依赖 audit、REL-01/REL-06 npm/source bootstrap 和 package evidence、全局 child-process registry/cancellation/shutdown（`process-supervisor-and-cancellation`）、三个命令工具的 finite/bounded schema 与 parent budget（`bounded-command-execution`，最小闭环达成）、文件路径 symlink/TOCTOU/no-follow（`path-policy-no-follow`，SEC-03 收口）、session/audit/logger/prompt/error/cache 的秘密治理与 env 大小写策略（`secret-redaction-and-state-protection`，SEC-04/SEC-05 收口）已完成；`tool-wrapper-and-surface-contract`（#9，REL-05/PRO-01/PRO-02 与 SEC-06 capability 部分收口）已完成；下一步按 DAG 推进 `audit-health-and-state-writer`（依赖 #6+#2 均已满足）；`search-and-adaptive-correctness` 的 #9 前置已满足。
+1. **Release stop**：`kill_process` identity、SEC-02 依赖 audit、REL-01/REL-06 npm/source bootstrap 和 package evidence、全局 child-process registry/cancellation/shutdown（`process-supervisor-and-cancellation`）、三个命令工具的 finite/bounded schema 与 parent budget（`bounded-command-execution`，最小闭环达成）、文件路径 symlink/TOCTOU/no-follow（`path-policy-no-follow`，SEC-03 收口）、session/audit/logger/prompt/error/cache 的秘密治理与 env 大小写策略（`secret-redaction-and-state-protection`，SEC-04/SEC-05 收口）已完成；`tool-wrapper-and-surface-contract`（#9，REL-05/PRO-01/PRO-02 与 SEC-06 capability 部分收口）与 `audit-health-and-state-writer`（#8，OPS-01/OPS-02 与 lock fencing 收口）已完成；下一步按 DAG 推进 `search-and-adaptive-correctness`（依赖 #3+#9 均已满足）。
 2. **Resource stop**：统一所有 MCP 输入的 finite/bounded schema，补 parent/child/batch/tree/response/queue budget、限流和所有 child-process registry，接入 cancellation 与 descendant termination。
 3. **Security hardening**：完成 symlink/TOCTOU/no-follow、session cwd/state 根、capability/host disclosure、env key 大小写归一化、状态/日志/result/prompt redaction、状态文件权限和 SSRF/DNS/proxy/ZIP 预算。
 4. **Correctness and gate hardening**：修复 search partial-result、Unix process filter、adaptive 语义、100ms TTL flaky 和 Windows rename；CI 加主 coverage、dependency audit、package dry-run、MCP conformance、canonical gate、支持平台和 hostile-input 套件。
@@ -195,7 +199,7 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 ## 后续建议
 
-截至 2026-08-29，#1/#2/#3/#4/#5/#6/#7/#9/#11 共 9 条已完成。建议下一步按 DAG 推进 `audit-health-and-state-writer`（#8，依赖已满足），随后 `search-and-adaptive-correctness`（#10，前置 #9 已满足）；当 #8/#10 完成后，再由 `security-and-mcp-conformance-gates` 做一次全量 acceptance 级生产审计，最后 `docs-and-architecture-closeout` 收口。
+截至 2026-08-29，#1/#2/#3/#4/#5/#6/#7/#8/#9/#11 共 10 条已完成。建议下一步按 DAG 推进 `search-and-adaptive-correctness`（#10，前置 #3+#9 已满足）；#10 完成后 `security-and-mcp-conformance-gates`（#12）依赖全部满足，由其做一次全量 acceptance 级生产审计，最后 `docs-and-architecture-closeout`（#13）收口。
 
 ## 相关文档
 

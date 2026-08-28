@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- State-observability hardening (production audit OPS-01/OPS-02): a new `src/lock-lease.ts` gives the temp lock and the migration lock owner records, lease heartbeats (a live holder is never force-taken over, no matter how long it holds), and monotonic fencing tokens (takeovers preserve/increment the fence; destructive cleanup verifies the fence before deleting); a crashed migration-lock owner is recovered immediately while an unknown/corrupt migration lock stays fail-closed.
+- Audit writer contract (`src/audit.ts`): writes are serialized through a single-flight chain; a failed append now retains the queued entries and retries with backoff instead of silently dropping them (`record()` returns `{accepted, queued, dropped}`, `flush(deadline)` returns a `FlushReport`); the queue has entry/byte caps (`MCP_AUDIT_QUEUE_MAX_ENTRIES`/`_BYTES`, overflow drops the oldest and counts it), oversized entries keep a `{truncated: true}` skeleton (`MCP_AUDIT_MAX_ENTRY_BYTES`), and the file rotates by size (`MCP_AUDIT_MAX_FILE_BYTES`, keeps `MCP_AUDIT_MAX_ROTATIONS` generations).
+- Session revision writer: mutations during a session write are detected via a revision counter and re-saved immediately instead of being lost to the post-write dirty-flag reset; concurrent saves are serialized through a single-flight chain.
+- Cross-process temp quota: outstanding reservations are mirrored into `<state-dir>/temp/.quota.json` under the temp lock; concurrent server processes now see each other's outstanding bytes, stale entries of dead processes are recycled, and coordination files no longer count toward the payload budget.
+- LRU result-cache oversized-entry protection: a cache entry larger than half the memory budget is rejected (`oversizedRejected` stat) instead of evicting every hot entry and inserting anyway.
+- Truthful `health://status`: `status` is now `healthy`/`degraded`/`failed` aggregated from four components (audit writer, temp capacity/lock, process termination failures, session persistence) under `components.*`, instead of an unconditional `ok`; `telemetry_report` reports the audit writer state.
+
+### Changed
+
 - CI workflow (`.github/workflows/ci.yml`): lint + type-check on ubuntu, build/test/tools-coverage gate on a Windows runner (Node 22/24); the latency benchmark runs non-blocking (thresholds are calibrated on dev hardware).
 - `pnpm run gate`: one-shot local gate (build + tsc + lint + test + latency + tools-coverage).
 - Tools-layer coverage gate `pnpm run test:coverage:tools` (`vitest.tools-coverage.config.ts`, floors: statements/lines 55, functions 60, branches 45) so the layer excluded from global coverage stays measured and regression-guarded; new unit suites for `files` / `manage` / `system` / `archive` tools (27 cases).
@@ -16,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `health://status` `status` field values changed from a fixed `"ok"` to `"healthy" | "degraded" | "failed"`; clients that string-match `"ok"` should match on the new value set (the MCP resource payload is not part of the tools' I/O contract).
 - Tool surface contract: `wrapHandler` now converts unexpected handler throws into `INTERNAL_ERROR` tool results (messages pass the secret redactor; cancellation escapes map to `CANCELLED`) instead of rejecting the promise, and enforces a response byte budget via `MCP_RESPONSE_MAX_BYTES` (default 2 MiB; oversized responses become `RESOURCE_LIMIT` error envelopes). Tool count sources (startup banner, `health://status` `tools.enabled/disabled`, usage-guide prompt) now derive from the real enabled tool registry, matching `tools/list` (27/26).
 - `session_state` (`set_cwd` requires `cwd`; `set_env` requires `key`+`value`), `environment_vars` (`get` requires `name`), and `network_info` (`ping`/`dns` require `target`) now reject missing action-dependent fields with `VALIDATION_ERROR` instead of silently no-op'ing; the implicit ping-to-127.0.0.1 / nslookup-to-localhost defaults (which bypassed host and egress validation) were removed.
 - Capability matrix wired in: `process_list`, `get_system_info`, `network_info`, `download_file`, and `environment_vars` check the execution profile capability policy; `local-trusted-shell` is unchanged, an undeclared capability under `sandboxed-production` returns `CAPABILITY_DENIED`.

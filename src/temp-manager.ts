@@ -7,6 +7,13 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import {
+  type AcquiredLock,
+  defaultOwnerAlive,
+  LockFenceLostError,
+  LockLeaseTimeoutError,
+  withFencedLock,
+} from "./lock-lease.js";
 import { logger } from "./logger.js";
 import { assertSafeStateRoot } from "./path-policy.js";
 import { getStateDir } from "./state-dir.js";
@@ -24,7 +31,6 @@ import {
   STAGING_HEARTBEAT_INTERVAL_MS,
   STAGING_LEASE_MS,
   type StagingEntry,
-  sleep,
   TempCapacityExceededError,
   type TempDir,
   TempLockTimeoutError,
@@ -42,14 +48,28 @@ export {
   TempLockTimeoutError,
 } from "./temp-core.js";
 
-/** 跨进程锁文件名与 stale 阈值 */
+/** 跨进程锁文件名与 lease 参数（stale 判定基于锁内容 at，由 heartbeat 刷新） */
 const TEMP_LOCK_FILE = ".temp.lock";
 const TEMP_LOCK_STALE_MS = 60000;
+const TEMP_LOCK_HEARTBEAT_MS = 10000;
 const TEMP_LOCK_TIMEOUT_MS = 5000;
 const TEMP_LOCK_RETRY_MS = 50;
 
 /** disk 字节数缓存时长，避免容量核算频繁递归遍历 */
 const DISK_BYTES_CACHE_MS = 2000;
+
+/** 跨进程 outstanding 配额 ledger（root 下共享），条目残留回收阈值 */
+const QUOTA_LEDGER_FILE = ".quota.json";
+const QUOTA_LEDGER_STALE_MS = 600000;
+
+/** 跨进程配额 ledger 条目 */
+interface QuotaLedgerItem {
+  pid: number;
+  bytes: number;
+  at: number;
+}
+
+type QuotaLedger = Record<string, QuotaLedgerItem>;
 
 export class TempManager {
   private root: string | null = null;
@@ -63,6 +83,13 @@ export class TempManager {
   private maxTempDirs = getMaxTempDirs();
   private cleanupIntervalMs = getCleanupIntervalMs();
   private diskBytesCache: { at: number; bytes: number } | null = null;
+  /** truthful health：近 5min 内容量拒绝 / cleanup 锁连续失败 ≥3 → degraded（单次瞬时不降级） */
+  private capacityExceededAt = 0;
+  private cleanupLockFailures = 0;
+  private consecutiveCleanupLockFailures = 0;
+  /** markWritten 后待同步的 ledger 条目（1s 尾去抖，锁内批量更新） */
+  private ledgerSyncDirty = new Set<string>();
+  private ledgerSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * 懒创建：只解析 root 路径，不 mkdir；root 已存在才扫描 + 崩溃恢复。
@@ -295,7 +322,7 @@ export class TempManager {
     this.touchTimer.unref?.();
   }
 
-  /** 创建容量预留（不建 root，disk 按 0 起步核算） */
+  /** 创建容量预留（不建 root，disk 按 0 起步核算；带初始预留时在锁内写共享 ledger） */
   async reserve(id: string, initialBytes = 0): Promise<TempReservation> {
     if (!isSafeSubdirId(id)) throw new Error(`Rejected unsafe reservation id: ${id}`);
     if (!Number.isFinite(initialBytes) || initialBytes < 0) {
@@ -305,7 +332,7 @@ export class TempManager {
       if (this.reservations.has(id)) throw new Error(`Reservation already exists: ${id}`);
       const res = this.newReservation(id);
       if (initialBytes > 0) {
-        await this.reserveBytesLocked(res, initialBytes);
+        await this.withTempLock(() => this.reserveBytesLocked(res, initialBytes));
       } else {
         this.reservations.set(id, res);
       }
@@ -319,33 +346,151 @@ export class TempManager {
       (res, additional) => this.reserveBytes(res, additional),
       (rid) => {
         this.reservations.delete(rid);
+        // 延迟同步路径：可能在本已持锁的 discard/finalize 内触发，绝不再抢锁，
+        // 由 syncLedgerEntries 在锁外定时批量删除 ledger 条目
+        this.scheduleLedgerSync(rid);
       },
-      () => this.invalidateDiskBytes(),
+      () => {
+        this.invalidateDiskBytes();
+        // markWritten 后同步 outstanding，防止已写字节被 diskBytes + ledger 双计
+        this.scheduleLedgerSync(id);
+      },
     );
   }
 
-  /** 独立预留入口：自带 mutex */
+  /** 独立预留入口：自带 mutex（锁序约定 mutex → tempLock） */
   private async reserveBytes(res: ReservationImpl, additional: number): Promise<void> {
-    await this.mutex.runExclusive(() => this.reserveBytesLocked(res, additional));
+    await this.mutex.runExclusive(() => this.withTempLock(() => this.reserveBytesLocked(res, additional)));
   }
 
-  /** 容量核算（调用方须已持 mutex）：diskBytes + 未写入预留 + additional > 上限 → 拒绝 */
+  /**
+   * 容量核算（调用方须已持 mutex + tempLock）：
+   * 磁盘 truth + 共享 ledger 互见跨进程 outstanding + additional > 上限 → 拒绝；
+   * 通过后写回自己的 ledger 条目。
+   */
   private async reserveBytesLocked(res: ReservationImpl, additional: number): Promise<void> {
     if (!res.active) throw new Error(`Reservation already released: ${res.id}`);
     const max = getMaxTotalBytes();
     const used = await this.diskBytesCached();
     if (!res.active) throw new Error(`Reservation already released: ${res.id}`);
-    let outstanding = 0;
-    for (const r of this.reservations.values()) {
-      if (r.active) outstanding += r.outstandingBytes();
+    // 共享 ledger：死进程/超时残留在此回收；跨进程 outstanding 互见。
+    // 本进程条目跳过——以内存 live 值为准，避免 markWritten 同步延迟造成双计
+    const ledger = await this.readQuotaLedgerLocked();
+    let crossOutstanding = 0;
+    for (const [id, item] of Object.entries(ledger)) {
+      if (item.pid === process.pid) continue;
+      crossOutstanding += item.bytes;
     }
-    if (used + outstanding + additional > max) {
+    let ownOutstanding = 0;
+    for (const r of this.reservations.values()) {
+      if (r.active) ownOutstanding += r.outstandingBytes();
+    }
+    if (used + crossOutstanding + ownOutstanding + additional > max) {
+      this.capacityExceededAt = Date.now();
       throw new TempCapacityExceededError(
-        `temp capacity exceeded: used=${used} outstanding=${outstanding} additional=${additional} max=${max}`,
+        `temp capacity exceeded: used=${used} crossOutstanding=${crossOutstanding} ownOutstanding=${ownOutstanding} additional=${additional} max=${max}`,
       );
     }
     res.reservedBytes += additional;
     this.reservations.set(res.id, res);
+    ledger[res.id] = { pid: process.pid, bytes: res.outstandingBytes(), at: Date.now() };
+    await this.writeQuotaLedgerLocked(ledger);
+  }
+
+  private quotaLedgerPath(): string | null {
+    return this.root ? path.join(this.root, QUOTA_LEDGER_FILE) : null;
+  }
+
+  /** 锁内读取共享 ledger 并净化：owner 已死或条目超时的残留直接剔除 */
+  private async readQuotaLedgerLocked(): Promise<QuotaLedger> {
+    const p = this.quotaLedgerPath();
+    if (!p) return {};
+    const raw = await readFileOrNull(p);
+    if (raw === null) return {};
+    let ledger: QuotaLedger = {};
+    try {
+      const parsed = JSON.parse(raw) as { reservations?: QuotaLedger };
+      if (parsed.reservations && typeof parsed.reservations === "object" && !Array.isArray(parsed.reservations)) {
+        ledger = parsed.reservations;
+      }
+    } catch (e) {
+      logger.warn("temp-manager", "quota-ledger-corrupt", `${p}: ${String(e)}`);
+      return {};
+    }
+    const now = Date.now();
+    let changed = false;
+    for (const [id, item] of Object.entries(ledger)) {
+      if (!item || typeof item.pid !== "number" || typeof item.bytes !== "number" || typeof item.at !== "number") {
+        delete ledger[id];
+        changed = true;
+        continue;
+      }
+      if (!defaultOwnerAlive(item.pid) || now - item.at > QUOTA_LEDGER_STALE_MS) {
+        delete ledger[id];
+        changed = true;
+      }
+    }
+    if (changed) await this.writeQuotaLedgerLocked(ledger);
+    return ledger;
+  }
+
+  private async writeQuotaLedgerLocked(ledger: QuotaLedger): Promise<void> {
+    const p = this.quotaLedgerPath();
+    if (!p) return;
+    try {
+      await fs.writeFile(p, JSON.stringify({ reservations: ledger }), "utf-8");
+    } catch (e) {
+      // ledger 写失败退化为仅本进程核算（磁盘 truth 仍是下界），不阻塞预留
+      logger.debug("temp-manager", "quota-ledger-write-failed", String(e));
+    }
+  }
+
+  /** markWritten / release 后批量同步 ledger（1s 尾去抖）；锁失败时重新入队等下次事件 */
+  private scheduleLedgerSync(id: string): void {
+    this.ledgerSyncDirty.add(id);
+    if (this.ledgerSyncTimer) return;
+    this.ledgerSyncTimer = setTimeout(() => {
+      this.ledgerSyncTimer = null;
+      this.syncLedgerEntries().catch(() => {});
+    }, 1000);
+    this.ledgerSyncTimer.unref?.();
+  }
+
+  private async syncLedgerEntries(): Promise<void> {
+    const ids = Array.from(this.ledgerSyncDirty);
+    this.ledgerSyncDirty.clear();
+    if (ids.length === 0) return;
+    try {
+      await this.withTempLock(async () => {
+        const ledger = await this.readQuotaLedgerLocked();
+        for (const id of ids) {
+          const res = this.reservations.get(id);
+          if (res?.active) ledger[id] = { pid: process.pid, bytes: res.outstandingBytes(), at: Date.now() };
+          else delete ledger[id];
+        }
+        await this.writeQuotaLedgerLocked(ledger);
+      });
+    } catch (e) {
+      // 同步失败把条目重新入队（保守方向：over-count 只会让配额更严，不会放水）
+      for (const id of ids) this.ledgerSyncDirty.add(id);
+      logger.debug("temp-manager", "ledger-sync-failed", String(e));
+    }
+  }
+
+  /** 健康面（truthful health）：近 5min 内容量拒绝或 cleanup 锁连续失败 ≥3 → degraded */
+  health(): {
+    state: "healthy" | "degraded";
+    capacityExceededRecent: boolean;
+    cleanupLockFailures: number;
+    consecutiveCleanupLockFailures: number;
+  } {
+    const capacityExceededRecent = this.capacityExceededAt > 0 && Date.now() - this.capacityExceededAt < 300000;
+    return {
+      state: capacityExceededRecent || this.consecutiveCleanupLockFailures >= 3 ? "degraded" : "healthy",
+      capacityExceededRecent,
+      cleanupLockFailures: this.cleanupLockFailures,
+      consecutiveCleanupLockFailures: this.consecutiveCleanupLockFailures,
+    };
   }
 
   private invalidateDiskBytes(): void {
@@ -370,54 +515,38 @@ export class TempManager {
   }
 
   /**
-   * 跨进程短锁：root 下 .temp.lock，wx 抢占；stale(60s) 强制接管；
-   * 默认 5s 超时抛 TempLockTimeoutError，调用方负责降级（不无界等待）。
+   * 跨进程短锁：root 下 .temp.lock，经 withFencedLock 提供 owner/heartbeat/fencing；
+   * 持锁期间每 10s 续租，心跳存活的长操作不会被 stale 接管；
+   * 默认 5s 超时抛 TempLockTimeoutError（LockLeaseTimeoutError 边界映射），调用方负责降级。
    */
-  async withTempLock<T>(fn: () => Promise<T>, options: { timeoutMs?: number } | number = {}): Promise<T> {
+  async withTempLock<T>(
+    fn: (lock: AcquiredLock) => Promise<T>,
+    options: { timeoutMs?: number } | number = {},
+  ): Promise<T> {
     const timeoutMs = typeof options === "number" ? options : (options.timeoutMs ?? TEMP_LOCK_TIMEOUT_MS);
     if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
       throw new Error(`Temp lock timeout must be a non-negative number, got ${timeoutMs}`);
     }
     const root = await this.ensureRoot();
     const lockPath = path.join(root, TEMP_LOCK_FILE);
-    const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const deadline = Date.now() + timeoutMs;
-    let acquired = false;
-    while (!acquired) {
-      try {
-        await fs.writeFile(lockPath, JSON.stringify({ pid: process.pid, at: Date.now(), token }), { flag: "wx" });
-        acquired = true;
-      } catch (e) {
-        const code = (e as NodeJS.ErrnoException).code;
-        if (code !== "EEXIST") throw e;
-        // 锁已存在：stale 则强制接管
-        const st = await lstatOrNull(lockPath);
-        if (st && Date.now() - st.mtimeMs > TEMP_LOCK_STALE_MS) {
-          await fs
-            .rm(lockPath, { force: true })
-            .catch((err) => logger.debug("temp-manager", "lock-stale-rm-failed", String(err)));
-          continue;
-        }
-        if (Date.now() >= deadline) {
-          throw new TempLockTimeoutError(`temp lock timeout after ${timeoutMs}ms: ${lockPath}`);
-        }
-        await sleep(TEMP_LOCK_RETRY_MS);
-      }
-    }
     try {
-      return await fn();
-    } finally {
-      const current = await readFileOrNull(lockPath);
-      if (current !== null) {
-        try {
-          const owner = JSON.parse(current) as { token?: string };
-          if (owner.token === token) {
-            await fs.rm(lockPath, { force: true });
-          }
-        } catch (err) {
-          logger.debug("temp-manager", "lock-release-verify-failed", String(err));
-        }
+      return await withFencedLock(
+        lockPath,
+        {
+          timeoutMs,
+          staleMs: TEMP_LOCK_STALE_MS,
+          heartbeatMs: TEMP_LOCK_HEARTBEAT_MS,
+          retryMs: TEMP_LOCK_RETRY_MS,
+          onStale: (prev) =>
+            logger.warn("temp-manager", "lock-stale-takeover", `${lockPath} prev=${JSON.stringify(prev)}`),
+        },
+        fn,
+      );
+    } catch (e) {
+      if (e instanceof LockLeaseTimeoutError) {
+        throw new TempLockTimeoutError(`temp lock timeout after ${timeoutMs}ms: ${lockPath}`);
       }
+      throw e;
     }
   }
 
@@ -593,7 +722,7 @@ export class TempManager {
     if (!rootSt?.isDirectory()) return { removed: 0, remaining: 0 };
     return this.mutex.runExclusive(async () => {
       try {
-        return await this.withTempLock(async () => {
+        const result = await this.withTempLock(async (lock) => {
           await this.scan();
           // ① 过期 staging
           let removed = await this.recoverStaleStaging();
@@ -619,6 +748,8 @@ export class TempManager {
               toRemove.add(lru[i].id);
             }
           }
+          // 破坏性删除前 fencing 校验：锁已被接管则放弃本轮，绝不误删
+          await lock.assertFence();
           for (const id of toRemove) {
             const dir = this.dirs.get(id);
             if (!dir) continue;
@@ -645,10 +776,22 @@ export class TempManager {
           }
           return { removed, remaining: this.dirs.size };
         });
+        // 本轮清理完整执行：连续锁失败计数归零（单次瞬时不进入 degraded）
+        this.consecutiveCleanupLockFailures = 0;
+        return result;
       } catch (e) {
         if (e instanceof TempLockTimeoutError) {
           // 锁超时降级：本轮放弃清理，不误删
+          this.cleanupLockFailures++;
+          this.consecutiveCleanupLockFailures++;
           logger.warn("temp-manager", "cleanup-lock-timeout", String(e));
+          return { removed: 0, remaining: this.dirs.size };
+        }
+        if (e instanceof LockFenceLostError) {
+          // fencing 丢失（锁被接管）：同锁超时降级，本轮放弃
+          this.cleanupLockFailures++;
+          this.consecutiveCleanupLockFailures++;
+          logger.warn("temp-manager", "cleanup-fence-lost", String(e));
           return { removed: 0, remaining: this.dirs.size };
         }
         throw e;
@@ -672,6 +815,10 @@ export class TempManager {
     if (this.touchTimer) {
       clearTimeout(this.touchTimer);
       this.touchTimer = null;
+    }
+    if (this.ledgerSyncTimer) {
+      clearTimeout(this.ledgerSyncTimer);
+      this.ledgerSyncTimer = null;
     }
     // 顺带停掉本进程所有 staging heartbeat，便于测试与进程退出清理
     for (const st of this.stagings.values()) {
@@ -738,6 +885,14 @@ export class TempManager {
         if (entry.isDirectory()) {
           pending.push(full);
         } else if (entry.isFile()) {
+          // 协调元数据（锁/配额 ledger 及其 staging）不计入容量 payload
+          if (
+            entry.name === ".quota.json" ||
+            entry.name === ".temp.lock" ||
+            entry.name.startsWith(".temp.lock.lease-")
+          ) {
+            continue;
+          }
           try {
             size += (await fs.stat(full)).size;
           } catch (err) {
