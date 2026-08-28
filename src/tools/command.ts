@@ -7,6 +7,18 @@ import * as z from "zod";
 import { adaptiveTimeout } from "../adaptive.js";
 import { audit } from "../audit.js";
 import {
+  buildBatchBudget,
+  commandBudgetSkipReason,
+  commandInputBytes,
+  MAX_BATCH_INPUT_BYTES,
+  MAX_BATCH_ITEMS,
+  MAX_COMMAND_BYTES,
+  MAX_COMMAND_CHARS,
+  MAX_COMMAND_TIMEOUT_MS,
+  MAX_WATCH_DURATION_MS,
+  validateBoundedCommandInput,
+} from "../command-budget.js";
+import {
   type CommandOutputLimits,
   type CommandOutputRun,
   getCommandOutputLimits,
@@ -14,7 +26,7 @@ import {
 } from "../command-output.js";
 import { checkCommandPolicy, classifyPolicyReason, getCommandPolicyMode } from "../command-policy.js";
 import { type CommandGuardContext, getCommandConfirmationMode } from "../command-risk.js";
-import type { RequestContext } from "../hardening-contract.js";
+import { boundedArray, boundedString, finiteInt, type RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
 import { PageCacheCorruptError, PageCacheReadError, pageCache } from "../paging.js";
 import { ProcessSupervisorError } from "../process-supervisor.js";
@@ -331,10 +343,12 @@ function recordOutputRead(cacheId: string, page: number, pageResult: CommandOutp
 export function registerCommandTools(server: McpServer) {
   // ====================================================================
   const ExecuteCommandInput = z.object({
-    command: z.string().optional().describe("The command to execute. Required unless cache_id is provided."),
+    command: boundedString(MAX_COMMAND_CHARS, MAX_COMMAND_BYTES)
+      .optional()
+      .describe("The command to execute. Required unless cache_id is provided."),
     cache_id: z.string().optional().describe("Read a page from a previous paged command output without re-executing."),
     cwd: z.string().optional().describe("Working directory (optional)"),
-    timeout: z.number().optional().describe("Timeout in ms, default 30000"),
+    timeout: finiteInt(1, MAX_COMMAND_TIMEOUT_MS).optional().describe("Timeout in ms, default 30000"),
     page: z.number().int().min(1).optional().describe("Page number to read from paged output, default 1"),
     pageSize: z.number().int().min(1).max(10000).optional().describe("Characters per page, default 2000, max 10000"),
   });
@@ -357,6 +371,10 @@ export function registerCommandTools(server: McpServer) {
       "execute_command",
       async ({ command, cache_id, cwd, timeout, page, pageSize }: ExecuteCommandInput, context: RequestContext) => {
         const t0 = Date.now();
+        const boundedReject = validateBoundedCommandInput({ command, timeout });
+        if (boundedReject) {
+          return fail(ErrorCode.VALIDATION_ERROR, boundedReject, { retryable: false, param: "timeout|command" });
+        }
         const hasCommand = command !== undefined;
         const hasCache = cache_id !== undefined;
         if (hasCommand === hasCache) {
@@ -477,7 +495,9 @@ export function registerCommandTools(server: McpServer) {
 
   // ====================================================================
   const BatchExecuteInput = z.object({
-    commands: z.array(z.string()).describe("Array of commands to execute"),
+    commands: boundedArray(boundedString(MAX_COMMAND_CHARS, MAX_COMMAND_BYTES), MAX_BATCH_ITEMS).describe(
+      "Array of commands to execute",
+    ),
     cwd: z.string().optional().describe("Working directory"),
     stop_on_error: z.boolean().optional().describe("Stop if a command fails, default true"),
     parallel: z.boolean().optional().describe("Execute commands in parallel (no dependencies), default false"),
@@ -506,6 +526,10 @@ export function registerCommandTools(server: McpServer) {
       "batch_execute",
       async ({ commands, cwd, stop_on_error, parallel }: BatchExecuteInput, context: RequestContext) => {
         const t0 = Date.now();
+        const boundedReject = validateBoundedCommandInput({ commands });
+        if (boundedReject) {
+          return fail(ErrorCode.VALIDATION_ERROR, boundedReject, { retryable: false, param: "commands" });
+        }
         const stop = stop_on_error !== false;
         const isParallel = parallel === true;
 
@@ -521,6 +545,19 @@ export function registerCommandTools(server: McpServer) {
         for (const cmd of commands) {
           const blocked = precheckCommand(cmd, "commands");
           if (blocked) return blocked;
+        }
+
+        const totalInputBytes = commands.reduce((sum, cmd) => sum + commandInputBytes(cmd), 0);
+        if (totalInputBytes > MAX_BATCH_INPUT_BYTES) {
+          return fail(
+            ErrorCode.RESOURCE_LIMIT,
+            `Batch input budget exceeded: ${totalInputBytes} bytes > ${MAX_BATCH_INPUT_BYTES}`,
+            {
+              retryable: true,
+              suggestion: "Split the batch into smaller groups",
+              detail: { limit: MAX_BATCH_INPUT_BYTES, total: totalInputBytes, commands: commands.length },
+            },
+          );
         }
 
         const block = await commandSafetyGate("batch_execute", "", `批量执行 ${commands.length} 条命令`, "commands", {
@@ -555,14 +592,19 @@ export function registerCommandTools(server: McpServer) {
         const { limits, reject: limitsReject } = resolveCommandLimits("commands");
         if (limitsReject) return limitsReject;
 
+        const budget = buildBatchBudget(context.signal);
         try {
           const shellSpec = await getShellSpec();
           const slots: Array<BatchCommandResult | undefined> = Array.from({ length: commands.length });
           let nextIndex = 0;
           let stopScheduling = false;
+          let outputExhausted = false;
 
           const execOne = async (index: number): Promise<BatchCommandResult> => {
             const commandText = commands[index];
+            if (!budget.reserve("input", commandInputBytes(commandText))) {
+              return { index, command: commandText, status: "skipped", skip_reason: "budget_input" };
+            }
             const ct0 = Date.now();
             try {
               logger.info("batch_execute", `step ${index + 1}/${commands.length}`, commandText);
@@ -640,19 +682,31 @@ export function registerCommandTools(server: McpServer) {
           const worker = async (): Promise<void> => {
             while (true) {
               if (stop && stopScheduling) return;
+              if (outputExhausted) return;
+              if (budget.abortSignal.aborted) return;
               const index = nextIndex++;
               if (index >= commands.length) return;
               const item = await execOne(index);
               slots[index] = item;
               if (stop && item.status === "completed" && !item.ok) stopScheduling = true;
+              if (item.status === "completed" && !budget.reserve("output", item.total_output_bytes ?? 0)) {
+                outputExhausted = true;
+              }
             }
           };
 
           const concurrency = isParallel ? 4 : 1;
           await Promise.all(Array.from({ length: Math.min(concurrency, commands.length) }, () => worker()));
+          const fillSkipReason = (): "budget_output" | "budget_deadline" | "stop_on_error" => {
+            if (stopScheduling) return "stop_on_error";
+            if (outputExhausted) return "budget_output";
+            if (budget.abortSignal.aborted) return commandBudgetSkipReason(budget) ?? "stop_on_error";
+            return "stop_on_error";
+          };
           for (let index = 0; index < slots.length; index++) {
-            if (!slots[index])
-              slots[index] = { index, command: commands[index], status: "skipped", skip_reason: "stop_on_error" };
+            if (!slots[index]) {
+              slots[index] = { index, command: commands[index], status: "skipped", skip_reason: fillSkipReason() };
+            }
           }
           const results = slots as BatchCommandResult[];
           const completed = results.filter((item) => item.status === "completed").length;
@@ -670,12 +724,14 @@ export function registerCommandTools(server: McpServer) {
             success: allOk,
             error: allOk ? undefined : "Some commands failed or were skipped",
           });
+          budget.close();
           return success(
             summary,
             { results, all_ok: allOk, completed, failed, skipped, summary },
             { latency_ms: Date.now() - t0 },
           );
         } catch (error) {
+          budget.close();
           const supervisorFailure = processSupervisorFailure(error);
           if (supervisorFailure) return supervisorFailure;
           return (
@@ -689,8 +745,8 @@ export function registerCommandTools(server: McpServer) {
 
   // ====================================================================
   const WatchCommandInput = z.object({
-    command: z.string().describe("The command to run"),
-    duration: z.number().optional().describe("Max duration in ms, default 5000"),
+    command: boundedString(MAX_COMMAND_CHARS, MAX_COMMAND_BYTES).describe("The command to run"),
+    duration: finiteInt(1, MAX_WATCH_DURATION_MS).optional().describe("Max duration in ms, default 5000"),
     cwd: z.string().optional().describe("Working directory"),
   });
   type WatchCommandInput = z.infer<typeof WatchCommandInput>;
@@ -706,6 +762,10 @@ export function registerCommandTools(server: McpServer) {
     },
     wrapHandler("watch_command", async ({ command, duration, cwd }: WatchCommandInput, context: RequestContext) => {
       const t0 = Date.now();
+      const boundedReject = validateBoundedCommandInput({ command, duration });
+      if (boundedReject) {
+        return fail(ErrorCode.VALIDATION_ERROR, boundedReject, { retryable: false, param: "duration|command" });
+      }
       const blocked = precheckCommand(command, "command");
       if (blocked) return blocked;
 

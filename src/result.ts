@@ -102,9 +102,11 @@ export interface CommandOutputEnvelope {
   error?: StructuredError;
 }
 
+export type BatchSkipReason = "stop_on_error" | "budget_deadline" | "budget_input" | "budget_output";
+
 export type BatchCommandResult =
   | ({ index: number; command: string; status: "completed" } & CommandOutputEnvelope & { latency_ms: number })
-  | { index: number; command: string; status: "skipped"; skip_reason: "stop_on_error" };
+  | { index: number; command: string; status: "skipped"; skip_reason: BatchSkipReason };
 
 export interface StructuredError {
   code: ErrorCodeType;
@@ -367,7 +369,7 @@ export const skippedBatchSchema = z.object({
   index: z.number(),
   command: z.string(),
   status: z.literal("skipped"),
-  skip_reason: z.literal("stop_on_error"),
+  skip_reason: z.enum(["stop_on_error", "budget_deadline", "budget_input", "budget_output"]),
 });
 
 /**

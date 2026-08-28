@@ -751,13 +751,18 @@ no-match、达到结果/遍历/响应预算、权限错误、外部 CLI unavaila
 - acceptance：features/2026-08-28-process-supervisor-and-cancellation/process-supervisor-and-cancellation-acceptance.md
 - 验收回写（2026-08-28）：中断点的 registry cleanup 竞态（timeout/cancel 后 `activeCount` 残留）已定位为 close 事件与 termination promise 完成顺序不确定，并修复为 child 已退出即双向立即回收；lint 收口为零错误零信息；cancel 测试 registry 断言改为 bounded 等待。代用户执行三轮反向审计（横向取证、场景映射+稳定性压测、全量终审）后 12 个 checks 全部 passed、17 个场景均有证据映射。门禁：build、tsc、lint 0/0、全量 51 文件 639 用例、latency 24/24、tools coverage 59.37/48.55/65.62/63.26 达标、`git diff --check` 通过。后代进程/descendant budget 与 Unix 真实树终止 smoke 分别归属 `bounded-command-execution` 与后续 conformance gate。
 
-### 3. `bounded-command-execution`
+### 3. `bounded-command-execution`（状态：done）
 
 - 所属模块：hardening-contract、process-supervisor、command-output
 - 依赖：`process-supervisor-and-cancellation`，因为 command budget 必须能真正终止超时/超限执行。
 - 交付：三个命令工具的 finite/bounded schema、batch 总量和 parent aggregate 限制、watch 限制、active process/后代进程/total work/output/response/pending-queue budget、所有命令工具统一限流和 cancellation。
 - **最小闭环**：完成后 `execute_command` 在 local profile 下能执行一个普通命令、正确取消超时、拒绝超大输入并返回 A+ envelope。
 - 验收：`timeout: Infinity`、`duration: Infinity`、超大 batch、超长 command、UTF-8 byte 超限、并发洪泛、batch total wall-time 和 output flood 均在 spawn 前或预算边界被拒绝/终止；parallel 子任务共享 parent budget，不可各自重置。
+- 当前 feature：2026-08-28-bounded-command-execution
+- 设计：features/2026-08-28-bounded-command-execution/bounded-command-execution-design.md
+- checklist：features/2026-08-28-bounded-command-execution/bounded-command-execution-checklist.yaml
+- acceptance：features/2026-08-28-bounded-command-execution/bounded-command-execution-acceptance.md
+- 验收回写（2026-08-28）：三个命令工具 schema 收紧 + handler 层 `validateBoundedCommandInput` 二次校验（schema 由 SDK 层消费，直调不绕过；字符计数与 boundedString 同源为 code point）；`src/command-budget.ts` 提供常量、`buildBatchBudget`、skip 分类与 validator；batch 聚合输入超 2MiB 整批 `RESOURCE_LIMIT` 零执行，output 配额耗尽后剩余 `budget_output` skipped，deadline 到点 `budget_deadline` skipped，parallel 经 `BudgetAccount.child()` 共享 parent ledger。门禁全绿（全量 52 文件 658 用例、latency 24/24、tools coverage 达标）。预算为启动常量未接 profile 配置面；descendant 进程计数仍归属后续 resource-stop 收尾。
 
 ### 4. `kill-process-identity`
 
@@ -985,3 +990,4 @@ git diff --check                     -> pass
 - 2026-08-28：启动 `process-supervisor-and-cancellation`；完成 child process inventory 和 approved design，新增 checklist，并将 items.yaml 对应条目标记为 `in-progress`、绑定 `2026-08-28-process-supervisor-and-cancellation`。
 - 2026-08-28：中断点回写 process-supervisor 的部分实现：工作树已包含 supervisor 核心、主要 spawn/execFile/probe 接线、RequestContext cancellation 字段和 shutdown drain 顺序；`tsc --noEmit` 通过，但定向测试 111/113 通过、2 个 active registry 清理断言失败，lint 未通过，未提前更新 checks 或创建 acceptance。
 - 2026-08-28：完成 `process-supervisor-and-cancellation` 实现与 acceptance；修复 registry cleanup 竞态（close 与 termination promise 完成顺序不确定导致 `activeCount` 残留）、lint 三处与 cancel 测试 bounded 等待边界，代用户三轮反向审计后 12 checks 全部 passed、17 场景均有证据；items.yaml 与本主文档已回写为 `done`，解锁 `bounded-command-execution`。
+- 2026-08-28：完成 `bounded-command-execution` 实现与 acceptance（最小闭环达成）；新增 `src/command-budget.ts`，三个命令工具接入 finite/bounded schema 与 handler 二次校验，batch 建立 parent BudgetAccount（聚合预检、output 配额、wall-time deadline、parallel 共享 ledger）；审计修复 validator 字符计数与 boundedString 的 code point 同源差异；items.yaml 与本主文档已回写为 `done`。

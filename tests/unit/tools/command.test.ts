@@ -317,3 +317,58 @@ describe("command.output.read audit", () => {
     expect(entry?.detail).not.toHaveProperty("cwd");
   });
 });
+
+describe("bounded command execution", () => {
+  test("rejects non-finite and out-of-range timeout before any side effect", async () => {
+    for (const timeout of [Number.POSITIVE_INFINITY, Number.NaN, 0, -1]) {
+      const result = await call("execute_command", { command: "echo hi", timeout });
+      expect(result.isError).toBe(true);
+      expect(structured(result).error.code).toBe("VALIDATION_ERROR");
+      expect(structured(result).error.message).toMatch(/timeout/);
+    }
+  });
+
+  test("rejects oversized command input by chars and UTF-8 bytes", async () => {
+    const result = await call("execute_command", { command: "a".repeat(70000) });
+    expect(result.isError).toBe(true);
+    expect(structured(result).error.code).toBe("VALIDATION_ERROR");
+
+    const byteResult = await call("execute_command", { command: "中".repeat(70000) });
+    expect(byteResult.isError).toBe(true);
+    expect(structured(byteResult).error.code).toBe("VALIDATION_ERROR");
+  });
+
+  test("rejects non-finite watch duration and oversized watch command", async () => {
+    const durationResult = await call("watch_command", { command: "echo hi", duration: Number.POSITIVE_INFINITY });
+    expect(durationResult.isError).toBe(true);
+    expect(structured(durationResult).error.code).toBe("VALIDATION_ERROR");
+
+    const commandResult = await call("watch_command", { command: "a".repeat(70000) });
+    expect(commandResult.isError).toBe(true);
+    expect(structured(commandResult).error.code).toBe("VALIDATION_ERROR");
+  });
+
+  test("rejects batch arrays beyond the item limit", async () => {
+    const result = await call("batch_execute", { commands: Array.from({ length: 101 }, () => "echo hi") });
+    expect(result.isError).toBe(true);
+    expect(structured(result).error.code).toBe("VALIDATION_ERROR");
+    expect(structured(result).error.message).toMatch(/commands/);
+  });
+
+  test("rejects batch input aggregate over budget with zero execution", async () => {
+    // 每条 ~22KB、共 100 条 ≈ 2.2MB > 2MiB 聚合上限；schema 单项与条数均合法
+    const big = "echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".padEnd(22000, "x");
+    const result = await call("batch_execute", { commands: Array.from({ length: 100 }, () => big) });
+    expect(result.isError).toBe(true);
+    expect(structured(result).error.code).toBe("RESOURCE_LIMIT");
+    expect(structured(result).error.detail).toMatchObject({ limit: 2_097_152 });
+  });
+
+  test("ordinary commands keep their envelope semantics", async () => {
+    const result = await call("execute_command", { command: "echo bounded-ok" });
+    expect(result.isError).toBeFalsy();
+    const envelope = structured(result);
+    expect(envelope.ok).toBe(true);
+    expect(envelope.stdout).toContain("bounded-ok");
+  });
+});

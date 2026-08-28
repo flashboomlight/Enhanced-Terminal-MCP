@@ -21,10 +21,10 @@ items:
   - slug: bounded-command-execution
     description: 为三个命令工具接入 finite 输入、batch parent/watch/并发/输出/响应/queue 预算和统一限流，形成可取消的最小命令闭环
     depends_on: [process-supervisor-and-cancellation]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-28-bounded-command-execution
     minimal_loop: true
-    notes: 最小闭环；完成后 local-trusted-shell 可执行普通命令并在 timeout/cancel/超限时有界结束；parallel 子任务不得重置 parent budget
+    notes: 已完成并通过 acceptance；三个命令工具 schema 收紧（finiteInt/boundedString/boundedArray）+ handler 层 validateBoundedCommandInput 二次校验（direct call 不绕过）；batch_execute 建立 parent BudgetAccount——聚合输入预检 RESOURCE_LIMIT 零执行、output 逐条 reserve 耗尽后 budget_output skipped、wall-time deadline 到点 budget_deadline skipped、parallel 子任务经 child() 共享 parent ledger；预算为启动常量未接 profile 配置面，配置化归属后续 backend feature
 
   - slug: kill-process-identity
     description: 将 kill_process 收敛为唯一 pid 或精确进程身份 proof，拒绝 wildcard、PID reuse、重名和危险批量终止

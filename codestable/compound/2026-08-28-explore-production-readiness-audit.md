@@ -141,7 +141,8 @@ flowchart LR
 - **Round 5：kill identity acceptance 反向核验**——实际执行 Windows current-process/missing-PID probe、受控 child process 的 graceful/force-tree termination、5 个相关测试文件 81 个测试、最终 gate 和主 coverage；中途发现并修复了 PowerShell 字符串布尔参数绑定、过期 PID 状态分类、force=false 误强杀、identity record 控制字符和结果 schema 漏项。最终没有发现新的 kill feature 内未归属问题。
 - **Round 6：process supervisor 实施中断点核验**——重新核对 child process inventory、supervisor 设计与工作树接线；确认核心 registry、timeout/AbortSignal、capture/stream/execFile/probe/tool context 和 shutdown 顺序已经出现。增量证据为 `tsc --noEmit` 通过、定向 113 个测试中 111 个通过；但 timeout/cancel 场景仍有 2 个 `activeCount` 未清零断言失败，lint 仍有 2 个 error 和 1 个 info，因此该 feature 继续保持 in-progress，不能进入 acceptance。
 - **Round 7：process supervisor acceptance 反向核验（代用户执行）**——修复中断点遗留：定位 registry cleanup 竞态根因（close 事件与 termination promise 完成顺序不确定）并实现 child 已退出即双向立即回收，收口 lint 三处，cancel 测试 registry 断言改为 bounded 等待并显式提高 test timeout。三轮审计（横向取证：零裸 spawn/execFile、零同步进程调用、零 /IM/pkill；场景映射：17 场景逐条对应证据；稳定性：13 次以上连续全绿，记录 1 次未复现的并行负载偶发）后 12 checks 全部 passed、17 场景均有证据映射。门禁全绿：build、tsc、lint 0/0、全量 51 文件 639 用例、latency 24/24、tools coverage 59.37/48.55/65.62/63.26、`git diff --check`。未发现新的 feature 内未归属问题。
-- **当前方案结论**——审计方案本身的编号、feature 归属和验收证据矩阵已闭环；`hardening-contract-and-profiles`、`kill-process-identity`、`dependency-and-bootstrap-release` 与 `process-supervisor-and-cancellation` 均已验收为 `done`，其余 9 条仍需实现，故当前源码仍不能被描述为无条件生产就绪。`pnpm audit --prod`、npm/source bootstrap 与全局 child-process registry 的本轮阻断已解除；全工具资源边界（bounded schema/parent/descendant budget）、路径/秘密/网络/archive、MCP conformance 和 canonical CI 仍是 release stop。
+- **Round 8：bounded-command-execution acceptance 反向核验（代用户执行）**——design/checklist/实现/验收同一会话完成：三个命令工具 schema 收紧 + handler 层 `validateBoundedCommandInput` 二次校验、batch parent BudgetAccount（聚合预检、output 配额、deadline 分类、parallel 共享 ledger）。审计发现并修复 validator 字符计数用 UTF-16 `.length` 而 schema `boundedString` 用 code point 的同源性差异；确认 `budget_input` 为防御分支（聚合预检保证常规流不可达）并如实记录。10 checks 全部 passed；门禁全绿：build、tsc、lint 0/0、全量 52 文件 658 用例、latency 24/24、tools coverage 59.74/48.90/66.32/63.73、新增 29 用例 3 连跑全绿。未发现新的 feature 内未归属问题。
+- **当前方案结论**——审计方案本身的编号、feature 归属和验收证据矩阵已闭环；`hardening-contract-and-profiles`、`process-supervisor-and-cancellation`、`bounded-command-execution`、`kill-process-identity` 与 `dependency-and-bootstrap-release` 均已验收为 `done`（最小闭环达成），其余 8 条仍需实现，故当前源码仍不能被描述为无条件生产就绪。`pnpm audit --prod`、npm/source bootstrap、全局 child-process registry 与三个命令工具的 finite/bounded 预算边界已解除；路径/秘密/网络/archive、其余工具 schema、MCP conformance 和 canonical CI 仍是 release stop。
 
 #### 6.2 第一条 feature 实施状态
 
@@ -163,7 +164,7 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 这是执行建议，不是对产品边界的替代决策：
 
-1. **Release stop**：`kill_process` identity、SEC-02 依赖 audit、REL-01/REL-06 npm/source bootstrap 和 package evidence、全局 child-process registry/cancellation/shutdown（`process-supervisor-and-cancellation`）已完成；下一步推进 `bounded-command-execution`（finite/bounded schema 与 parent budget 接入三个命令工具）和后续 canonical gate。
+1. **Release stop**：`kill_process` identity、SEC-02 依赖 audit、REL-01/REL-06 npm/source bootstrap 和 package evidence、全局 child-process registry/cancellation/shutdown（`process-supervisor-and-cancellation`）、三个命令工具的 finite/bounded schema 与 parent budget（`bounded-command-execution`，最小闭环达成）已完成；下一步按 DAG 推进 `path-policy-no-follow`/`tool-wrapper-and-surface-contract`（仅依赖第 1 条，可并行）与主干 `search-and-adaptive-correctness`。
 2. **Resource stop**：统一所有 MCP 输入的 finite/bounded schema，补 parent/child/batch/tree/response/queue budget、限流和所有 child-process registry，接入 cancellation 与 descendant termination。
 3. **Security hardening**：完成 symlink/TOCTOU/no-follow、session cwd/state 根、capability/host disclosure、env key 大小写归一化、状态/日志/result/prompt redaction、状态文件权限和 SSRF/DNS/proxy/ZIP 预算。
 4. **Correctness and gate hardening**：修复 search partial-result、Unix process filter、adaptive 语义、100ms TTL flaky 和 Windows rename；CI 加主 coverage、dependency audit、package dry-run、MCP conformance、canonical gate、支持平台和 hostile-input 套件。
@@ -177,7 +178,7 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 ## 后续建议
 
-`process-supervisor-and-cancellation` 已验收完成；建议下一步执行 `bounded-command-execution`（最小闭环），并可与仅依赖第 1 条的 `path-policy-no-follow`、`tool-wrapper-and-surface-contract` 评估并行开工；当路径、秘密、网络、状态、wrapper、搜索和依赖发布项都完成后，再由 `security-and-mcp-conformance-gates` 做一次全量 acceptance 级生产审计。
+`bounded-command-execution` 已验收完成（最小闭环）；建议下一步按 DAG 并行推进 `path-policy-no-follow` 与 `tool-wrapper-and-surface-contract`（仅依赖第 1 条），主干继续 `search-and-adaptive-correctness`；当路径、秘密、网络、状态、wrapper、搜索和依赖发布项都完成后，再由 `security-and-mcp-conformance-gates` 做一次全量 acceptance 级生产审计。
 
 ## 相关文档
 
