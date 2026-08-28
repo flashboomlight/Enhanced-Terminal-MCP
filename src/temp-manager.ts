@@ -8,6 +8,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { logger } from "./logger.js";
+import { assertSafeStateRoot } from "./path-policy.js";
 import { getStateDir } from "./state-dir.js";
 import {
   AsyncMutex,
@@ -239,6 +240,7 @@ export class TempManager {
     await this.init();
     if (!this.root) throw new Error("TempManager not initialized");
     await fs.mkdir(this.root, { recursive: true });
+    await assertSafeStateRoot(this.root);
     return this.root;
   }
 

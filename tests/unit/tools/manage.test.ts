@@ -134,4 +134,46 @@ describe("manage tools (unit)", () => {
     expect(result?.isError).toBe(true);
     expect(result?.structuredContent.error).toMatchObject({ code: "PATH_NOT_FOUND" });
   });
+
+  test("delete_path removes only the symlink itself and leaves the target intact", async () => {
+    const victim = path.join(workDir, "victim.txt");
+    await fs.writeFile(victim, "keep");
+    const link = path.join(workDir, "file-link");
+    await fs.symlink(victim, link);
+
+    const result = await call(tools, "delete_path", { target_path: link });
+    expect(result?.isError).toBeFalsy();
+    expect(result?.structuredContent).toMatchObject({ type: "link" });
+    expect(await fs.readFile(victim, "utf-8")).toBe("keep");
+    await expect(fs.lstat(link)).rejects.toThrow();
+  });
+
+  test("recursive delete of a junction directory removes the link layer only", async () => {
+    const real = path.join(workDir, "elsewhere");
+    await fs.mkdir(real);
+    await fs.writeFile(path.join(real, "inside.txt"), "keep");
+    const junction = path.join(workDir, "junction-dir");
+    await fs.symlink(real, junction, "junction");
+
+    const result = await call(tools, "delete_path", { target_path: junction, recursive: true });
+    expect(result?.isError).toBeFalsy();
+    expect(result?.structuredContent).toMatchObject({ type: "link" });
+    // 目标目录与其内容不受影响
+    expect(await fs.readFile(path.join(real, "inside.txt"), "utf-8")).toBe("keep");
+  });
+
+  test("copy_move rejects a source symlink resolving into a sensitive directory", async () => {
+    const sensitive = path.join(workDir, ".ssh");
+    await fs.mkdir(sensitive);
+    const link = path.join(workDir, "src-link");
+    await fs.symlink(sensitive, link, "junction");
+
+    const result = await call(tools, "copy_move", {
+      source: link,
+      destination: path.join(workDir, "out"),
+      operation: "copy",
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.structuredContent.error.code).toBe("PATH_FORBIDDEN");
+  });
 });

@@ -159,4 +159,38 @@ describe("files tools (unit)", () => {
     expect(result?.isError).toBe(true);
     expect(result?.structuredContent.error).toMatchObject({ code: "PATH_NOT_FOUND", param: "dir_path" });
   });
+
+  test("read_file rejects a symlink resolving into a sensitive directory", async () => {
+    const sensitive = path.join(workDir, ".ssh");
+    await fs.mkdir(sensitive);
+    await fs.writeFile(path.join(sensitive, "id_rsa"), "key");
+    const link = path.join(workDir, "innocent-link");
+    await fs.symlink(sensitive, link, "junction");
+
+    const result = await call(tools, "read_file", { file_path: link });
+    expect(result?.isError).toBe(true);
+    expect(result?.structuredContent.error.code).toBe("PATH_FORBIDDEN");
+  });
+
+  test("write_file refuses a symlink target without touching the real file (no-follow)", async () => {
+    const real = path.join(workDir, "real.txt");
+    await fs.writeFile(real, "keep");
+    const link = path.join(workDir, "lnk.txt");
+    await fs.symlink(real, link);
+
+    const result = await call(tools, "write_file", { file_path: link, content: "overwrite" });
+    expect(result?.isError).toBe(true);
+    expect(await fs.readFile(real, "utf-8")).toBe("keep");
+    expect(result?.structuredContent.error.message).toMatch(/no-follow/);
+  });
+
+  test("write_file overwrite lands through atomic staging without residue", async () => {
+    const target = path.join(workDir, "atomic.txt");
+    await fs.writeFile(target, "old");
+    const result = await call(tools, "write_file", { file_path: target, content: "new" });
+    expect(result?.isError).toBeFalsy();
+    expect(await fs.readFile(target, "utf-8")).toBe("new");
+    const entries = await fs.readdir(workDir);
+    expect(entries.filter((e) => e.includes(".tmp-"))).toEqual([]);
+  });
 });

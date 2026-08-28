@@ -14,7 +14,7 @@ implements: [everything-search-optional]
 
 > 状态：current
 > 创建日期：2026-08-16（由 `cs-arch backfill` 按 v3.1.0 代码现状补全）
-> 最后核对：2026-08-28（M2 A+ 输出协议、M3 Everything 可选发布、M4 最终本地收口、hardening-contract-and-profiles、kill-process-identity、dependency-and-bootstrap-release、process-supervisor-and-cancellation 与 bounded-command-execution 均已完成验收；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口）
+> 最后核对：2026-08-29（M2 A+ 输出协议、M3 Everything 可选发布、M4 最终本地收口、hardening-contract-and-profiles、kill-process-identity、dependency-and-bootstrap-release、process-supervisor-and-cancellation、bounded-command-execution 与 path-policy-no-follow 均已完成验收；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口）
 
 ## 1. 项目简介
 
@@ -61,8 +61,8 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 |------|------|
 | `src/index.ts` | 入口：解析并固定 `MCP_EXECUTION_PROFILE`（backend 不可用时 fail-closed）→ 创建 McpServer → initSafeGuard → 注册业务工具 + 运维工具 → 注册资源/prompts → 连接 stdio → shutdown 时先请求 `processSupervisor` drain，再 flush session/audit（顺序已随 process-supervisor-and-cancellation 验收） |
 | `src/tools/command.ts` | `execute_command` / `batch_execute` / `watch_command`。Windows 消费 `shell.ts` 统一解析的 shell spec（默认 pwsh 7，详见 ADR-7/14），Unix 用 `/bin/sh -c`；命令 policy + 危险模式检查 + 限流 + SafeGuard + audit 后调用共享 `runCommandOutput`，并把 `RequestContext` cancellation/scope 传给 managed execution。公开输入输出已是 M2 A+ envelope（分页/secret/容量字段） |
-| `src/tools/files.ts` | `read_file`（分页/编码）/ `write_file`（秘密扫描 + 覆写确认）/ `list_directory`（符号链接循环保护）/ `file_info`（可被 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 禁用）/ `make_directory` |
-| `src/tools/manage.ts` | `copy_move` / `delete_path`（Elicitation 确认保护；递归删除需 `recursive=true`） |
+| `src/tools/files.ts` | `read_file`（分页/编码；real 解析重验后以 real 打开）/ `write_file`（秘密扫描 + 覆写确认 + 原子 staging 写；no-follow）/ `list_directory`（符号链接循环保护；real 入口）/ `file_info`（real 解析；可被 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 禁用）/ `make_directory`（父链重验） |
+| `src/tools/manage.ts` | `copy_move`（源读语义/目标 no-follow，real 执行）/ `delete_path`（Elicitation 确认保护；递归删除需 `recursive=true`；symlink 仅移除链接本身） |
 | `src/tools/search.ts` | `search_files`（Windows 优先使用经 resolver 校验的 Everything；隐式 state binary 不可用时原生递归兜底；显式配置错误直接结构化失败）/ `everything_search`（仅 Windows；binary 不可用时返回带安装信息的结构化失败）/ `grep_content`（解析为 pwsh/powershell flavor 时走统一 spec 的 Select-String → Unix grep → 原生三级降级；参数单引号内联转义）；Everything/grep child 已通过 managed execFile 接入 supervisor 并传递 RequestContext cancellation |
 | `src/tools/system.ts` | `get_system_info` / `process_list` / `kill_process`（严格 PID/name XOR、ProcessIdentityProvider、关键/self/parent 保护）/ `network_info` / `environment_vars`（敏感键打码）；系统查询 child 已通过 managed `safeExecFile` 接入 supervisor |
 | `src/tools/archive.ts` | `compress_archive` / `extract_archive`（Windows 走 PowerShell Compress/Expand-Archive）/ `download_file`（HTTP/HTTPS 白名单 + 指数退避重试）；归档 child 已通过 managed `safeExecFile` 接入 supervisor |
@@ -74,6 +74,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 |------|------|
 | `src/security.ts` | 路径穿越（含 URL 多重编码绕过）、系统目录黑名单、敏感文件/目录模式、危险命令正则（D 的 PowerShell `-EncodedCommand`/`iex`/`Start-Process`/`Stop-Computer`/`Set-ExecutionPolicy`/盘符根递归删除 + E 的间接执行/解释器/管道绕过规则的并集）、URL 协议白名单、主机名校验、进程名消毒 |
 | `src/command-policy.ts` | 命令策略统一入口：`blocklist`（默认）/ `allow`（词级白名单 + 禁止 shell 元字符/管道/嵌套 shell）；hardBlock 永远先执行 |
+| `src/path-policy.ts` | 统一路径解析策略：读语义 real 解析重验（realpath→forbidden/sensitive 重跑）、写/删/移 no-follow（symlink 目标拒绝）、原子 staging 写（exclusive wx + rename）、state/temp 根替换检查；判定函数复用 security.ts，不复制黑名单 |
 | `src/command-budget.ts` | 三个命令工具的预算常量与 batch parent BudgetAccount 构建（聚合输入/output/wall-time）、skip 分类和 handler 层 `validateBoundedCommandInput` 二次校验；不执行命令、不判断安全 |
 | `src/safeguard.ts` | strict 禁用受保护工具；normal 默认走 Elicitation；risk-gated 下命令工具经 `guardCommandByRisk` 分级（ordinary 放行 / heavy 带原因确认），关键进程黑名单全模式生效 |
 | `src/command-risk.ts` | 命令风险纯分类层：`MCP_COMMAND_CONFIRMATION` 解析（非法回退 all）、`classifyCommandRisk`/`classifyBatchRisk`（batch>5 / 破坏类残余 / 性能词表 / watch duration>60s），规则表数据化、语料治理（tests/fixtures/command-risk-corpus.json） |
@@ -208,6 +209,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 - 2026-08-28：同步 `process-supervisor-and-cancellation` 的当前 working-tree partial implementation（managed registry、主要执行入口接线、RequestContext cancellation 和 shutdown 顺序），并明确其定向测试失败与未验收边界；未将其记录为稳定完成能力。
 - 2026-08-28：`process-supervisor-and-cancellation` 完成验收——修复 registry cleanup 竞态（close 事件与 termination promise 完成顺序不确定导致 `activeCount` 残留，改为 child 已退出即双向立即回收）与 lint 三处；登记 ADR-22；门禁全绿（全量 51 文件 639 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 4/13。
 - 2026-08-28：`bounded-command-execution` 完成验收（最小闭环达成）——新增 `src/command-budget.ts`，三个命令工具接入 `finiteInt`/`boundedString`/`boundedArray` schema 与 handler 层 `validateBoundedCommandInput` 二次校验；batch 建立 parent BudgetAccount（聚合输入预检 `RESOURCE_LIMIT` 零执行、output 逐条配额 `budget_output`、wall-time deadline `budget_deadline`、parallel 经 child() 共享 parent ledger）；`skip_reason` 扩展为四值枚举；门禁全绿（全量 52 文件 658 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 5/13。
+- 2026-08-29：`path-policy-no-follow` 完成验收——新增 `src/path-policy.ts` 统一路径策略并接入 files/manage/session/state/temp：读语义 real 解析重验、写/删/移 no-follow（symlink→敏感目录读取收紧为 `PATH_FORBIDDEN`）、覆写原子 staging+rename、state/temp 根防替换（关闭审计 SEC-03）；门禁全绿（全量 53 文件 678 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 6/13。
 
 ## 7. 规划入口（非现状）
 

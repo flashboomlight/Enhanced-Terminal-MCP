@@ -3,9 +3,10 @@
  * 支持工具间上下文传递 + JSON 文件持久化（重启恢复）
  */
 
+import { realpathSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { logger } from "./logger.js";
-import { validatePath } from "./security.js";
+import { isForbiddenPath, isSensitivePath, validatePath } from "./security.js";
 import { ensureStateDir, ensureStateMigration, getLegacyStateFilePath, getStateFilePath } from "./state-dir.js";
 
 /**
@@ -222,11 +223,25 @@ export class SessionStore {
       logger.warn("session", "parse-failed", "starting fresh");
       return;
     }
-    // cwd 必须通过路径安全校验（防持久化注入到系统目录）
+    // cwd 必须通过路径安全校验（防持久化注入到系统目录），并经 real 解析重验
+    // （拒绝 symlink 指向敏感/系统目录或不存在的 cwd）
     if (typeof data.cwd === "string" && data.cwd.trim().length > 0) {
       const pathErr = validatePath(data.cwd, "session.restore:cwd");
-      if (pathErr) {
-        logger.warn("session", "cwd-rejected", `Restored cwd rejected by safety: ${data.cwd} (${pathErr})`);
+      let realOk = false;
+      if (!pathErr) {
+        try {
+          const real = realpathSync(data.cwd);
+          realOk = !isForbiddenPath(real) && !isSensitivePath(real);
+        } catch {
+          realOk = false;
+        }
+      }
+      if (pathErr || !realOk) {
+        logger.warn(
+          "session",
+          "cwd-rejected",
+          `Restored cwd rejected by safety: ${data.cwd} (${pathErr ?? "resolves to a forbidden/sensitive path or does not exist"})`,
+        );
       } else {
         this.state.cwd = data.cwd;
       }

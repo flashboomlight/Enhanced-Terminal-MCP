@@ -773,12 +773,17 @@ no-match、达到结果/遍历/响应预算、权限错误、外部 CLI unavaila
 - 交付：pid/name 二选一、精确名称、唯一候选、平台 identity token/start-time proof、PID reuse 防护、wildcard 拒绝、process tree 终止和 fake executor 测试。
 - 验收：已完成 `kill-process-identity-acceptance.md`；不会构造 `taskkill /IM * /F`、`pkill *` 或模糊批量 kill；关键进程、非法 PID、wildcard、重名进程、PID reuse、身份证明失败和缺参均返回正确错误码。
 
-### 5. `path-policy-no-follow`
+### 5. `path-policy-no-follow`（状态：done）
 
 - 所属模块：path-policy、files、manage、archive、paging
 - 依赖：`hardening-contract-and-profiles`，因为路径操作需要共享错误和 resource budget；不依赖命令 supervisor。
 - 交付：realpath/parent/no-follow/reparse policy、原子写入、symlink race 防护、读写删移归档、session cwd、state/temp/page-cache 统一操作矩阵和读快照语义。
 - 验收：敏感路径 symlink、父目录替换、目标不存在、递归删除 reparse point、state/temp 根替换、session 恢复 cwd 和并发替换测试通过。
+- 当前 feature：2026-08-29-path-policy-no-follow
+- 设计：features/2026-08-29-path-policy-no-follow/path-policy-no-follow-design.md
+- checklist：features/2026-08-29-path-policy-no-follow/path-policy-no-follow-checklist.yaml
+- acceptance：features/2026-08-29-path-policy-no-follow/path-policy-no-follow-acceptance.md
+- 验收回写（2026-08-29）：新增 `src/path-policy.ts` 统一路径策略——读语义 real 解析重验（不存在放行给自然 ENOENT，契约不变）、写/删/移 no-follow（symlink 目标拒绝；delete 对链接仅移除链接层 `type:"link"`）、覆写原子 staging+rename（失败回退 truncate 写并告警）、state/temp 根替换检查；接入 files 五工具、manage 两工具、session cwd 恢复、ensureStateDir/ensureRoot。行为收紧：symlink→敏感/系统目录的读取从可读变 `PATH_FORBIDDEN`。门禁全绿（全量 53 文件 678 用例、latency 24/24、tools coverage 60.74/49.63/65.97/64.51）。归档 Zip Slip 与 set_cwd 入口校验分别归属 network-and-archive-safety 与 tool-wrapper-and-surface-contract。
 
 ### 6. `secret-redaction-and-state-protection`
 
@@ -991,3 +996,4 @@ git diff --check                     -> pass
 - 2026-08-28：中断点回写 process-supervisor 的部分实现：工作树已包含 supervisor 核心、主要 spawn/execFile/probe 接线、RequestContext cancellation 字段和 shutdown drain 顺序；`tsc --noEmit` 通过，但定向测试 111/113 通过、2 个 active registry 清理断言失败，lint 未通过，未提前更新 checks 或创建 acceptance。
 - 2026-08-28：完成 `process-supervisor-and-cancellation` 实现与 acceptance；修复 registry cleanup 竞态（close 与 termination promise 完成顺序不确定导致 `activeCount` 残留）、lint 三处与 cancel 测试 bounded 等待边界，代用户三轮反向审计后 12 checks 全部 passed、17 场景均有证据；items.yaml 与本主文档已回写为 `done`，解锁 `bounded-command-execution`。
 - 2026-08-28：完成 `bounded-command-execution` 实现与 acceptance（最小闭环达成）；新增 `src/command-budget.ts`，三个命令工具接入 finite/bounded schema 与 handler 二次校验，batch 建立 parent BudgetAccount（聚合预检、output 配额、wall-time deadline、parallel 共享 ledger）；审计修复 validator 字符计数与 boundedString 的 code point 同源差异；items.yaml 与本主文档已回写为 `done`。
+- 2026-08-29：完成 `path-policy-no-follow` 实现与 acceptance；新增 `src/path-policy.ts` 并统一接入 files/manage/session/state/temp——读语义 real 解析重验、写/删/移 no-follow、覆写原子 staging、state/temp 根防替换，关闭 SEC-03 的 symlink 与 TOCTOU 缺口（symlink→敏感目录读取收紧为拒绝）；items.yaml 与本主文档已回写为 `done`，解锁 `secret-redaction-and-state-protection` 与 `network-and-archive-safety`。

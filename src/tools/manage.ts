@@ -9,6 +9,7 @@ import * as z from "zod";
 import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
+import { resolveForRead, resolveForWrite } from "../path-policy.js";
 import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
 import {
   describeSafetyDecision,
@@ -17,7 +18,7 @@ import {
   guardDestructiveAction,
   type SafetyDecision,
 } from "../safeguard.js";
-import { validatePath, validateRealPath } from "../security.js";
+import { validatePath } from "../security.js";
 import { wrapHandler } from "../wrap.js";
 
 const SAFETY_META = { safety_protocol_version: getSafetyProtocolVersion() as 2, latency_ms: 0 } as const;
@@ -55,26 +56,6 @@ function decisionFailure(toolName: string, description: string, decision: Safety
   });
 }
 
-async function validateDeleteInput(targetPath: string): Promise<ToolResult | null> {
-  const pathErr = validatePath(targetPath, "delete_path");
-  if (pathErr) {
-    return fail(ErrorCode.PATH_FORBIDDEN, pathErr, {
-      retryable: false,
-      param: "target_path",
-      meta: SAFETY_META,
-    });
-  }
-  const realErr = await validateRealPath(targetPath, "delete_path");
-  if (realErr) {
-    return fail(ErrorCode.PATH_FORBIDDEN, realErr, {
-      retryable: false,
-      param: "target_path",
-      meta: SAFETY_META,
-    });
-  }
-  return null;
-}
-
 /** 统一 fs 错误：ENOENT -> PATH_NOT_FOUND */
 function mapFsError(e: unknown, p: string, param: string) {
   const msg = e instanceof Error ? e.message : String(e);
@@ -101,26 +82,23 @@ export function registerManageTools(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("copy_move", async ({ source, destination, operation }: CopyMoveInput) => {
-      for (const [p, label] of [
-        [source, "source"],
-        [destination, "destination"],
-      ] as const) {
-        const err = validatePath(p, `copy_move:${label}`);
-        if (err) return fail(ErrorCode.PATH_FORBIDDEN, err, { retryable: false, param: label });
-        // 真实路径校验（防 symlink 指向系统目录）；destination 可能不存在，解析失败放行
-        const realErr = await validateRealPath(p, `copy_move:${label}`);
-        if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: label });
-      }
+      // 源走读语义（real 解析重验），目标走 no-follow 写语义；cp/rename 以 real 执行
+      const srcRes = await resolveForRead(source, "copy_move:source", "source", SAFETY_META);
+      if (!srcRes.ok) return srcRes.result;
+      const dstRes = await resolveForWrite(destination, "copy_move:destination", "destination", SAFETY_META);
+      if (!dstRes.ok) return dstRes.result;
+      const srcReal = srcRes.resolution.real;
+      const dstReal = dstRes.resolution.real;
 
       const block = await guardDestructiveAction("copy_move", `${operation}: ${source} -> ${destination}`);
       if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "operation" });
 
       try {
-        await fs.mkdir(path.dirname(destination), { recursive: true });
+        await fs.mkdir(path.dirname(dstReal), { recursive: true });
         if (operation === "copy") {
-          await fs.cp(source, destination, { recursive: true });
+          await fs.cp(srcReal, dstReal, { recursive: true });
         } else {
-          await fs.rename(source, destination);
+          await fs.rename(srcReal, dstReal);
         }
         logger.info("copy_move", `${operation === "copy" ? "copied" : "moved"}`, `${source} -> ${destination}`);
         audit.record({
@@ -166,40 +144,69 @@ export function registerManageTools(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("delete_path", async ({ target_path, recursive }: DeletePathInput) => {
-      const inputError = await validateDeleteInput(target_path);
-      if (inputError) return inputError;
+      const pathErr = validatePath(target_path, "delete_path");
+      if (pathErr) {
+        return fail(ErrorCode.PATH_FORBIDDEN, pathErr, {
+          retryable: false,
+          param: "target_path",
+          meta: SAFETY_META,
+        });
+      }
+
+      // symlink 特例：删除链接本身（unlink 不跟随，无越权落盘面），不走 no-follow 拒绝
+      let lst: Awaited<ReturnType<typeof fs.lstat>> | null = null;
+      try {
+        lst = await fs.lstat(target_path);
+      } catch {
+        lst = null;
+      }
+      const isSymlink = lst?.isSymbolicLink() === true;
+      let realTarget = target_path;
+      if (!isSymlink) {
+        const resolved = await resolveForWrite(target_path, "delete_path", "target_path", SAFETY_META);
+        if (!resolved.ok) return resolved.result;
+        realTarget = resolved.resolution.real;
+      }
 
       const description = `删除: ${target_path}`;
       const decision = await evaluateDestructiveAction("delete_path", description);
       if (decision.status !== "allow") return decisionFailure("delete_path", description, decision);
 
       try {
-        const stat = await fs.stat(target_path);
-        if (stat.isDirectory()) {
-          if (!recursive) {
-            return fail(
-              ErrorCode.VALIDATION_ERROR,
-              `Cannot delete non-empty directory without recursive=true: ${target_path}`,
-              { retryable: true, param: "recursive", suggestion: "Set recursive=true to delete directory contents" },
-            );
-          }
-          await fs.rm(target_path, { recursive: true, force: true });
-        } else {
+        let deletedType: string;
+        if (isSymlink) {
           await fs.unlink(target_path);
+          deletedType = "link";
+        } else {
+          const stat = await fs.stat(realTarget);
+          if (stat.isDirectory()) {
+            if (!recursive) {
+              return fail(
+                ErrorCode.VALIDATION_ERROR,
+                `Cannot delete non-empty directory without recursive=true: ${target_path}`,
+                { retryable: true, param: "recursive", suggestion: "Set recursive=true to delete directory contents" },
+              );
+            }
+            await fs.rm(realTarget, { recursive: true, force: true });
+            deletedType = "dir";
+          } else {
+            await fs.unlink(realTarget);
+            deletedType = "file";
+          }
         }
-        logger.warn("delete_path", `deleted ${stat.isDirectory() ? "dir" : "file"}`, target_path);
+        logger.warn("delete_path", `deleted ${deletedType}`, target_path);
         audit.record({
           action: "file.delete",
           tool: "delete_path",
-          detail: { path: target_path, type: stat.isDirectory() ? "dir" : "file" },
+          detail: { path: target_path, type: deletedType },
           success: true,
         });
         toolCache.invalidateByValue(target_path);
         return success(
-          `Deleted ${stat.isDirectory() ? "directory" : "file"}: ${target_path}`,
+          `Deleted ${deletedType === "dir" ? "directory" : deletedType === "link" ? "link" : "file"}: ${target_path}`,
           {
             path: target_path,
-            type: stat.isDirectory() ? "dir" : "file",
+            type: deletedType,
           },
           SAFETY_META,
         );

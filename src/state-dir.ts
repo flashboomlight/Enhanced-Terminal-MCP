@@ -17,6 +17,7 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { logger } from "./logger.js";
+import { assertSafeStateRoot } from "./path-policy.js";
 
 /** 进程级固定 projectRoot：启动时计算一次，之后绝不变化 */
 const PROJECT_ROOT = (() => {
@@ -78,6 +79,7 @@ export async function ensureStateDir(): Promise<string> {
   const dir = await getStateDir();
   try {
     await fs.mkdir(dir, { recursive: true });
+    await assertSafeStateRoot(dir);
     return dir;
   } catch (e) {
     logger.warn("state-dir", "mkdir-failed", `${dir}: ${String(e)}`);

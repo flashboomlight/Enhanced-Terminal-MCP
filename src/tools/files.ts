@@ -11,10 +11,10 @@ import * as z from "zod";
 import { audit } from "../audit.js";
 import { toolCache } from "../cache.js";
 import { logger } from "../logger.js";
+import { atomicWriteFile, resolveForRead, resolveForWrite } from "../path-policy.js";
 import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { scanContent, shouldBlockSecretReads, shouldScanOnWrite } from "../scan.js";
-import { validatePath, validateRealPath } from "../security.js";
 import { formatSize } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 
@@ -59,8 +59,9 @@ export function registerFileTools(server: McpServer) {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("read_file", async ({ file_path, encoding, offset, lines }: ReadFileInput) => {
-      const pathErr = validatePath(file_path, "read_file");
-      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "file_path" });
+      const resolved = await resolveForRead(file_path, "read_file", "file_path");
+      if (!resolved.ok) return resolved.result;
+      const target = resolved.resolution.real;
 
       const VALID_ENCODINGS = new Set([
         "utf-8",
@@ -85,7 +86,7 @@ export function registerFileTools(server: McpServer) {
       }
 
       try {
-        const stat = await fs.stat(file_path);
+        const stat = await fs.stat(target);
         const startLine = Math.max(1, offset || 1);
         const maxLines = lines && lines > 0 ? lines : Infinity;
 
@@ -93,7 +94,7 @@ export function registerFileTools(server: McpServer) {
         let lineNum = 0;
         let reachedEnd = true;
         const rl = readline.createInterface({
-          input: createReadStream(file_path, { encoding: enc as BufferEncoding }),
+          input: createReadStream(target, { encoding: enc as BufferEncoding }),
           crlfDelay: Infinity,
         });
         for await (const line of rl) {
@@ -165,11 +166,11 @@ export function registerFileTools(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("write_file", async ({ file_path, content, append }: WriteFileInput) => {
-      const pathErr = validatePath(file_path, "write_file");
-      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "file_path" });
-      // symlink 二次校验：若 file_path 经解析指向系统/敏感目录则拒绝
-      const realErr = await validateRealPath(file_path, "write_file");
-      if (realErr) return fail(ErrorCode.PATH_FORBIDDEN, realErr, { retryable: false, param: "file_path" });
+      // no-follow 解析：目标/父链 symlink→敏感或系统目录拒绝，目标 symlink 直接拒绝
+      const resolved = await resolveForWrite(file_path, "write_file", "file_path");
+      if (!resolved.ok) return resolved.result;
+      const target = resolved.resolution.real;
+      const existed = resolved.resolution.existed;
 
       // 内容安全扫描（MCP_SECRETS_SCAN=off 跳过；超 4MB 跳过）
       if (shouldScanOnWrite() && Buffer.byteLength(content, "utf-8") <= SCAN_MAX_BYTES) {
@@ -184,30 +185,22 @@ export function registerFileTools(server: McpServer) {
         }
       }
 
-      // 仅覆写已有文件时触发安全确认
-      let existed = false;
-      try {
-        await fs.stat(file_path);
-        existed = true;
-      } catch (err) {
-        logger.debug("write_file", "stat-failed", String(err));
-      }
-
       if (existed && !append) {
         const block = await guardDestructiveAction("write_file", `覆写文件: ${file_path}`);
         if (block) return fail(ErrorCode.SAFETY_BLOCKED, block, { retryable: false, param: "file_path" });
       }
 
       try {
-        await fs.mkdir(path.dirname(file_path), { recursive: true });
+        await fs.mkdir(path.dirname(target), { recursive: true });
 
         if (append) {
-          await fs.appendFile(file_path, content, "utf-8");
+          await fs.appendFile(target, content, "utf-8");
         } else {
-          await fs.writeFile(file_path, content, "utf-8");
+          // 原子写：同目录 exclusive staging + rename 替换（不跟随目标 symlink）
+          await atomicWriteFile(target, content, "utf-8");
         }
 
-        const stat = await fs.stat(file_path);
+        const stat = await fs.stat(target);
         // 失效该文件及其父目录的缓存条目
         toolCache.invalidateByValue(file_path);
         toolCache.invalidateByValue(path.dirname(file_path));
@@ -264,8 +257,8 @@ export function registerFileTools(server: McpServer) {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("list_directory", async ({ dir_path, recursive, max_depth }: ListDirectoryInput) => {
-      const pathErr = validatePath(dir_path, "list_directory");
-      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+      const resolved = await resolveForRead(dir_path, "list_directory", "dir_path");
+      if (!resolved.ok) return resolved.result;
 
       try {
         const maxD = max_depth || 3;
@@ -321,7 +314,7 @@ export function registerFileTools(server: McpServer) {
         }
 
         lines.push(`Directory: ${dir_path}\n`);
-        await walk(dir_path, 0);
+        await walk(resolved.resolution.real, 0);
         logger.info("list_directory", "listed", dir_path);
 
         return success(
@@ -360,11 +353,11 @@ export function registerFileTools(server: McpServer) {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("file_info", async ({ target_path }: FileInfoInput) => {
-      const pathErr = validatePath(target_path, "file_info");
-      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "target_path" });
+      const resolved = await resolveForRead(target_path, "file_info", "target_path");
+      if (!resolved.ok) return resolved.result;
 
       try {
-        const stat = await fs.stat(target_path);
+        const stat = await fs.stat(resolved.resolution.real);
         return success(
           `${stat.isDirectory() ? "Directory" : "File"}: ${target_path}\nSize: ${formatSize(stat.size)}\nModified: ${stat.mtime.toISOString()}`,
           {
@@ -402,18 +395,19 @@ export function registerFileTools(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("make_directory", async ({ dir_path }: MakeDirectoryInput) => {
-      const pathErr = validatePath(dir_path, "make_directory");
-      if (pathErr) return fail(ErrorCode.PATH_FORBIDDEN, pathErr, { retryable: false, param: "dir_path" });
+      const resolved = await resolveForWrite(dir_path, "make_directory", "dir_path");
+      if (!resolved.ok) return resolved.result;
+      const target = resolved.resolution.real;
 
       try {
         let existed = false;
         try {
-          const s = await fs.stat(dir_path);
+          const s = await fs.stat(target);
           existed = s.isDirectory();
         } catch (err) {
           logger.debug("make_directory", "stat-failed", String(err));
         }
-        await fs.mkdir(dir_path, { recursive: true });
+        await fs.mkdir(target, { recursive: true });
         logger.info("make_directory", "created", dir_path);
         return success(`Created: ${dir_path}`, { path: dir_path, created: !existed });
       } catch (e: unknown) {

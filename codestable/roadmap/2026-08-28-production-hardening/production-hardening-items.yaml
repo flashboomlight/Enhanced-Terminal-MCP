@@ -37,10 +37,10 @@ items:
   - slug: path-policy-no-follow
     description: 统一 realpath、parent path、no-follow、symlink/reparse 和 TOCTOU 防护并覆盖文件、session、state、temp、page-cache 和归档操作
     depends_on: [hardening-contract-and-profiles]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-29-path-policy-no-follow
     minimal_loop: false
-    notes: 不替代宿主 sandbox；目标不存在时必须校验 parent，写入使用 staging/exclusive/atomic 语义，读取定义 snapshot/identity 语义
+    notes: 已完成并通过 acceptance；新增 src/path-policy.ts（resolveForRead/resolveForWrite/atomicWriteFile/assertSafeStateRoot）统一接入 files 五工具、manage 两工具、session cwd 恢复与 state/temp 根；读语义 real 解析重验、写/删/移 no-follow（symlink 目标拒绝，delete 对链接仅移除链接本身）、覆写走原子 staging+rename、state/temp 根防替换。归档内容的 Zip Slip 与下载路径注入归属 network-and-archive-safety；session_state.set_cwd 入口校验归属 tool-wrapper-and-surface-contract
 
   - slug: secret-redaction-and-state-protection
     description: 建立 streaming secret scan、命令/日志/error/result/prompt redaction、大小写不敏感 env policy 和安全 session/cache 持久化

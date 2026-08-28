@@ -119,6 +119,24 @@ describe("session", () => {
     expect(store2.lastCommand()).toBe("cmd1");
   });
 
+  test("rejects restoring a cwd that resolves into a sensitive directory", async () => {
+    const { SessionStore } = await import("../../src/session.js");
+    const sensitive = path.join(tmpStateDir, ".ssh");
+    await fs.mkdir(sensitive);
+    const link = path.join(tmpStateDir, "cwd-link");
+    await fs.symlink(sensitive, link, "junction");
+
+    const store = new SessionStore();
+    store.setCwd(link);
+    await store.flush();
+
+    const { SessionStore: SessionStore2 } = await import("../../src/session.js");
+    const store2 = new SessionStore2();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(store2.getCwd()).not.toBe(link);
+    expect(store2.getCwd()).toBe(process.cwd());
+  });
+
   test("legacy global state file is not auto-imported (hint only)", async () => {
     // 4.5：%TEMP%\.enhanced-terminal-mcp-session.json 不自动导入或删除，只记录提示
     const legacyPath = path.join(os.tmpdir(), ".enhanced-terminal-mcp-session.json");
