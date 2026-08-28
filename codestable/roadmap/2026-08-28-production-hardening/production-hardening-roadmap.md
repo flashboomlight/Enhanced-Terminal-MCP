@@ -816,12 +816,17 @@ no-match、达到结果/遍历/响应预算、权限错误、外部 CLI unavaila
 - 交付：session revision writer、migration/temp lease heartbeat + fencing/stale-lock recovery、audit serialized writer/rotation/retry、bounded audit queue/durable spool、TempManager cross-process quota、LRU oversized entry 保护、state permissions 和 degraded health。
 - 验收：并发写不丢最新 session；audit 写失败可见且不静默丢记录；entry/queue/file 大小受限；跨进程 temp quota 不超限且长操作不会被错误接管；health 不再无条件报告 ok。
 
-### 9. `tool-wrapper-and-surface-contract`
+### 9. `tool-wrapper-and-surface-contract`（状态：done）
 
 - 所属模块：tool-contract、MCP protocol
 - 依赖：`hardening-contract-and-profiles`，因为 wrapper 需要统一错误和 request context。
 - 交付：`wrapHandler` 未预期异常转换、MCP `(args, extra)` request context/cancellation、真实启用工具计数、action-dependent input schema、health/prompt/tools/list 一致性、structured result/response byte contract。
 - 验收：handler throw 返回 `INTERNAL_ERROR`；默认工具数 27、禁用 file_info 时 26；两种配置下 health/prompt/tools/list 一致；缺少 action 所需字段不会静默 no-op，异常/响应不会泄露原始 detail。
+- 当前 feature：2026-08-29-tool-wrapper-and-surface-contract
+- 设计：features/2026-08-29-tool-wrapper-and-surface-contract/tool-wrapper-and-surface-contract-design.md
+- checklist：features/2026-08-29-tool-wrapper-and-surface-contract/tool-wrapper-and-surface-contract-checklist.yaml
+- acceptance：features/2026-08-29-tool-wrapper-and-surface-contract/tool-wrapper-and-surface-contract-acceptance.md
+- 验收回写（2026-08-29）：新增 `src/tool-registry.ts` 以 SDK `RegisteredTool.enabled` 为唯一真源的真实启用计数（§5.7 activeCount/activeNames 适配），banner/health（新增 `tools.enabled/disabled`）/usage-guide/safety-info 与 `tools/list` 27/26 三面同源一致；`wrapHandler` try/catch 收敛未预期异常（取消逃逸→`CANCELLED`，其余经 `redactError`→`INTERNAL_ERROR`，telemetry 记录、错误不入缓存）；新增 `MCP_RESPONSE_MAX_BYTES`（默认 2 MiB）响应字节兜底，超限降级 `RESOURCE_LIMIT` envelope；session_state/environment_vars/network_info 缺参改 handler 层显式 `VALIDATION_ERROR` 并删除隐式 ping 127.0.0.1/localhost 默认（消除绕过 egress 校验的路径）；`capabilityGate` 接线五个披露面（local 零行为变化，sandboxed 未声明→`CAPABILITY_DENIED`）。设计期发现 SDK 1.29 `normalizeObjectSchema` 对 v3 ZodEffects 返回 undefined 会把 inputSchema 广告成空 schema，故 action 收紧不使用 schema refine（约束已记录，SDK 升级须连 patch 另行验证）。门禁全绿（全量 58 文件 752 用例、latency 24/24、tools coverage 59.41/49.52/67/63.31）。sandboxed 端到端 capability e2e 归 #12。
 
 ### 10. `search-and-adaptive-correctness`
 
@@ -1008,4 +1013,5 @@ git diff --check                     -> pass
 - 2026-08-28：完成 `bounded-command-execution` 实现与 acceptance（最小闭环达成）；新增 `src/command-budget.ts`，三个命令工具接入 finite/bounded schema 与 handler 二次校验，batch 建立 parent BudgetAccount（聚合预检、output 配额、wall-time deadline、parallel 共享 ledger）；审计修复 validator 字符计数与 boundedString 的 code point 同源差异；items.yaml 与本主文档已回写为 `done`。
 - 2026-08-29：完成 `path-policy-no-follow` 实现与 acceptance；新增 `src/path-policy.ts` 并统一接入 files/manage/session/state/temp——读语义 real 解析重验、写/删/移 no-follow、覆写原子 staging、state/temp 根防替换，关闭 SEC-03 的 symlink 与 TOCTOU 缺口（symlink→敏感目录读取收紧为拒绝）；items.yaml 与本主文档已回写为 `done`，解锁 `secret-redaction-and-state-protection` 与 `network-and-archive-safety`。
 - 2026-08-29：完成 `secret-redaction-and-state-protection` 实现与 acceptance；新增 `src/secret-governance.ts`（redactor + env policy + redactError），`fail()` 单点 ResultBoundary，logger/audit/prompt/confirmation/fatal 出口净化，session keys-only 持久化与 redacted history，env deny 大小写规范化，scan `complete` 语义 + strict fail-closed，`environment_vars` 值展示策略并移出缓存，session.json atomicWriteFile 与 POSIX 权限收紧，关闭 SEC-04/SEC-05 本范围缺口；items.yaml 与本主文档已回写为 `done`，解锁 `audit-health-and-state-writer`。
+- 2026-08-29：完成 `tool-wrapper-and-surface-contract` 实现与 acceptance；新增 `src/tool-registry.ts` 真实启用计数与 `capabilityGate` 五披露面接线，wrapHandler 建立 INTERNAL_ERROR/CANCELLED 异常边界与 MCP_RESPONSE_MAX_BYTES 响应兜底，三个 action 工具缺参显式拒绝并删除隐式默认 ping/lookup（关闭审计 REL-05/PRO-01/PRO-02 与 SEC-06 capability 部分）；items.yaml 与本主文档已回写为 `done`，解锁 `search-and-adaptive-correctness`。
 - 2026-08-29：完成 `network-and-archive-safety` 实现与 acceptance；新增 `src/network-policy.ts` 与 `src/zip-policy.ts`，download/extract 换纯 Node 实现并建立 SSRF 校验、直连已验证 IP、逐跳 redirect 重验、双路展开预算与 staging 两阶段解压，compress 增加源树预算预演，network_info 接入 egress 校验，关闭 REL-04/SEC-07 本范围缺口；items.yaml 与本主文档已回写为 `done`，解锁 `audit-health-and-state-writer` 与 `tool-wrapper-and-surface-contract`。

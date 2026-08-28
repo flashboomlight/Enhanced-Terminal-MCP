@@ -15,6 +15,7 @@ import { atomicWriteFile, resolveForRead, resolveForWrite } from "../path-policy
 import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { scanContent, shouldBlockSecretReads, shouldScanOnWrite } from "../scan.js";
+import { registerManagedTool } from "../tool-registry.js";
 import { formatSize } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 
@@ -41,7 +42,8 @@ export function registerFileTools(server: McpServer) {
   });
   type ReadFileInput = z.infer<typeof ReadFileInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "read_file",
     {
       title: "Read File",
@@ -159,7 +161,8 @@ export function registerFileTools(server: McpServer) {
   });
   type WriteFileInput = z.infer<typeof WriteFileInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "write_file",
     {
       title: "Write File",
@@ -260,7 +263,8 @@ export function registerFileTools(server: McpServer) {
   });
   type ListDirectoryInput = z.infer<typeof ListDirectoryInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "list_directory",
     {
       title: "List Directory",
@@ -355,7 +359,8 @@ export function registerFileTools(server: McpServer) {
   });
   type FileInfoInput = z.infer<typeof FileInfoInput>;
 
-  const fileInfoTool = server.registerTool(
+  const fileInfoTool = registerManagedTool(
+    server,
     "file_info",
     {
       title: "File Info",
@@ -406,7 +411,8 @@ export function registerFileTools(server: McpServer) {
   });
   type MakeDirectoryInput = z.infer<typeof MakeDirectoryInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "make_directory",
     {
       title: "Make Directory",

@@ -123,7 +123,7 @@ export type SsrfSurface = "download" | "network_info";
 export function getSsrfMode(surface: SsrfSurface): { mode: SsrfMode; warning?: string } {
   const raw = process.env.MCP_SSRF_MODE;
   const fallback: SsrfMode = surface === "download" ? "deny-private" : "allow-private";
-  if (!raw || !raw.trim()) return { mode: fallback };
+  if (!raw?.trim()) return { mode: fallback };
   const value = raw.toLowerCase().trim();
   if (value === "deny-private" || value === "allow-private") return { mode: value };
   return { mode: fallback, warning: `Unknown MCP_SSRF_MODE="${raw}", using surface default` };
@@ -397,7 +397,7 @@ interface RequestArgs {
 }
 
 async function requestOnce(args: RequestArgs): Promise<AttemptResult> {
-  const { url, address, staging, budget, maxBytes, signal } = args;
+  const { url, address, budget, signal } = args;
   const module: typeof http | typeof https = url.protocol === "https:" ? https : http;
   const remaining = Math.max(budget.deadlineAt - Date.now(), 1000);
   const defaultPort = url.protocol === "https:" ? 443 : 80;

@@ -5,7 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { boundedString, finiteInt, type RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
-import { getSsrfMode, validateTarget } from "../network-policy.js";
+import { validateTarget } from "../network-policy.js";
 import { getNetworkSpec, getProcessListSpec, getSystemInfoSpec } from "../platform.js";
 import {
   defaultProcessIdentityProvider,
@@ -19,11 +19,13 @@ import {
   parseKillTarget,
 } from "../process-identity.js";
 import { ManagedProcessError } from "../process-supervisor.js";
+import { capabilityGate } from "../profile.js";
 import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { envValueDisplayAllowed, getEnvValueMode, redactText, SENSITIVE_ENV_KEYWORDS } from "../secret-governance.js";
 import { validateHost } from "../security.js";
 import { getShellSpec, shellResolutionFail } from "../shell.js";
+import { registerManagedTool } from "../tool-registry.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 
@@ -53,7 +55,8 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
   const processIdentityProvider = dependencies.processIdentityProvider ?? defaultProcessIdentityProvider;
 
   // ====================================================================
-  server.registerTool(
+  registerManagedTool(
+    server,
     "get_system_info",
     {
       title: "Get System Info",
@@ -63,6 +66,8 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("get_system_info", async (_, context: RequestContext) => {
+      const denied = capabilityGate(context, "host-process-inspection");
+      if (denied) return denied;
       try {
         const spec = getSystemInfoSpec(await getShellSpec());
         const result = await safeExecFile(spec.file, spec.args, {
@@ -89,7 +94,8 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
   });
   type ProcessListInput = z.infer<typeof ProcessListInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "process_list",
     {
       title: "List Processes",
@@ -99,6 +105,8 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("process_list", async ({ filter, top }: ProcessListInput, context: RequestContext) => {
+      const denied = capabilityGate(context, "host-process-inspection");
+      if (denied) return denied;
       try {
         const spec = getProcessListSpec(filter, top || 20, await getShellSpec());
         const result = await safeExecFile(spec.file, spec.args, {
@@ -130,7 +138,8 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
   });
   type KillProcessInput = z.infer<typeof KillProcessInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "kill_process",
     {
       title: "Kill Process",
@@ -217,11 +226,12 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
       .enum(["config", "connections", "ping", "dns"])
       .optional()
       .describe("Action: config, connections, ping, dns. Default: config"),
-    target: z.string().optional().describe("Target host for ping/dns"),
+    target: z.string().optional().describe("Target host (required for ping/dns)"),
   });
   type NetworkInfoInput = z.infer<typeof NetworkInfoInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "network_info",
     {
       title: "Network Info",
@@ -231,9 +241,19 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     wrapHandler("network_info", async ({ action, target }: NetworkInfoInput, context: RequestContext) => {
+      const denied = capabilityGate(context, "network-egress");
+      if (denied) return denied;
       try {
         const act = action || "config";
-        if ((act === "ping" || act === "dns") && target) {
+        // egress 目标必填：拒绝缺参，不再隐式回退 127.0.0.1/localhost（该默认路径曾绕过校验）
+        if (act === "ping" || act === "dns") {
+          if (!target || target.trim().length === 0) {
+            return fail(ErrorCode.VALIDATION_ERROR, `target is required for action "${act}"`, {
+              retryable: true,
+              param: "target",
+              suggestion: "Provide the host to ping or resolve",
+            });
+          }
           const hostErr = validateHost(target);
           if (hostErr) return fail(ErrorCode.HOST_INVALID, hostErr, { retryable: true, param: "target" });
           // egress 校验（SEC-07）：目标经 DNS/IP 分类策略判定；默认 allow-private 保持诊断可用
@@ -261,11 +281,12 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
   // ====================================================================
   const EnvironmentVarsInput = z.object({
     action: z.enum(["get", "list"]).describe("get = get one var, list = list all"),
-    name: z.string().optional().describe("Variable name (for get)"),
+    name: z.string().optional().describe("Variable name (required for get)"),
   });
   type EnvironmentVarsInput = z.infer<typeof EnvironmentVarsInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "environment_vars",
     {
       title: "Environment Variables",
@@ -274,41 +295,54 @@ export function registerSystemTools(server: McpServer, dependencies: SystemToolD
       outputSchema: withErrorSchema(z.object({ vars: z.record(z.string()).optional(), value: z.string().optional() })),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    wrapHandler("environment_vars", async ({ action, name }: EnvironmentVarsInput): Promise<ToolResult> => {
-      try {
-        // 值展示策略告警由消费方输出（secret-governance 不导入 logger）
-        const { warning } = getEnvValueMode();
-        if (warning) logger.warn("environment_vars", "bad-env-value-mode", warning);
+    wrapHandler(
+      "environment_vars",
+      async ({ action, name }: EnvironmentVarsInput, context: RequestContext): Promise<ToolResult> => {
+        const denied = capabilityGate(context, "host-environment-read");
+        if (denied) return denied;
+        // get 缺 name 显式拒绝：不再静默降级为 list
+        if (action === "get" && (!name || name.trim().length === 0)) {
+          return fail(ErrorCode.VALIDATION_ERROR, 'name is required for action "get"', {
+            retryable: true,
+            param: "name",
+            suggestion: "Provide the environment variable name to read",
+          });
+        }
+        try {
+          // 值展示策略告警由消费方输出（secret-governance 不导入 logger）
+          const { warning } = getEnvValueMode();
+          if (warning) logger.warn("environment_vars", "bad-env-value-mode", warning);
 
-        if (action === "get" && name) {
-          if (SENSITIVE_ENV_KEYWORDS.test(name) || !envValueDisplayAllowed(name)) {
-            return success(`${name}=*** (hidden)`, { value: "***" });
+          if (action === "get" && name) {
+            if (SENSITIVE_ENV_KEYWORDS.test(name) || !envValueDisplayAllowed(name)) {
+              return success(`${name}=*** (hidden)`, { value: "***" });
+            }
+            const shown = redactText(process.env[name] || "");
+            return success(`${name}=${shown}`, { value: shown });
           }
-          const shown = redactText(process.env[name] || "");
-          return success(`${name}=${shown}`, { value: shown });
+
+          const vars: Record<string, string> = {};
+          const entries = Object.entries(process.env)
+            .filter(([k]) => k.length > 0)
+            .sort(([a], [b]) => a.localeCompare(b));
+
+          for (const [k, v] of entries) {
+            // 白名单外/敏感 key 掩码；展示值过 redactor
+            vars[k] = envValueDisplayAllowed(k) ? redactText(String(v ?? "")) : "***";
+          }
+
+          const allLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`);
+          const maxVars = 100;
+          const truncated = allLines.length > maxVars;
+          const text = truncated
+            ? `${allLines.slice(0, maxVars).join("\n")}\n... (${allLines.length - maxVars} more)`
+            : allLines.join("\n");
+          return success(`Environment Variables (sensitive keys hidden):\n${text}`, { vars });
+        } catch (e: unknown) {
+          const m = e instanceof Error ? e.message : String(e);
+          return Errors.executionFailed(m);
         }
-
-        const vars: Record<string, string> = {};
-        const entries = Object.entries(process.env)
-          .filter(([k]) => k.length > 0)
-          .sort(([a], [b]) => a.localeCompare(b));
-
-        for (const [k, v] of entries) {
-          // 白名单外/敏感 key 掩码；展示值过 redactor
-          vars[k] = envValueDisplayAllowed(k) ? redactText(String(v ?? "")) : "***";
-        }
-
-        const allLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`);
-        const maxVars = 100;
-        const truncated = allLines.length > maxVars;
-        const text = truncated
-          ? `${allLines.slice(0, maxVars).join("\n")}\n... (${allLines.length - maxVars} more)`
-          : allLines.join("\n");
-        return success(`Environment Variables (sensitive keys hidden):\n${text}`, { vars });
-      } catch (e: unknown) {
-        const m = e instanceof Error ? e.message : String(e);
-        return Errors.executionFailed(m);
-      }
-    }),
+      },
+    ),
   );
 }

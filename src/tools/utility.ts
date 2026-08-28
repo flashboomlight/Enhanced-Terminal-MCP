@@ -18,8 +18,9 @@ import { session } from "../session.js";
 import { getStateDirSync } from "../state-dir.js";
 import { telemetry } from "../telemetry.js";
 import { tempManager } from "../temp-manager.js";
+import { getAllRegisteredToolNames, getRegisteredToolCount, registerManagedTool } from "../tool-registry.js";
 import { VERSION } from "../version.js";
-import { getRegisteredToolCount, wrapHandler } from "../wrap.js";
+import { wrapHandler } from "../wrap.js";
 
 /** 格式化缓存清理结果文本 */
 export function formatCacheInvalidateMessage(tool: string | undefined, cleared: number): string {
@@ -102,7 +103,8 @@ export function formatTelemetryText(
 
 export function registerUtilityTools(server: McpServer) {
   // ====================================================================
-  server.registerTool(
+  registerManagedTool(
+    server,
     "telemetry_report",
     {
       title: "Telemetry Report",
@@ -156,7 +158,8 @@ export function registerUtilityTools(server: McpServer) {
   );
 
   // ====================================================================
-  server.registerTool(
+  registerManagedTool(
+    server,
     "cache_stats",
     {
       title: "Cache Statistics",
@@ -186,7 +189,8 @@ export function registerUtilityTools(server: McpServer) {
   );
 
   // ====================================================================
-  server.registerTool(
+  registerManagedTool(
+    server,
     "cache_invalidate",
     {
       title: "Invalidate Cache",
@@ -217,7 +221,8 @@ export function registerUtilityTools(server: McpServer) {
   );
 
   // ====================================================================
-  server.registerTool(
+  registerManagedTool(
+    server,
     "session_state",
     {
       title: "Session State",
@@ -226,9 +231,9 @@ export function registerUtilityTools(server: McpServer) {
         action: z
           .enum(["get", "set_cwd", "set_env", "reset"])
           .describe("get=view state, set_cwd=change working dir, set_env=set env var, reset=clear session"),
-        cwd: z.string().optional().describe("New working directory (for set_cwd)"),
-        key: z.string().optional().describe("Env var name (for set_env)"),
-        value: z.string().optional().describe("Env var value (for set_env)"),
+        cwd: z.string().optional().describe("New working directory (required for set_cwd)"),
+        key: z.string().optional().describe("Env var name (required for set_env)"),
+        value: z.string().optional().describe("Env var value (required for set_env; may be empty string)"),
       }),
       outputSchema: withErrorSchema(
         z.object({
@@ -263,6 +268,14 @@ export function registerUtilityTools(server: McpServer) {
             retryable: false,
             param: "action",
             suggestion: "Use one of: get, set_cwd, set_env, reset",
+          });
+        }
+        // set_cwd 缺 cwd 显式拒绝：不再静默返回快照
+        if (action === "set_cwd" && (!cwd || cwd.trim().length === 0)) {
+          return fail(ErrorCode.VALIDATION_ERROR, 'cwd is required for action "set_cwd"', {
+            retryable: true,
+            param: "cwd",
+            suggestion: "Provide the new working directory",
           });
         }
         if (action === "set_cwd" && cwd) {
@@ -307,6 +320,14 @@ export function registerUtilityTools(server: McpServer) {
             success: true,
           });
           changed = true;
+        }
+        // set_env 缺 key/value 显式拒绝：不再静默返回快照（value 允许空串，但必须出现）
+        if (action === "set_env" && (!key || key.trim().length === 0 || value === undefined)) {
+          return fail(ErrorCode.VALIDATION_ERROR, 'key and value are required for action "set_env"', {
+            retryable: true,
+            param: value === undefined ? "value" : "key",
+            suggestion: "Provide the env var name and value (value may be an empty string)",
+          });
         }
         if (action === "set_env" && key && value !== undefined) {
           const keyErr = validateEnvKey(key);
@@ -370,7 +391,8 @@ export function registerUtilityTools(server: McpServer) {
   );
 
   // ====================================================================
-  server.registerTool(
+  registerManagedTool(
+    server,
     "pool_stats",
     {
       title: "Process Pool Stats",
@@ -401,7 +423,8 @@ export function registerUtilityTools(server: McpServer) {
   );
 
   // ====================================================================
-  server.registerTool(
+  registerManagedTool(
+    server,
     "temp_stats",
     {
       title: "Temp Resource Stats",
@@ -461,6 +484,10 @@ export function registerUtilityTools(server: McpServer) {
               session: session.snapshot(),
               temp: tempStats,
               audit: { ...auditSummary, log_file: auditLogFile },
+              tools: {
+                enabled: getRegisteredToolCount(),
+                disabled: getAllRegisteredToolNames().length - getRegisteredToolCount(),
+              },
             },
             null,
             2,

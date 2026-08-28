@@ -17,6 +17,7 @@ import { getRegex } from "../regex.js";
 import { ErrorCode, Errors, fail, success, withErrorSchema } from "../result.js";
 import { validatePath } from "../security.js";
 import { buildShellInvocation, getShellSpec } from "../shell.js";
+import { registerManagedTool } from "../tool-registry.js";
 import { wrapHandler } from "../wrap.js";
 
 function errMsg(e: unknown): string {
@@ -68,7 +69,8 @@ export function registerSearchTools(server: McpServer) {
   });
   type SearchFilesInput = z.infer<typeof SearchFilesInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "search_files",
     {
       title: "Search Files",
@@ -173,7 +175,8 @@ export function registerSearchTools(server: McpServer) {
   });
   type EverythingSearchInput = z.infer<typeof EverythingSearchInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "everything_search",
     {
       title: "Everything Search",
@@ -248,7 +251,8 @@ export function registerSearchTools(server: McpServer) {
   });
   type GrepContentInput = z.infer<typeof GrepContentInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "grep_content",
     {
       title: "Grep Content",

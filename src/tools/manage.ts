@@ -19,6 +19,7 @@ import {
   type SafetyDecision,
 } from "../safeguard.js";
 import { validatePath } from "../security.js";
+import { registerManagedTool } from "../tool-registry.js";
 import { wrapHandler } from "../wrap.js";
 
 const SAFETY_META = { safety_protocol_version: getSafetyProtocolVersion() as 2, latency_ms: 0 } as const;
@@ -72,7 +73,8 @@ export function registerManageTools(server: McpServer) {
   });
   type CopyMoveInput = z.infer<typeof CopyMoveInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "copy_move",
     {
       title: "Copy or Move",
@@ -134,7 +136,8 @@ export function registerManageTools(server: McpServer) {
   });
   type DeletePathInput = z.infer<typeof DeletePathInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "delete_path",
     {
       title: "Delete Path",

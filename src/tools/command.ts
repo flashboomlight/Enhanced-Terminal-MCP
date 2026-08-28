@@ -48,6 +48,7 @@ import {
 import { describeSafetyDecision, guardCommandByRisk, guardDestructiveAction } from "../safeguard.js";
 import { session } from "../session.js";
 import { buildShellInvocation, getShellSpec, shellResolutionFail } from "../shell.js";
+import { registerManagedTool } from "../tool-registry.js";
 import { wrapHandler } from "../wrap.js";
 
 /** 前置安全预检：策略（hardBlock + blocklist/allow）。返回错误 ToolResult 或 null（通过） */
@@ -354,7 +355,8 @@ export function registerCommandTools(server: McpServer) {
   });
   type ExecuteCommandInput = z.infer<typeof ExecuteCommandInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "execute_command",
     {
       title: "Execute Terminal Command",
@@ -504,7 +506,8 @@ export function registerCommandTools(server: McpServer) {
   });
   type BatchExecuteInput = z.infer<typeof BatchExecuteInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "batch_execute",
     {
       title: "Batch Execute Commands",
@@ -751,7 +754,8 @@ export function registerCommandTools(server: McpServer) {
   });
   type WatchCommandInput = z.infer<typeof WatchCommandInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "watch_command",
     {
       title: "Watch Command Output",

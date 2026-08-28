@@ -19,9 +19,11 @@ import { createDownloadBudget, downloadToFile } from "../network-policy.js";
 import { resolveForRead, resolveForWrite } from "../path-policy.js";
 import { getCompressSpec } from "../platform.js";
 import { ManagedProcessError } from "../process-supervisor.js";
+import { capabilityGate } from "../profile.js";
 import { ErrorCode, Errors, fail, success, type ToolResult, withErrorSchema } from "../result.js";
 import { guardDestructiveAction } from "../safeguard.js";
 import { getShellSpec, shellResolutionFail } from "../shell.js";
+import { registerManagedTool } from "../tool-registry.js";
 import { safeExecFile } from "../utils.js";
 import { wrapHandler } from "../wrap.js";
 import { extractArchive, getCompressBudgets, readManifest } from "../zip-policy.js";
@@ -84,7 +86,8 @@ export function registerArchiveTools(server: McpServer) {
   });
   type CompressArchiveInput = z.infer<typeof CompressArchiveInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "compress_archive",
     {
       title: "Compress Archive",
@@ -148,7 +151,8 @@ export function registerArchiveTools(server: McpServer) {
   });
   type ExtractArchiveInput = z.infer<typeof ExtractArchiveInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "extract_archive",
     {
       title: "Extract Archive",
@@ -225,7 +229,8 @@ export function registerArchiveTools(server: McpServer) {
   });
   type DownloadFileInput = z.infer<typeof DownloadFileInput>;
 
-  server.registerTool(
+  registerManagedTool(
+    server,
     "download_file",
     {
       title: "Download File",
@@ -236,6 +241,8 @@ export function registerArchiveTools(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     wrapHandler("download_file", async ({ url, save_path }: DownloadFileInput, context: RequestContext) => {
+      const denied = capabilityGate(context, "network-egress");
+      if (denied) return denied;
       const dstRes = await resolveForWrite(save_path, "download:save_path", "save_path");
       if (!dstRes.ok) return dstRes.result;
       const saveReal = dstRes.resolution.real;

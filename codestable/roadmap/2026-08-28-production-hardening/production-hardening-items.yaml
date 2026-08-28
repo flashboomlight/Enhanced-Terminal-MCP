@@ -69,10 +69,10 @@ items:
   - slug: tool-wrapper-and-surface-contract
     description: 统一 wrapHandler 异常兜底、MCP request context/cancellation、action schema、structured result/response budget 和真实启用工具数量
     depends_on: [hardening-contract-and-profiles]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-29-tool-wrapper-and-surface-contract
     minimal_loop: false
-    notes: handler throw 必须映射 INTERNAL_ERROR；27/26 tools、health、prompt 和 tools/list 必须一致；不能因 action 缺参静默 no-op
+    notes: 已完成并通过 acceptance；新增 src/tool-registry.ts（registerManagedTool 记账，getRegisteredToolCount/getEnabledToolNames 读 SDK RegisteredTool.enabled，§5.7 activeCount/activeNames 适配），27 处注册点机械替换后工具文件零 server.registerTool 残留；wrapHandler try/catch 收敛 rejected promise（aborted/AbortError→CANCELLED，其余经 redactError→INTERNAL_ERROR，错误不入缓存）；MCP_RESPONSE_MAX_BYTES（默认 2 MiB，非法回落+warn）超限→RESOURCE_LIMIT；session_state/environment_vars/network_info 缺参 handler 层显式 VALIDATION_ERROR（param 指向缺失字段；SDK 1.29 normalizeObjectSchema 对 v3 ZodEffects 返回 undefined 会把 inputSchema 广告成空 schema，故不用 schema refine，隐式 ping 127.0.0.1/localhost 默认删除）；capabilityGate 接线 process_list/get_system_info/network_info/download_file/environment_vars 五披露面（local 全放行，sandboxed 未声明→CAPABILITY_DENIED）；health 增加 tools.enabled/disabled，banner/usage-guide/prompt 与 tools/list 27/26 三面同源一致（e2e 双配置验证）。sandboxed 端到端 capability e2e 归 #12；SDK 升级属独立 feature
 
   - slug: search-and-adaptive-correctness
     description: 修复 everything_search 错误吞掉、native search partial-result/预算/取消、目录边界、Unix process filter 和 adaptive timeout 语义不一致

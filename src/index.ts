@@ -24,6 +24,7 @@ import { initSafeGuard } from "./safeguard.js";
 import { redactError } from "./secret-governance.js";
 import { session } from "./session.js";
 import { tempManager } from "./temp-manager.js";
+import { getRegisteredToolCount } from "./tool-registry.js";
 import { registerArchiveTools } from "./tools/archive.js";
 // 工具模块
 import { registerCommandTools } from "./tools/command.js";
@@ -33,7 +34,6 @@ import { registerSearchTools } from "./tools/search.js";
 import { registerSystemTools } from "./tools/system.js";
 import { registerUtilityTools } from "./tools/utility.js";
 import { VERSION } from "./version.js";
-import { getRegisteredToolCount } from "./wrap.js";
 
 /** 读取审计日志资源，兼容裸 URI 与带 limit 查询参数的 URI。 */
 async function readAuditLog(uri: URL) {

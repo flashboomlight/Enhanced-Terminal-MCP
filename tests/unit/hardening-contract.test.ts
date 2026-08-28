@@ -11,6 +11,7 @@ import {
 } from "../../src/hardening-contract.js";
 import {
   assertProfileAvailable,
+  capabilityGate,
   createCapabilityPolicy,
   createRequestContext,
   getActiveExecutionProfile,
@@ -136,6 +137,22 @@ describe("hardening contract", () => {
       allowed: false,
       code: "CAPABILITY_DENIED",
     });
+  });
+
+  test("capabilityGate returns null for local profile and CAPABILITY_DENIED for sandbox", () => {
+    const controller = new AbortController();
+    const localContext = createRequestContext({ requestId: 3, signal: controller.signal }, "local-trusted-shell");
+    expect(capabilityGate(localContext, "host-process-inspection")).toBeNull();
+    expect(capabilityGate(localContext, "host-environment-read")).toBeNull();
+
+    const sandboxContext = createRequestContext({ requestId: 4, signal: controller.signal }, "sandboxed-production");
+    const denial = capabilityGate(sandboxContext, "host-environment-read");
+    expect(denial).not.toBeNull();
+    expect(denial?.ok).toBe(false);
+    if (!denial?.ok) {
+      expect(denial.error.code).toBe(ErrorCode.CAPABILITY_DENIED);
+      expect(denial.error.detail).toMatchObject({ capability: "host-environment-read" });
+    }
   });
 
   test("parent and child accounts share ledger and cancellation", () => {

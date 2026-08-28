@@ -173,11 +173,15 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 `network-and-archive-safety` 已完成实现与 acceptance，roadmap item 已回写为 `done`，验收报告为 `codestable/features/2026-08-29-network-and-archive-safety/network-and-archive-safety-acceptance.md`。已落地：`src/network-policy.ts`（IP 分类矩阵唯一来源、deny-private/allow-private SSRF 策略按 surface 拆分默认、直连已验证 IP + servername=SNI 关闭 DNS rebinding、redirect 每跳重新解析校验、字节预算与绝对 deadline 跨重试共享、代理环境变量零读取）与 `src/zip-policy.ts`（EOCD/ZIP64/CD manifest、Zip Slip/驱动器号/UNC/保留设备名/链接设备加密条目拒绝、manifest 预检 + 实时计数双路展开预算、压缩比守卫、staging 两阶段解压零残留）；`download_file`/`extract_archive` 从 `Invoke-WebRequest`/`curl`/`Expand-Archive` 换为纯 Node 实现（零新增运行时依赖），`compress_archive` spawn 前源树预算预演，`network_info` ping/dns 接入 egress 校验；9 个配置项拍板进 README。原始 REL-04/SEC-07 的本范围缺口已闭合；capability/host-disclosure 矩阵归属 `tool-wrapper-and-surface-contract`。门禁全绿（全量 56 文件 736 用例、latency 24/24、tools coverage 58.27/47.88/65/61.78）。
 
+#### 6.9 tool-wrapper-and-surface-contract 实施状态
+
+`tool-wrapper-and-surface-contract` 已完成实现与 acceptance，roadmap item 已回写为 `done`，验收报告为 `codestable/features/2026-08-29-tool-wrapper-and-surface-contract/tool-wrapper-and-surface-contract-acceptance.md`。已落地：`src/tool-registry.ts` 以 SDK `RegisteredTool.enabled` 为唯一真源的真实启用计数（banner/health 新增 `tools.enabled/disabled`/usage-guide/safety-info 与 `tools/list` 27/26 三面同源，关闭 PRO-01）；`wrapHandler` try/catch 边界（取消逃逸→`CANCELLED`，其余经 `redactError`→`INTERNAL_ERROR`，telemetry 记录、错误不入缓存，关闭 REL-05）；`MCP_RESPONSE_MAX_BYTES`（默认 2 MiB）响应字节兜底（超限→`RESOURCE_LIMIT`）；session_state/environment_vars/network_info 缺参 handler 层显式 `VALIDATION_ERROR`，隐式 ping 127.0.0.1/localhost 默认删除；`capabilityGate` 接线五个披露面（SEC-06 capability 矩阵部分，local 零行为变化）；PRO-02 以 e2e 断言 `pool_stats.active=false` 固化。设计期发现 SDK 1.29 `normalizeObjectSchema` 对 v3 ZodEffects 返回 undefined 会把 inputSchema 广告成空 schema，故 action 收紧不使用 schema refine；该约束影响后续需要 discriminated union 入参的 feature。门禁全绿（全量 58 文件 752 用例、latency 24/24、tools coverage 59.41/49.52/67/63.31）。
+
 ### 7. 推荐修复顺序
 
 这是执行建议，不是对产品边界的替代决策：
 
-1. **Release stop**：`kill_process` identity、SEC-02 依赖 audit、REL-01/REL-06 npm/source bootstrap 和 package evidence、全局 child-process registry/cancellation/shutdown（`process-supervisor-and-cancellation`）、三个命令工具的 finite/bounded schema 与 parent budget（`bounded-command-execution`，最小闭环达成）、文件路径 symlink/TOCTOU/no-follow（`path-policy-no-follow`，SEC-03 收口）、session/audit/logger/prompt/error/cache 的秘密治理与 env 大小写策略（`secret-redaction-and-state-protection`，SEC-04/SEC-05 收口）已完成；下一步按 DAG 推进 `tool-wrapper-and-surface-contract`（依赖 #1）、`audit-health-and-state-writer`（依赖 #6+#2 均已满足）；`search-and-adaptive-correctness` 等 #9。
+1. **Release stop**：`kill_process` identity、SEC-02 依赖 audit、REL-01/REL-06 npm/source bootstrap 和 package evidence、全局 child-process registry/cancellation/shutdown（`process-supervisor-and-cancellation`）、三个命令工具的 finite/bounded schema 与 parent budget（`bounded-command-execution`，最小闭环达成）、文件路径 symlink/TOCTOU/no-follow（`path-policy-no-follow`，SEC-03 收口）、session/audit/logger/prompt/error/cache 的秘密治理与 env 大小写策略（`secret-redaction-and-state-protection`，SEC-04/SEC-05 收口）已完成；`tool-wrapper-and-surface-contract`（#9，REL-05/PRO-01/PRO-02 与 SEC-06 capability 部分收口）已完成；下一步按 DAG 推进 `audit-health-and-state-writer`（依赖 #6+#2 均已满足）；`search-and-adaptive-correctness` 的 #9 前置已满足。
 2. **Resource stop**：统一所有 MCP 输入的 finite/bounded schema，补 parent/child/batch/tree/response/queue budget、限流和所有 child-process registry，接入 cancellation 与 descendant termination。
 3. **Security hardening**：完成 symlink/TOCTOU/no-follow、session cwd/state 根、capability/host disclosure、env key 大小写归一化、状态/日志/result/prompt redaction、状态文件权限和 SSRF/DNS/proxy/ZIP 预算。
 4. **Correctness and gate hardening**：修复 search partial-result、Unix process filter、adaptive 语义、100ms TTL flaky 和 Windows rename；CI 加主 coverage、dependency audit、package dry-run、MCP conformance、canonical gate、支持平台和 hostile-input 套件。
@@ -191,7 +195,7 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 ## 后续建议
 
-`path-policy-no-follow` 已验收完成；建议下一步按 DAG 推进 `secret-redaction-and-state-protection` 或 `network-and-archive-safety`（依赖已满足），`tool-wrapper-and-surface-contract` 亦可并行；当秘密、网络、状态、wrapper、搜索和依赖发布项都完成后，再由 `security-and-mcp-conformance-gates` 做一次全量 acceptance 级生产审计。
+截至 2026-08-29，#1/#2/#3/#4/#5/#6/#7/#9/#11 共 9 条已完成。建议下一步按 DAG 推进 `audit-health-and-state-writer`（#8，依赖已满足），随后 `search-and-adaptive-correctness`（#10，前置 #9 已满足）；当 #8/#10 完成后，再由 `security-and-mcp-conformance-gates` 做一次全量 acceptance 级生产审计，最后 `docs-and-architecture-closeout` 收口。
 
 ## 相关文档
 

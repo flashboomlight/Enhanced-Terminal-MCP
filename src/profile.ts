@@ -11,6 +11,7 @@ import type {
   RequestContext,
   RequestHandlerExtraLike,
 } from "./hardening-contract.js";
+import { Errors, type ToolResult } from "./result.js";
 
 export interface ProfileAvailability {
   localTrustedShell: boolean;
@@ -145,4 +146,20 @@ export function createCapabilityPolicy(hostCapabilities: Iterable<Capability> = 
       };
     },
   };
+}
+
+const defaultCapabilityPolicy = createCapabilityPolicy();
+
+/**
+ * capability 门禁：返回 null 表示放行；否则返回 CAPABILITY_DENIED ToolError。
+ * local-trusted-shell 全放行（零行为变化）；sandboxed-production 仅放行宿主声明的能力。
+ * 披露面工具在 handler 首行调用，保证拒绝发生在任何 spawn/读盘之前。
+ */
+export function capabilityGate(context: RequestContext, capability: Capability): ToolResult | null {
+  const decision = defaultCapabilityPolicy.check(context, capability);
+  if (decision.allowed) return null;
+  return Errors.capabilityDenied(decision.reason ?? "Capability denied by execution profile", {
+    capability,
+    profile: context.profile,
+  });
 }

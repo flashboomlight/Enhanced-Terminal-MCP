@@ -112,7 +112,8 @@ The source checkout and npm consumer paths are intentionally separate: setup.bat
 | `MCP_ARCHIVE_MAX_EXPANDED_BYTES` | `1073741824` | Max total expanded bytes per extraction (1 GiB); enforced twice (manifest pre-check + live counting). |
 | `MCP_ARCHIVE_MAX_INPUT_BYTES` | `1073741824` | Max total source bytes for `compress_archive` (1 GiB); rejected before spawning the compressor. |
 | `MCP_ARCHIVE_MAX_RATIO` | `200` | Max expanded/compressed ratio, applied only to members expanding beyond 64 MiB (zip bomb guard). |
-| `ENHANCED_TERMINAL_DISABLE_FILE_INFO` | — | Set to `1` to disable the `file_info` tool; the tool surface drops from 27 to 26 tools. |
+| `MCP_RESPONSE_MAX_BYTES` | `2097152` | Hard cap on the serialized tool response (text content + structured content, UTF-8 bytes). Oversized successful responses are downgraded to a `RESOURCE_LIMIT` error envelope; invalid values fall back to the default with a warning. There is no unlimited setting. |
+| `ENHANCED_TERMINAL_DISABLE_FILE_INFO` | — | Set to `1` to disable the `file_info` tool; the tool surface drops from 27 to 26 tools. Banner, `health://status` (`tools.enabled/disabled`) and the usage-guide prompt report the same enabled count as `tools/list`. |
 
 ### Windows Default Shell (pwsh 7)
 

@@ -251,4 +251,18 @@ describe("system tools decision paths (unit)", () => {
     expect(result?.isError).toBe(true);
     expect(result?.structuredContent.error).toMatchObject({ code: "HOST_INVALID", param: "target" });
   });
+
+  test("network_info ping without target is rejected, not silently defaulted", async () => {
+    const result = await registerTools().get("network_info")?.handler({ action: "ping" });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "target" });
+  });
+
+  test("environment_vars get without name is rejected, not silently downgraded to list", async () => {
+    const result = await registerTools().get("environment_vars")?.handler({ action: "get" });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.structuredContent.error).toMatchObject({ code: "VALIDATION_ERROR", param: "name" });
+  });
 });

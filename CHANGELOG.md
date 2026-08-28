@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tool surface contract: `wrapHandler` now converts unexpected handler throws into `INTERNAL_ERROR` tool results (messages pass the secret redactor; cancellation escapes map to `CANCELLED`) instead of rejecting the promise, and enforces a response byte budget via `MCP_RESPONSE_MAX_BYTES` (default 2 MiB; oversized responses become `RESOURCE_LIMIT` error envelopes). Tool count sources (startup banner, `health://status` `tools.enabled/disabled`, usage-guide prompt) now derive from the real enabled tool registry, matching `tools/list` (27/26).
+- `session_state` (`set_cwd` requires `cwd`; `set_env` requires `key`+`value`), `environment_vars` (`get` requires `name`), and `network_info` (`ping`/`dns` require `target`) now reject missing action-dependent fields with `VALIDATION_ERROR` instead of silently no-op'ing; the implicit ping-to-127.0.0.1 / nslookup-to-localhost defaults (which bypassed host and egress validation) were removed.
+- Capability matrix wired in: `process_list`, `get_system_info`, `network_info`, `download_file`, and `environment_vars` check the execution profile capability policy; `local-trusted-shell` is unchanged, an undeclared capability under `sandboxed-production` returns `CAPABILITY_DENIED`.
 - Refreshed the SDK 1.29.0 dependency tree to patched transitive versions with a blocking `pnpm audit --prod --audit-level=high` release check; the SDK wire/API compatibility baseline remains unchanged.
 - Added `prepack` clean builds, self-contained source maps, an explicit MIT `LICENSE`, source/npm bootstrap separation, and the zero-dependency `scripts/verify-package.mjs` tarball verifier with SHA-256 evidence.
 - Added an explicit `tsx` devDependency for the `dev` source entry; source bootstrap now validates Node 20+/pnpm 11.21.0 and supports `--non-interactive`.
