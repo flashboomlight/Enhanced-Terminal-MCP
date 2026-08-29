@@ -10,6 +10,4 @@
 *.ico binary
 *.zip binary
 *.db binary
-# 特定文件保持二进制
-es_tool/es.exe filter=lfs diff=lfs merge=lfs -text
-es_tool/*.exe filter=lfs diff=lfs merge=lfs -text
+# es_tool/*.exe 直接以普通二进制入库（136KB，曾用 LFS，为免克隆端依赖 git-lfs 已拆除）
