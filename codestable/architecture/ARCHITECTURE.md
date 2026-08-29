@@ -229,6 +229,8 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 
 - 2026-08-29：`linux-fd-search` 完成验收（Linux  parity 差距清单第 6 项）——新增 `src/fd-resolver.ts`（`ENHANCED_TERMINAL_FD_PATH` 显式 fail-closed → PATH `fd`/`fdfind` → unavailable，进程级缓存，诊断不含 PATH 原值，运行期不下载）；非 Windows `search_files` 接入可选 fd 引擎加速（全 argv 无 shell、stderr 非空行→`FD_PARTIAL_ERRORS`+`complete=false`、exec 失败→`FD_EXEC_FAILED`+native 兜底、abort→`CANCELLED`）；`WARNING_CODES` 纯增量两码；工具数 27/26 与 outputSchema 不变。真实 fd 10.4.2 冒烟钉死 `--absolute-path` flag 名（设计稿复数形被 fd 拒绝）。同日另有 Linux parity 三个 test/docs/CI issue 收口（Windows 耦合单测补平台守卫、latency best-of-3 采样防抖 + coverage 阈值平台化、README Linux Notes + CI ubuntu 单测 job）。release gate 11/11 通过（71 文件 841 用例、25 跳过、主 coverage lines 82.09/branches 71.72/functions 82.16/statements 79.11、tools coverage lines 63.38 达标、latency 通过）。
 
+- 2026-08-30：`path-policy-no-follow` 后续审计修复——`resolveForWrite` 缺失目标分支由"仅重验直接父目录、父不存在即放行"收紧为"沿祖先链向上重验最近存在的祖先（real = 祖先 real + 剩余段），仅整条链不存在时放行"；关闭深层缺失路径经 symlink 祖先穿透敏感/系统目录的路径（design/acceptance 同步回写偏差）。新增 2 用例（敏感祖先深层缺失拒绝、普通祖先深层缺失放行并解析到真实落点）；release gate 11/11 全绿（71 文件 868 用例、843 过 25 跳、主/tools coverage 与 latency 达标）。
+
 ## 7. 规划入口（非现状）
 
 规划层只保留历史与边界决策（勿把计划写回本节当现状）；当前进度与下一步见项目根 `STATUS.md`：

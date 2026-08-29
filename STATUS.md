@@ -5,7 +5,7 @@
 
 - **快照时间**：2026-08-30
 - **当前 HEAD**：本 feature 收口提交（`feat: accelerate search_files on Linux/macOS with optional fd engine`；Linux parity 差距清单 6 项全闭环：3 个 issue + feature `2026-08-29-linux-fd-search` 落库；Linux release gate 11/11）
-- **最近一次全量回归**：`pnpm run gate`（release 模式）11 阶段全部 passed（71 文件 841 用例、25 跳过、0 失败；主 coverage lines 82.09/branches 71.72/functions 82.16/statements 79.11、tools coverage lines 63.38、latency 通过）——Linux VPS 上含 fd 引擎接入后的回归
+- **最近一次全量回归**：`pnpm run gate`（release 模式）11 阶段全部 passed（71 文件 868 用例、843 过 25 跳过、0 失败；主 coverage lines/branches/functions/statements 与 tools coverage 达标、latency 24/24 全 PASS、dependency-audit 0 漏洞、package-verifier/pack-consumer/clean-consumer 通过）——2026-08-30 多轮全量审核第 3 轮门禁（含 `2026-08-29-path-policy-no-follow` 后续审计修复：深层缺失目标祖先链重验）
 
 ## 1. 项目一句话
 

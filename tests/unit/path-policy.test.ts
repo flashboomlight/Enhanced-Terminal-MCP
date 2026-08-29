@@ -108,6 +108,36 @@ describe("path-policy", () => {
       const r = await resolveForWrite(target, "write_file", "file_path");
       expect(r.ok).toBe(true);
     });
+
+    test("rejects a missing target below a symlinked ancestor into a sensitive directory", async () => {
+      const sensitive = path.join(workDir, ".ssh");
+      await fs.mkdir(sensitive);
+      const link = path.join(workDir, "parent-link");
+      await fs.symlink(sensitive, link, "junction");
+      const target = path.join(link, "missing", "file.txt");
+
+      const r = await resolveForWrite(target, "write_file", "file_path");
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.result.error?.code).toBe("PATH_FORBIDDEN");
+        expect(r.result.error?.message).toMatch(/sensitive/);
+      }
+    });
+
+    test("resolves a missing target below an ordinary symlinked ancestor to the real landing path", async () => {
+      const realParent = path.join(workDir, "real-parent");
+      await fs.mkdir(realParent);
+      const link = path.join(workDir, "parent-link");
+      await fs.symlink(realParent, link);
+      const target = path.join(link, "missing", "file.txt");
+
+      const r = await resolveForWrite(target, "write_file", "file_path");
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.resolution.existed).toBe(false);
+        expect(r.resolution.real).toBe(path.join(realParent, "missing", "file.txt"));
+      }
+    });
   });
 
   describe("atomicWriteFile", () => {

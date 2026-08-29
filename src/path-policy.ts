@@ -61,7 +61,8 @@ export async function resolveForRead(
 
 /**
  * 写语义（write/delete/move 目标）：目标本身是 symlink 直接拒绝（no-follow）；
- * 存在则 realpath 重验；不存在则校验父链（父存在时），real 取父 real + basename。
+ * 存在则 realpath 重验；不存在则沿祖先链向上找最近存在的祖先做 real 重验，
+ * real 取祖先 real + 剩余段（防止深层缺失路径经 symlink 祖先穿透进敏感/系统目录）。
  */
 export async function resolveForWrite(
   targetPath: string,
@@ -97,20 +98,34 @@ export async function resolveForWrite(
     return { ok: true, resolution: { requested: targetPath, real, existed: true } };
   }
 
-  // 目标不存在：父目录存在时做父链重验（父目录替换防护）；父不存在交给 mkdir 的自然行为
+  // 目标不存在：沿祖先链向上找最近存在的祖先做 real 重验（父目录替换防护推广到
+  // 整条链；深层缺失路径经 symlink 祖先也能穿透进敏感/系统目录，必须拦截）；
+  // 整条链都不存在时放行给 mkdir recursive 的自然行为
   const parent = path.dirname(targetPath);
-  let parentReal: string;
-  try {
-    parentReal = await fs.realpath(parent);
-  } catch {
-    return { ok: true, resolution: { requested: targetPath, real: path.resolve(targetPath), existed: false } };
+  let probe = parent;
+  for (;;) {
+    let probeReal: string;
+    try {
+      probeReal = await fs.realpath(probe);
+    } catch {
+      const upper = path.dirname(probe);
+      if (upper === probe) break; // 已到根，整链不存在
+      probe = upper;
+      continue;
+    }
+    const probeErr = revalidateReal(probeReal, operation, targetPath);
+    if (probeErr) return { ok: false, result: forbiddenFail(probeErr, param, meta) };
+    const rest = path.relative(probe, targetPath);
+    return {
+      ok: true,
+      resolution: {
+        requested: targetPath,
+        real: rest ? path.join(probeReal, rest) : probeReal,
+        existed: false,
+      },
+    };
   }
-  const parentErr = revalidateReal(parentReal, operation, targetPath);
-  if (parentErr) return { ok: false, result: forbiddenFail(parentErr, param, meta) };
-  return {
-    ok: true,
-    resolution: { requested: targetPath, real: path.join(parentReal, path.basename(targetPath)), existed: false },
-  };
+  return { ok: true, resolution: { requested: targetPath, real: path.resolve(targetPath), existed: false } };
 }
 
 /**

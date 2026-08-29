@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `resolveForWrite` (path policy): a write target that does not exist under a symlinked ancestor is now resolved along the full ancestor chain — the nearest existing ancestor is `realpath`-ed and re-validated against forbidden/sensitive directories — closing a bypass where a deep missing path (e.g. `parent-link/missing/file.txt` with `parent-link -> .ssh`) could create directories through the symlink inside a protected directory. The landing `real` path is now the ancestor real + remaining segments (no symlink segments), and the old `path.resolve` fallback applies only when the whole chain is missing (legitimate `mkdir -p` new-chain scenarios, which also receive the same protection). New path-policy unit cases cover both the sensitive-ancestor rejection and the ordinary-ancestor resolution.
 - `MCP_SHELL=cmd` flavor: commands containing quoted paths with spaces (e.g. `type "D:\my dir\file.txt"`) now execute correctly instead of failing with `文件名、目录名或卷标语法不正确` ("The filename, directory name, or volume label syntax is incorrect"). The cmd invocation is built as verbatim `cmd /d /s /c "<command>"` (the npm/cross-spawn standard form), so embedded quotes reach cmd intact; `/d` also skips cmd AutoRun scripts. Plain commands are unaffected, and the pwsh/powershell/unix branches are unchanged.
 
 ## [4.0.0] — 2026-08-28

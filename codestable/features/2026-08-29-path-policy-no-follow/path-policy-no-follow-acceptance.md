@@ -8,7 +8,7 @@ status: done
 summary: 对照设计完成验收；新增共享 PathPolicy（read real 解析重验、write no-follow、原子 staging 写、根替换检查）并接入 files/manage/session/state/temp，两轮审计后 10 checks 全部通过，全量 678 用例与完整门禁全绿
 tags: [production, hardening, path, symlink, no-follow, toctou, atomic-write, acceptance]
 created: "2026-08-29"
-last_reviewed: "2026-08-29"
+last_reviewed: "2026-08-30"
 ---
 
 # path-policy-no-follow 验收报告
@@ -55,6 +55,7 @@ last_reviewed: "2026-08-29"
 
 ## 5. 边界与后续
 
+- **后续审计偏差（2026-08-30 全量复核）**：原"目标不存在时仅对直接父目录 realpath 重验、父不存在即放行"存在盲点——深层缺失目标（目标与父均不存在、更高层祖先为 symlink）可穿透 symlink 祖先进入敏感/系统目录（例如 `parent-link -> .ssh` 时写 `parent-link/missing/file.txt` 会在 `.ssh/missing/` 下建目录）。已修正：缺失目标改为沿祖先链向上对**最近存在的祖先**做 realpath 重验（real = 祖先 real + 剩余段，工具层不再经 symlink 段落盘），仅整条链都不存在时放行；新增 2 用例（敏感祖先深层缺失 → 拒绝；普通祖先深层缺失 → 放行并解析到真实落点）。沿用本 feature 的错误码与审计语义，不新增面。
 - realpath→open 之间仍存在理论 TOCTOU 窗口（Node 无 openat/目录句柄能力），已收窄到最小；OS 级语义归属未来 sandbox backend。
 - `session_state.set_cwd` 的入口校验（utility.ts）与 SEC-06 的 capability/host-disclosure 归属 `tool-wrapper-and-surface-contract`。
 - CI windows runner 需具备 symlink 创建权限（GitHub Actions runner 以管理员运行，满足）；如未来 runner 配置变化，symlink 用例需条件跳过。

@@ -7,7 +7,7 @@ status: approved
 summary: 新增共享 PathPolicy（read 用 real 解析重验、写/删/移 no-follow、原子 staging 写、state/temp 根防替换），统一接入 files/manage/session/temp，关闭 SEC-03 的 symlink 与 TOCTOU 缺口
 tags: [production, hardening, path, symlink, no-follow, toctou, atomic-write, acceptance-gate]
 created: "2026-08-29"
-last_reviewed: "2026-08-29"
+last_reviewed: "2026-08-30"
 depends_on: [2026-08-28-hardening-contract-and-profiles]
 ---
 
@@ -61,7 +61,7 @@ depends_on: [2026-08-28-hardening-contract-and-profiles]
 - `resolveForWrite(targetPath, operation)`：lexical 校验 → 目标 `lstat`：
   - 存在且是 symlink → 拒绝（`PATH_FORBIDDEN`，reason "no-follow"）；
   - 存在 → realpath 重验后返回 real；
-  - 不存在 → 对 `dirname` 做 realpath 重验（父目录存在时拦截父链替换）；父不存在 → 放行（mkdir recursive 建新链是合法场景），real 取 `path.resolve(targetPath)`。real = 父 real + basename。
+  - 不存在 → **沿祖先链向上对最近存在的祖先做 realpath 重验**（拦截"深层缺失路径经 symlink 祖先穿透进敏感/系统目录"的路径——不只是直接父目录；重验通过后 real 取祖先 real + 剩余段，工具层落盘不再经过 symlink 段）；**整条链都不存在 → 放行**（mkdir recursive 建新链是合法场景），real 取 `path.resolve(targetPath)`。
 - `atomicWriteFile(realPath, data, encoding)`：同目录 exclusive staging（`fs.open(staging, "wx")` + 写入 + close）→ `fs.rename(staging, realPath)`（libuv 在 Windows 使用 MOVEFILE_REPLACE_EXISTING，可替换存在文件且不跟随目标 reparse point）→ rename 失败时回退 `fs.writeFile(realPath, data)` truncate 写并 `logger.warn`；任何失败路径清理 staging。
 - `assertSafeStateRoot(root)`：root 存在但 `lstat` 为 symlink 或非目录 → `CONFIG_INVALID` 语义的结构化拒绝；不存在放行（懒创建仍由调用方执行）。
 
@@ -110,7 +110,7 @@ depends_on: [2026-08-28-hardening-contract-and-profiles]
 2. 对普通文件 symlink 的读取成功且返回真实内容（allow-symlink 语义保留）。
 3. write_file 目标是 symlink → 拒绝（no-follow）；目标不存在且父目录是 symlink → 拒绝。
 4. write_file 覆写走 staging+rename：内容替换成功、无 staging 残留；append 经 real 落盘。
-5. 目标不存在时父目录被替换为 symlink 指向敏感目录 → 拒绝（父目录 realpath 重验）。
+5. 目标不存在时父目录被替换为 symlink 指向敏感目录 → 拒绝（父目录 realpath 重验）；深层缺失目标（目标与父均不存在、但更高层祖先为 symlink）指向敏感目录 → 拒绝（祖先链重验）；祖先为普通目录 → 放行且 real 解析到真实落点。
 6. delete_path 非递归删除 symlink 仅移除链接本身；递归删除 reparse point 目录拒绝或安全移除链接层。
 7. copy_move 源 symlink → 敏感目录被拒；目标 no-follow。
 8. session 恢复 symlink/敏感 cwd 被拒绝，普通 cwd 恢复不变。
@@ -122,4 +122,4 @@ depends_on: [2026-08-28-hardening-contract-and-profiles]
 - 不接受在 path-policy 复制或改写 forbidden/sensitive 黑名单（唯一来源仍是 security.ts）。
 - 不接受"先校验后用原始路径执行"的旧模式残留（files/manage 的落盘调用点全部改用 real）。
 - 不接受 staging 文件逃逸出目标目录（staging 必须同目录，保证 rename 同卷原子）。
-- 不接受静默吞掉 realpath 失败：读语义放行给自然 ENOENT（契约不变），写语义在父目录存在时必须完成父链重验。
+- 不接受静默吞掉 realpath 失败：读语义放行给自然 ENOENT（契约不变），写语义在父目录存在时必须完成父链重验；缺失目标的祖先链重验只在"整条链都不存在"时放行。
