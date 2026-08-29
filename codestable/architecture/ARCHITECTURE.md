@@ -44,6 +44,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 | CommandSpec | 跨平台命令规格 `{file, args, useShell?}`，供 `execFile` 参数化执行 |
 | ShellSpec / ShellInvocation | `shell.ts` 的解析产物与 spawn 调用构造 `{file, flavor, source, version?}`；Windows 一次性解析、进程级缓存 |
 | spawnStream | 既有 spawn 流式执行器，供 `safeExec` / `quickExec` 等消费者使用 |
+| FdResolution | `fd-resolver` 的解析产物：`available` + `source(explicit/path)` + 非敏感 diagnostic（reason/env_name/attempted，`download_performed:false`）；进程级缓存，成败皆缓存 |
 | CommandOutputRuntime | `capture.ts` + `command-output.ts` 的共享原始字节捕获、actual 计数、backpressure/drain、内存 retention、流式 secret matcher、staging spill 与 finalize（M2 已落地） |
 | SessionStore | cwd / 自定义 env / 命令历史，持久化到 `<projectRoot>/.etmcp/session.json`；恢复时校验 cwd 与 env 黑名单 |
 | Audit Log | 结构化审计日志（JSON Lines），按 `MCP_AUDIT_MODE` 控制写入 |
@@ -63,7 +64,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `src/tools/command.ts` | `execute_command` / `batch_execute` / `watch_command`。Windows 消费 `shell.ts` 统一解析的 shell spec（默认 pwsh 7，详见 ADR-7/14），Unix 用 `/bin/sh -c`；命令 policy + 危险模式检查 + 限流 + SafeGuard + audit 后调用共享 `runCommandOutput`，并把 `RequestContext` cancellation/scope 传给 managed execution。公开输入输出已是 M2 A+ envelope（分页/secret/容量字段） |
 | `src/tools/files.ts` | `read_file`（分页/编码；real 解析重验后以 real 打开）/ `write_file`（秘密扫描 + 覆写确认 + 原子 staging 写；no-follow）/ `list_directory`（符号链接循环保护；real 入口；递归子目录不可读 → `complete=false`+`WALK_READ_FAILED` warning 继续，顶层不可读仍整体失败）/ `file_info`（real 解析；可被 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 禁用）/ `make_directory`（父链重验） |
 | `src/tools/manage.ts` | `copy_move`（源读语义/目标 no-follow，real 执行）/ `delete_path`（Elicitation 确认保护；递归删除需 `recursive=true`；symlink 仅移除链接本身） |
-| `src/tools/search.ts` | `search_files`（Windows 优先使用经 resolver 校验的 Everything，CLI 执行失败记 `EVERYTHING_EXEC_FAILED` warning 后 native 兜底；隐式 state binary 不可用时原生递归兜底；显式配置错误直接结构化失败）/ `everything_search`（仅 Windows；binary 不可用时返回带安装信息的结构化失败；CLI 错误分类 timedOut→`TIMEOUT`、maxBuffer→`RESOURCE_LIMIT`、其余→`EXECUTION_FAILED` 有限 detail）/ `grep_content`（解析为 pwsh/powershell flavor 时走统一 spec 的 Select-String → Unix grep → 原生三级降级；参数单引号内联转义；PS 遍历/匹配非终止错误经 `-ErrorVariable` 合计 `ETMCP_PARTIAL_ERRORS=N` stderr 标记回传）；Everything/grep child 已通过 managed execFile 接入 supervisor 并传递 RequestContext cancellation；三工具输出统一 partial-result 契约（`complete`/`warnings`/`truncated`），schema+handler 双层有界校验 |
+| `src/tools/search.ts` | `search_files`（Windows 优先使用经 resolver 校验的 Everything，CLI 执行失败记 `EVERYTHING_EXEC_FAILED` warning 后 native 兜底；隐式 state binary 不可用时原生递归兜底；显式配置错误直接结构化失败；非 Windows 经 `fd-resolver` 可选 fd/fdfind 加速——隐式不可用静默 native 兜底、显式配置错误 `VALIDATION_ERROR` fail-closed、exec 失败记 `FD_EXEC_FAILED` 后 native 兜底、stderr 非空行计为 `FD_PARTIAL_ERRORS`+`complete=false`）/ `everything_search`（仅 Windows；binary 不可用时返回带安装信息的结构化失败；CLI 错误分类 timedOut→`TIMEOUT`、maxBuffer→`RESOURCE_LIMIT`、其余→`EXECUTION_FAILED` 有限 detail）/ `grep_content`（解析为 pwsh/powershell flavor 时走统一 spec 的 Select-String → Unix grep → 原生三级降级；参数单引号内联转义；PS 遍历/匹配非终止错误经 `-ErrorVariable` 合计 `ETMCP_PARTIAL_ERRORS=N` stderr 标记回传）；Everything/fd/grep child 已通过 managed execFile 接入 supervisor 并传递 RequestContext cancellation；三工具输出统一 partial-result 契约（`complete`/`warnings`/`truncated`），schema+handler 双层有界校验 |
 | `src/tools/system.ts` | `get_system_info` / `process_list` / `kill_process`（严格 PID/name XOR、ProcessIdentityProvider、关键/self/parent 保护）/ `network_info` / `environment_vars`（敏感键打码）；系统查询 child 已通过 managed `safeExecFile` 接入 supervisor |
 | `src/tools/archive.ts` | `compress_archive` / `extract_archive`（Windows 走 PowerShell Compress/Expand-Archive）/ `download_file`（HTTP/HTTPS 白名单 + 指数退避重试）；归档 child 已通过 managed `safeExecFile` 接入 supervisor |
 | `src/tools/utility.ts` | `telemetry_report` / `cache_stats` / `session_state` / `pool_stats` / `temp_stats` 等运维工具 |
@@ -97,6 +98,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `src/command-output.ts` | 三个命令工具共享的输出编排：limits 校验、流式 matcher、quarantine/fallback、双流抑制、staging spill 与 finalize、envelope 组装（M2 已落地） |
 | `src/secret-registry.ts` / `src/secret-stream.ts` | whole-string registry 与流式 matcher 的单一 pattern 来源；固定 8192-byte quarantine 和 65536-byte fallback preview |
 | `src/es-integrity.ts` | Everything CLI 本地可选解析：`ENHANCED_TERMINAL_ES_PATH`（显式，fail-closed）→ `<state-dir>/tools/es.exe`（隐式）→ unavailable；lstat 普通文件 + fingerprint + 固定 SHA-256，成功缓存按 fingerprint 失效，并发共享 in-flight；不下载、不读取仓库 fixture（M3 S1–S5 已验收） |
+| `src/fd-resolver.ts` | 非 Windows `search_files` 的可选 fd 引擎解析：`ENHANCED_TERMINAL_FD_PATH`（显式，isAbsolute+普通文件+`--version` 探测，fail-closed）→ PATH `fd` → `fdfind` → unavailable；进程级缓存（成败皆缓存），诊断只含 reason/env_name/attempted 不含 PATH 原值；运行期不下载、不创建状态目录；模块平台中立不依赖 IS_WIN |
 | `src/shell.ts` | Windows shell 解析与调用构造的唯一归属：`resolveShell`（纯选择逻辑，候选可注入）→ `getShellSpec`（进程级缓存，成败皆缓存）→ `buildShellInvocation`（唯一 flavor→参数/编码转换入口，pwsh 7 与 5.1 统一加 UTF-8 preamble，cmd 保留 chcp）；`where` probe 已改为 managed 异步路径；另提供 `powerShellTarget`、旧 `getShell`/`wrapCommand` 兼容导出 |
 | `src/stream.ts` | `spawnStream` 通过 `processSupervisor.spawnManaged` 执行，保留 stdout 10MB/stderr 1MB 上限并增加 supervisor timeout/AbortSignal/termination 状态；三个命令工具的 M2 捕获路径仍走 `capture.ts`（supervisor 接线已随 process-supervisor-and-cancellation 验收） |
 | `src/pool.ts` | E 的 inactive stub（仅 stats / 生命周期钩子），`pool_stats` 固定 `active:false` |
@@ -175,7 +177,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 
 ### 运行环境
 - Node.js ≥ 20；ESM（`"type": "module"`）；tsc 输出 `build/`，`rootDir: src`。
-- 支持 Windows / macOS / Linux；`everything_search` 与 Everything 加速仅 Windows；macOS 系统信息走 sysctl，Linux 走 /proc+free。
+- 支持 Windows / macOS / Linux；`everything_search` 与 Everything 加速仅 Windows；非 Windows 的 `search_files` 可选 fd/fdfind 引擎加速（`ENHANCED_TERMINAL_FD_PATH` 显式 fail-closed，隐式不可用静默 native 兜底）；macOS 系统信息走 sysctl，Linux 走 /proc+free。
 - shell 相关环境变量（2026-08-16 powershell-default-shell 起，仅 Windows 生效）：`MCP_SHELL`（默认 `pwsh`，可选 `powershell` / `cmd`）、`MCP_POWERSHELL_PATH`（显式执行器路径，无效即硬失败）；解析结果进程级缓存，修改后需重启。
 - 生产硬化 profile：`MCP_EXECUTION_PROFILE` 未设置时为 `local-trusted-shell`；只接受 `local-trusted-shell|sandboxed-production`，解析结果进程级固定；当前 `sandboxed-production` backend 未实现，显式选择时启动 fail-closed。
 
@@ -224,6 +226,8 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 - 2026-08-29：`security-and-mcp-conformance-gates` 完成实现与验收——新增 `scripts/canonical-gate.mjs`、MCP conformance/hostile-input/platform smoke 测试与 corpus，`pnpm run gate` 纳入主 coverage、audit、package verifier、实际 pack 和 clean consumer；CI 改为固定 action SHA + `contents: read`、Windows Node 22 canonical gate 与 Windows/Linux/macOS × Node 20/22/24 smoke 矩阵；`src/index.ts` 接通 transport close/error/fatal 的脱敏幂等 shutdown；`lock-lease` heartbeat 改串行续租并修复 Windows staging rename 的有界重试/已知时序 flake。release gate 通过（69 文件 845 用例、主 coverage 82.21/75.09/85.5/85.22、tools coverage 64.72/54.39/71.42/68.52、latency 24/24、audit/package/consumer 全部通过）；生产硬化 roadmap 进度 12/13。
 
 - 2026-08-29：`docs-and-architecture-closeout` 完成验收（roadmap 13/13 闭环）——CHANGELOG [4.0.0] 段删除与 Breaking Changes 矛盾的 v3.x headless 条目、[Unreleased] 合并为单组 Added/Changed 小节并补 #13 条目；`usage-guide` prompt 更新为 v4.0 现状要点（首行动态计数契约不变）；README/AGENTS/ARCHITECTURE 的过期 remaining-hardening 指引改为闭环口径；新建根 `SECURITY.md`（威胁模型边界、hardBlock 底线、profile 边界、依赖维护政策、漏洞报告渠道）；`tests/e2e-latency.test.ts` 头注释更新到 v4.0.0。零运行时行为改动。
+
+- 2026-08-29：`linux-fd-search` 完成验收（Linux  parity 差距清单第 6 项）——新增 `src/fd-resolver.ts`（`ENHANCED_TERMINAL_FD_PATH` 显式 fail-closed → PATH `fd`/`fdfind` → unavailable，进程级缓存，诊断不含 PATH 原值，运行期不下载）；非 Windows `search_files` 接入可选 fd 引擎加速（全 argv 无 shell、stderr 非空行→`FD_PARTIAL_ERRORS`+`complete=false`、exec 失败→`FD_EXEC_FAILED`+native 兜底、abort→`CANCELLED`）；`WARNING_CODES` 纯增量两码；工具数 27/26 与 outputSchema 不变。真实 fd 10.4.2 冒烟钉死 `--absolute-path` flag 名（设计稿复数形被 fd 拒绝）。同日另有 Linux parity 三个 test/docs/CI issue 收口（Windows 耦合单测补平台守卫、latency best-of-3 采样防抖 + coverage 阈值平台化、README Linux Notes + CI ubuntu 单测 job）。release gate 11/11 通过（71 文件 841 用例、25 跳过、主 coverage lines 82.09/branches 71.72/functions 82.16/statements 79.11、tools coverage lines 63.38 达标、latency 通过）。
 
 ## 7. 规划入口（非现状）
 

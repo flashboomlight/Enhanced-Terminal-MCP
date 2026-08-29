@@ -3,9 +3,9 @@
 > **本文件面向下一次进入本仓库的 AI agent**：读完即可知道项目在做什么、进行到哪、下一步做什么、有哪些硬约束和踩过的坑。
 > **维护规则**：每个 roadmap feature 收口（commit 落库 + 记忆更新）后，必须同步更新本文件的进度表、HEAD、下一步与坑清单。
 
-- **快照时间**：2026-08-29
-- **当前 HEAD**：`35e5659`（lint 全清零；cmd 引号路径修复与 roadmap 13/13 均已落库；Windows 平台验证完成——gate 11/11 + cmd 探针 4/4，证据见 §5.3）
-- **最近一次全量回归**：`pnpm run gate`（release 模式）11 阶段全部 passed（69 文件 845 用例、coverage/latency/audit/package/clean consumer 达标）；含 cmd 引号路径修复（issue `2026-08-29-cmd-quoted-space-path`）后的回归
+- **快照时间**：2026-08-30
+- **当前 HEAD**：本 feature 收口提交（`feat: accelerate search_files on Linux/macOS with optional fd engine`；Linux parity 差距清单 6 项全闭环：3 个 issue + feature `2026-08-29-linux-fd-search` 落库；Linux release gate 11/11）
+- **最近一次全量回归**：`pnpm run gate`（release 模式）11 阶段全部 passed（71 文件 841 用例、25 跳过、0 失败；主 coverage lines 82.09/branches 71.72/functions 82.16/statements 79.11、tools coverage lines 63.38、latency 通过）——Linux VPS 上含 fd 引擎接入后的回归
 
 ## 1. 项目一句话
 
@@ -48,7 +48,8 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 3. ~~Windows 本机平台验证~~（**已完成，2026-08-29**）：①release gate 11/11 全 passed（Node v24.14.0；shell spec 走项目内置 `tools/pwsh` bundled 分支——本机 PATH 无 pwsh）；②真实 server 进程探针 4/4 PASS：tools/list=27、`ver` 成功证明 cmd 档生效、`type "带引号空格路径"` 端到端成功（cmd 修复的真实进程回归）、普通命令不受影响（探针脚本随 2026-08-29 上传前清理移除；要点=StdioClientTransport 起 `build/index.js` + `MCP_SHELL=cmd` + ver/type/echo 三命令，可按此重建）。本机仅有 Node 24 单运行时，Node 20/22 与 Linux/macOS 矩阵归 CI runner（外部证据边界不变）。
 4. **SDK 1.30 升级挂起**——触发条件：某 1.x 版本确认修复 ZodEffects inputSchema 问题（届时可删 postinstall patch），或出现必须升级的安全通告。
 5. ~~**Linux 验证由用户自行在 VPS 处理**~~（**已完成，2026-08-29**）：VPS 环境修复（node_modules 跨机拷贝损坏重装、pnpm 11 strictDepBuilds 机器级放行、补 zip/unzip）+ 16 条 Windows 耦合单测补平台守卫（issue `2026-08-29-linux-test-platform-guards`），Linux 全量 822 过/25 跳过/0 失败，工具层覆盖 89/89；全程问题记录见根目录 `LINUX-VALIDATION-ISSUES.md`。
-6. **发版决策**（4.1.0 建议，用户产品决策）：平台验证已完成，随时可进行，含 CHANGELOG [Unreleased] 定版、tag、publish。
+6. ~~**Linux parity 差距清单实现**~~（**已完成，2026-08-30**）：Issue A README Linux Notes + CI ubuntu 单测/双覆盖 job（`2026-08-29-linux-parity-docs-and-ci`）；Issue B latency best-of-3 采样防抖 + 非 Windows coverage 阈值平台化（`2026-08-29-linux-gate-parity`）；Feature C 非 Windows `search_files` 可选 fd/fdfind 引擎加速（`codestable/features/2026-08-29-linux-fd-search/`，`ENHANCED_TERMINAL_FD_PATH` 显式 fail-closed，新增 19 条单测含真实 fd 10.4.2 冒烟）。差距清单 6 项全闭环；CI 的 unit-tests-linux job 待合并后由 GitHub Actions 实证（本机无法模拟 runner，已记录为预期边界）。
+7. **发版决策**（4.1.0 建议，用户产品决策）：平台验证与 Linux parity 均已完成，随时可进行，含 CHANGELOG [Unreleased] 定版、tag、publish。
 
 ## 6. 关键约束与坑（踩过一次的，勿再踩）
 
@@ -65,6 +66,7 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 - **全量测试高负载 flake**：#12 已将 lock-lease heartbeat 改为串行续租、测试改为等待可观察 heartbeat，并为 Windows staging rename 增加有界 EPERM/EBUSY/EACCES 退避；#13 又修复 paging 测试 afterEach `fs.rm` 的 ENOTEMPTY 竞态（`maxRetries: 10, retryDelay: 100` 有界重试——100ms TTL 异步 sweep 在高负载下晚于枚举写入所致；修复前两次全量各挂 1 个不同用例、定向 5/5 过）。有界重试不吞错；后续其他测试如再现同类 flake 按同款逐文件处理，并继续观察 CI runner 矩阵稳定性。
 - **Linux/VPS 环境三坑**（2026-08-29 VPS 验证实录，详见根目录 `LINUX-VALIDATION-ISSUES.md`）：①node_modules 不可跨机器/跨平台拷贝——pnpm 的符号链接视图与平台原生包在拷贝后全毁，必须目标机 `pnpm install` 重装；②pnpm 11 默认 `strictDepBuilds=true` 会把依赖构建脚本未批准变成 install 硬失败、阻断所有 `pnpm run`——机器级处置是全局 `config.yaml` 写 `strictDepBuilds: false`（`onlyBuiltDependencies`/`allowBuilds` 全局不生效，仅项目级 `pnpm-workspace.yaml` 可用）；③Linux 归档工具依赖系统 `zip`/`unzip` 二进制（README 只文档化了 Windows 侧依赖）。
 - **单测套件的 Windows 语义耦合**：`resolveShell` 的 win32 路径拼接/绝对性判定、`wrapCommand` 的 chcp 前缀按 `IS_WIN` 条件化、`kill -15/-9` 信号恒显式、关键进程名单分平台——写跨平台测试时按 issue `2026-08-29-linux-test-platform-guards` 的手法补守卫或平台感知断言；e2e-latency 的 tools/list 200ms 阈值在共享 VPS 高负载下会边缘越限（P-11），release gate 以维护机/CI 为准。
+- **外部 CLI 参数必须真机冒烟钉死**：fd 的绝对路径 flag 是单数 `--absolute-path`（fd 10.x 对复数形 `--absolute-paths` exit 2）——设计稿/记忆中的 flag 名不能替代真实二进制验证；fd 遍历错误写 stderr 而退出码仍为 0，partial 判定看 stderr 非空行计数（feature `2026-08-29-linux-fd-search` 实测）。
 
 ## 7. 权威文档索引
 

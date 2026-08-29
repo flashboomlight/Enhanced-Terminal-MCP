@@ -6,7 +6,7 @@
 import * as z from "zod";
 import { Errors, type ToolError } from "./result.js";
 
-/** 结构化降级事件：count 仅 PS_PARTIAL_WALK_ERRORS 使用（承载 PS 侧错误合计计数） */
+/** 结构化降级事件：count 由 PS_PARTIAL_WALK_ERRORS / FD_PARTIAL_ERRORS 使用（承载引擎侧错误合计计数） */
 export interface SearchWarning {
   code: string;
   path?: string;
@@ -22,6 +22,8 @@ export const searchWarningSchema = z.object({
 
 export const WARNING_CODES = {
   EVERYTHING_EXEC_FAILED: "EVERYTHING_EXEC_FAILED",
+  FD_EXEC_FAILED: "FD_EXEC_FAILED",
+  FD_PARTIAL_ERRORS: "FD_PARTIAL_ERRORS",
   WALK_READ_FAILED: "WALK_READ_FAILED",
   GREP_FILE_READ_FAILED: "GREP_FILE_READ_FAILED",
   PS_PARTIAL_WALK_ERRORS: "PS_PARTIAL_WALK_ERRORS",

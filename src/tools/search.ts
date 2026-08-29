@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod";
 import { type EsExeResolution, resolveEsExe } from "../es-integrity.js";
+import { type FdResolution, resolveFd } from "../fd-resolver.js";
 import { boundedString, finiteInt, type RequestContext } from "../hardening-contract.js";
 import { logger } from "../logger.js";
 import { nativeGrepContent, nativeSearchFiles } from "../native-search.js";
@@ -29,6 +30,34 @@ import { wrapHandler } from "../wrap.js";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** 将 fd resolver 的显式失败转换为结构化错误（fail-closed，不落兜底；隐式不可用由调用方走原生兜底）。 */
+function fdResolutionFailure(resolution: Extract<FdResolution, { available: false }>) {
+  const { diagnostic } = resolution;
+  return fail(ErrorCode.VALIDATION_ERROR, `Configured ${diagnostic.env_name} is not usable (${diagnostic.reason})`, {
+    retryable: false,
+    param: diagnostic.env_name,
+    suggestion: `Fix ${diagnostic.env_name} or unset it and retry; the configured path will not silently fall back.`,
+    detail: diagnostic,
+  });
+}
+
+/** 构造 fd 搜索参数：glob 语义/大小写/忽略规则对齐 native walk，pattern 与目录走 argv 数组（-- 终止选项解析），无 shell 拼接 */
+export function buildFdArgs(pattern: string, dirPath: string, maxResults: number, maxDepth?: number): string[] {
+  const args = [
+    "--color=never",
+    "--absolute-path",
+    "--glob",
+    "--ignore-case",
+    "--no-ignore",
+    "--max-results",
+    String(maxResults),
+  ];
+  // 引擎路径默认全树（对齐 Everything）；仅用户显式传 max_depth 时下发
+  if (maxDepth !== undefined) args.push("--max-depth", String(maxDepth));
+  args.push("--", pattern, dirPath);
+  return args;
 }
 
 /** 将 Everything resolver 的失败转换为搜索工具可消费的结构化错误。 */
@@ -75,7 +104,9 @@ export function registerSearchTools(server: McpServer) {
     ),
     max_depth: finiteInt(1, SEARCH_BUDGET.maxDepth)
       .optional()
-      .describe("Max search depth for native fallback, default 5"),
+      .describe(
+        "Max search depth for native fallback, default 5; engine paths (Everything/fd) search the full tree unless explicitly set",
+      ),
     max_results: finiteInt(1, SEARCH_BUDGET.searchFilesMaxResults).optional().describe("Max results, default 50"),
   });
   type SearchFilesInput = z.infer<typeof SearchFilesInput>;
@@ -86,7 +117,7 @@ export function registerSearchTools(server: McpServer) {
     {
       title: "Search Files",
       description:
-        "Search for files by name pattern. Auto-starts Everything engine for instant results on Windows, falls back to native search.",
+        "Search for files by name pattern. Auto-starts Everything engine for instant results on Windows, uses fd when available on Linux/macOS, falls back to native search.",
       inputSchema: SearchFilesInput,
       outputSchema: withErrorSchema(
         z.object({
@@ -152,6 +183,43 @@ export function registerSearchTools(server: McpServer) {
               // CLI failure 可观测：记 warning 后走 native fallback（产品承诺保留）
               logger.warn("search_files", "everything-exec-failed", String(err));
               pushWarning(warnings, { code: WARNING_CODES.EVERYTHING_EXEC_FAILED });
+            }
+          }
+
+          if (!IS_WIN) {
+            // 可选 fd 引擎加速：隐式不可用 → 原生兜底；显式配置错误 → fail-closed（对标 Everything 语义）
+            const resolution = await resolveFd();
+            if (!resolution.available) {
+              if (resolution.source === "explicit") return fdResolutionFailure(resolution);
+              logger.debug("search_files", "fd-skipped", resolution.diagnostic.reason);
+            } else {
+              try {
+                const result = await execFileManaged(resolution.path, buildFdArgs(pattern, dir_path, maxR, max_depth), {
+                  maxBuffer: 10 * 1024 * 1024,
+                  timeoutMs: 10000,
+                  signal: context.signal,
+                  requestId: context.requestId,
+                  scopeId: context.scopeId,
+                  kind: "fd-search",
+                });
+                for (const line of result.stdout.split("\n")) {
+                  const trimmed = line.trim();
+                  if (!trimmed) continue;
+                  matches.push(trimmed);
+                  if (matches.length >= maxR) break;
+                }
+                // fd 遍历错误写 stderr、退出码仍为 0：按非空行计数回传 partial 契约
+                const errLines = (result.stderr ?? "").split("\n").filter((l) => l.trim()).length;
+                if (errLines > 0) {
+                  complete = false;
+                  pushWarning(warnings, { code: WARNING_CODES.FD_PARTIAL_ERRORS, count: errLines });
+                }
+              } catch (err) {
+                if (context.signal.aborted) return Errors.cancelled("search_files cancelled");
+                // 引擎失败可观测：记 warning 后走 native fallback（产品承诺保留，同 Everything 路径）
+                logger.warn("search_files", "fd-exec-failed", String(err));
+                pushWarning(warnings, { code: WARNING_CODES.FD_EXEC_FAILED });
+              }
             }
           }
 

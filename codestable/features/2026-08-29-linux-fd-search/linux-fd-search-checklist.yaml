@@ -1,0 +1,42 @@
+---
+doc_type: feature-checklist
+feature: 2026-08-29-linux-fd-search
+status: done
+created: "2026-08-29"
+
+steps:
+  - action: "新增 src/fd-resolver.ts：FD_PATH_ENV、resolveFd（显式 fail-closed → PATH fd → fdfind → unavailable）、进程级缓存、resetFdResolverCache；平台中立不引入 IS_WIN"
+    exit_signal: "类型编译通过；解析链全注入可测；不创建状态目录、不联网"
+    status: done
+  - action: "src/partial-result.ts 的 WARNING_CODES 追加 FD_EXEC_FAILED / FD_PARTIAL_ERRORS"
+    exit_signal: "纯增量常量；searchWarningSchema 不变（code 为开放 string）"
+    status: done
+  - action: "src/tools/search.ts 接入 fd 段：!IS_WIN 且原生兜底之前；fdResolutionFailure、fd 参数构造、stderr→complete=false、exec 失败落兜底；search_files/max_depth 描述微调"
+    exit_signal: "Everything 路径与原生兜底逐字节不变；工具数/schema 形状不变"
+    status: done
+  - action: "新增 tests/unit/fd-resolver.test.ts（解析链全场景）与 tests/unit/tools/search-fd.test.ts（vi.mock platform IS_WIN=false，fd 段全场景）"
+    exit_signal: "两文件在全平台可跑；Windows tools-coverage floor 不受 fd 分支影响"
+    status: done
+  - action: "定向测试 + pnpm run gate 全量门禁 + 反向审计（对照 design §3/§4/§8）"
+    exit_signal: "release gate 11/11 通过；验收标准逐条有证据"
+    status: done
+  - action: "回写 README（Linux Notes + env 表）、ARCHITECTURE.md、CHANGELOG、STATUS.md、AGENTS.md；acceptance 落盘；scoped commit"
+    exit_signal: "validate-yaml 通过；文档口径与代码一致"
+    status: done
+
+checks:
+  - item: "fd 可用时 search_files 走 fd（args 逐字段正确：--color=never/--absolute-path/--glob/--ignore-case/--no-ignore/--max-results/--；显式 max_depth 才下发 --max-depth）"
+    source: "设计 §3.2 / 验收标准"
+    status: passed
+  - item: "隐式不可用时静默落原生兜底（行为与现状一致）；显式 ENHANCED_TERMINAL_FD_PATH 错误时 VALIDATION_ERROR fail-closed 不落兜底"
+    source: "设计 §3.2 / 验收标准"
+    status: passed
+  - item: "fd exec 失败 → FD_EXEC_FAILED warning + 原生兜底；stderr 非空 → complete=false + FD_PARTIAL_ERRORS(count)；abort → CANCELLED"
+    source: "设计 §3.2"
+    status: passed
+  - item: "运行期不下载、不创建状态目录、诊断不含 PATH 原值；参数全 argv 数组无 shell 拼接"
+    source: "设计 §4"
+    status: passed
+  - item: "工具数不变（27/26），search_files outputSchema 字段不变；Windows 侧 Everything 路径与全部门禁不退化"
+    source: "设计 §8"
+    status: passed

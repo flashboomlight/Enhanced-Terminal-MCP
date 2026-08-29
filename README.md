@@ -108,6 +108,7 @@ The source checkout and npm consumer paths are intentionally separate: setup.bat
 | `MCP_COMMAND_MAX_STDERR_BYTES` | `1048576` | Max stderr bytes retained per command |
 | `MCP_TEMP_MAX_TOTAL_BYTES` | `1073741824` | Max total temp bytes before LRU eviction kicks in. Outstanding reservations are shared across server processes via `<state-dir>/temp/.quota.json` (stale entries of dead processes are recycled automatically); coordination files (`.quota.json`, `.temp.lock`) do not count toward the payload budget |
 | `ENHANCED_TERMINAL_ES_PATH` | — | Explicit path to a fixed-SHA-256 Everything CLI (`es.exe`). Takes priority over `<state-dir>/tools/es.exe`; an invalid explicit path fails closed. `search_files` falls back only when the implicit state binary is unavailable; `everything_search` returns structured installation detail. |
+| `ENHANCED_TERMINAL_FD_PATH` | — | Explicit path to an `fd` executable for non-Windows `search_files` acceleration. Must be absolute + a file + pass a `--version` probe; an invalid explicit path fails closed (`VALIDATION_ERROR`, no silent fallback). When unset, `fd` / `fdfind` are probed on `PATH` once per process; if neither exists, native search is used silently. |
 | `MCP_SSRF_MODE` | surface default | `deny-private` / `allow-private`. Unset: `download_file` uses `deny-private` (loopback/private/link-local/metadata targets blocked, incl. `169.254.169.254`), `network_info` uses `allow-private` (diagnostics unaffected). Explicit values apply to both surfaces. Forbidden addresses (unspecified/multicast/reserved) are always blocked. Proxy env vars are never used. |
 | `MCP_DOWNLOAD_MAX_BYTES` | `104857600` | Max bytes actually received per download (100 MiB); shared across retries. Exceeding aborts the stream and removes the staging file. |
 | `MCP_DOWNLOAD_TIMEOUT_MS` | `120000` | Absolute download deadline (covers the whole redirect chain and retries). |
@@ -135,7 +136,7 @@ pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd k
 
 - **Shell**: command execution uses `/bin/sh -c`. The pwsh/PowerShell resolution chain (`MCP_SHELL`, `MCP_POWERSHELL_PATH`, bundled `tools/pwsh`) is Windows-only and needs nothing on Linux.
 - **Archive tools**: `compress_archive` / `extract_archive` shell out to the system `zip` / `unzip` binaries — install them via your package manager (e.g. `apt-get install -y zip unzip`).
-- **Search**: `everything_search` is Windows-only; on Linux `search_files` falls back to the built-in native recursive search (same partial-result contract, slower on large trees).
+- **Search**: `everything_search` is Windows-only; on Linux/macOS `search_files` uses the `fd` engine when available (`fd` or `fdfind` on `PATH`, or an explicit `ENHANCED_TERMINAL_FD_PATH`), and otherwise falls back to the built-in native recursive search (same partial-result contract, slower on large trees). Install via your package manager (e.g. `apt-get install -y fd-find`) for a large speedup on big trees.
 - Everything else — the safety layers, session persistence, audit logging, page cache, rate limiting — is platform-neutral, and the full environment-variable table above applies unchanged.
 
 ## Tool Reference
