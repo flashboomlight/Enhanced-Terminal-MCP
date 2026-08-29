@@ -18,12 +18,13 @@ Supports **27 tools** across 7 categories: command execution, file I/O, file man
 - **Command Output Paging** — large `execute_command` outputs spill to a byte-indexed page cache v2 under `.etmcp/temp` and can be read page-by-page via validated `cache_id` / `page` / `pageSize`; small outputs stay in memory and never touch disk
 - **Rate Limiting** — token bucket (10 req/s) for command execution
 - **Windows Everything Integration (optional)** — sub-10ms file search via Everything CLI, resolved locally from `ENHANCED_TERMINAL_ES_PATH` or `<state-dir>/tools/es.exe` with a locked SHA-256; `search_files` falls back to native search when unavailable
+- **Optional fd Search Engine (Linux/macOS)** — `search_files` accelerates via `fd`/`fdfind` on PATH or an explicit `ENHANCED_TERMINAL_FD_PATH` (fail-closed); falls back to built-in native search silently when unavailable
 
 ## Quick Start
 
 ### npm consumer
 
-Install the published package in the consumer project, then use its bin entry. The npm package does not include setup.bat, the source checkout, bundled pwsh, or the Everything development fixture. Installation must allow lifecycle scripts because postinstall applies the pinned MCP SDK compatibility patch.
+Install the package in the consumer project once it is published to npm, then use its bin entry. The npm package does not include setup.bat, the source checkout, bundled pwsh, or the Everything development fixture. Installation must allow lifecycle scripts because postinstall applies the pinned MCP SDK compatibility patch.
 
 ```bash
 # Global installation
@@ -60,18 +61,30 @@ For a project-local installation, use the npm runner explicitly:
 
 The npm consumer path never downloads pwsh at install or runtime. On Windows it uses an explicit MCP_POWERSHELL_PATH, a local pwsh on PATH, or the existing Windows PowerShell 5.1 fallback according to the shell resolver.
 
-### Source checkout
+### Source checkout (any platform)
 
-This path is for maintainers who have the repository checkout. From the repository root:
-
-```bat
-setup.bat
-```
-
-setup.bat installs with the pinned pnpm version, builds build/index.js, and then runs the explicit fixed-version pwsh bootstrap. Use setup.bat --no-pwsh to skip that optional download, and add --non-interactive for CI or automation. Source development can start the server with:
+Clone and build from the repository root:
 
 ```bash
-node build/index.js
+git clone https://github.com/flashboomlight/Enhanced-Terminal-MCP.git
+cd Enhanced-Terminal-MCP
+pnpm install        # or: npm install
+pnpm run build      # or: npm run build
+```
+
+On Windows, `setup.bat` is an alternative bootstrap: it installs with the pinned pnpm version, builds `build/index.js`, and then runs the explicit fixed-version pwsh bootstrap. Use `setup.bat --no-pwsh` to skip that optional download, and add `--non-interactive` for CI or automation. On Linux/macOS the plain install + build above is the whole setup — no pwsh is needed.
+
+Point your MCP client at the built entry with an absolute path:
+
+```json
+{
+  "mcpServers": {
+    "enhanced-terminal-mcp": {
+      "command": "node",
+      "args": ["/absolute/path/to/Enhanced-Terminal-MCP/build/index.js"]
+    }
+  }
+}
 ```
 
 The source checkout and npm consumer paths are intentionally separate: setup.bat is not an npm package entry point, and npm install is not a replacement for the source bootstrap.
@@ -167,7 +180,7 @@ For interactive personal-agent use, the recommended profile is `MCP_SAFETY_MODE=
 ### Search Tools
 | Tool | Description | Cache |
 |------|-------------|-------|
-| `search_files` | Pattern search with Everything on Windows, native fallback | 30s |
+| `search_files` | Pattern search: Everything on Windows, fd on Linux/macOS when available, native fallback otherwise | 30s |
 | `everything_search` | Ultra-fast Everything search (Windows only) | 30s |
 | `grep_content` | Regex content search via PowerShell/grep/native with global `max_results` | 30s |
 
@@ -221,7 +234,7 @@ MCP Client (stdio) → McpServer
   ├─ Session persistence (JSON file)
   ├─ ProcessPool (inactive stub; stats only — execution uses spawnStream)
   ├─ Adaptive timeouts (P95-based × 3)
-  └─ Structured errors (20 codes)
+  └─ Structured errors (31 codes)
 ```
 
 ## Development
@@ -245,7 +258,7 @@ Development uses pnpm `11.21.0`. pnpm can reuse a machine-configured shared cont
 
 ## Release verification
 
-维护者在发布前应运行 `pnpm run gate`。它是唯一 canonical release gate，依次执行 clean build、类型检查、lint、全量测试、主/工具层 coverage、latency、生产依赖 audit、实际 npm tarball verifier 和 clean consumer。也可以按下面的命令单独排查发布阶段；verifier 不发布、不上传、不签名，也不代替 CI provenance。
+Maintainers should run `pnpm run gate` before publishing. It is the single canonical release gate and runs, in order: clean build, type-check, lint, the full test suite, main/tools coverage floors, latency, production dependency audit, the real npm tarball verifier, and a clean consumer check. The stages can also be run individually with the commands below; the verifier does not publish, upload, sign, or replace CI provenance.
 
 ```bash
 pnpm run audit:prod
@@ -253,13 +266,13 @@ pnpm run build
 node scripts/verify-package.mjs
 ```
 
-verify-package.mjs 和 verify-clean-consumer.mjs 是源码维护工具，不会被发布到 npm package。clean consumer 使用实际 tarball 执行：
+verify-package.mjs and verify-clean-consumer.mjs are source-maintenance tools and are not shipped in the npm package. The clean consumer check runs against the actual tarball:
 
 ```bash
 node scripts/verify-clean-consumer.mjs <path-to-tarball>
 ```
 
-verifier JSON 输出、pnpm audit 结果、lockfile、SBOM 和 CI 生成的 provenance 必须作为同一 release evidence 保存。单独的本地 SHA-256 只能证明该 tarball 的内容摘要，不能称为签名或 provenance。
+The verifier JSON output, pnpm audit result, lockfile, SBOM, and CI-generated provenance must be kept together as the same release evidence. A local SHA-256 alone only proves the tarball's content digest; it is not a signature or provenance.
 
 ## Supply chain & integrity
 

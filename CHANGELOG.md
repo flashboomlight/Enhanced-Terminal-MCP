@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `MCP_SHELL=cmd` flavor: commands containing quoted paths with spaces (e.g. `type "D:\my dir\file.txt"`) now execute correctly instead of failing with `文件名、目录名或卷标语法不正确`. The cmd invocation is built as verbatim `cmd /d /s /c "<command>"` (the npm/cross-spawn standard form), so embedded quotes reach cmd intact; `/d` also skips cmd AutoRun scripts. Plain commands are unaffected, and the pwsh/powershell/unix branches are unchanged.
+- `MCP_SHELL=cmd` flavor: commands containing quoted paths with spaces (e.g. `type "D:\my dir\file.txt"`) now execute correctly instead of failing with `文件名、目录名或卷标语法不正确` ("The filename, directory name, or volume label syntax is incorrect"). The cmd invocation is built as verbatim `cmd /d /s /c "<command>"` (the npm/cross-spawn standard form), so embedded quotes reach cmd intact; `/d` also skips cmd AutoRun scripts. Plain commands are unaffected, and the pwsh/powershell/unix branches are unchanged.
 
 ## [4.0.0] — 2026-08-28
 
