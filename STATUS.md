@@ -45,7 +45,7 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 
 1. ~~cmd 链路带引号空格路径~~（已完成：issue `2026-08-29-cmd-quoted-space-path`，verbatim `/d /s /c` 修复 + gate 全绿）。
 2. ~~lint 9 warnings 清理~~（已完成：`temp-manager.ts` 改 `Object.values`、`network-policy.test.ts` 8 处改 `_req`，lint 0 warning）。
-3. ~~Windows 本机平台验证~~（**已完成，2026-08-29**）：①release gate 11/11 全 passed（Node v24.14.0；shell spec 走项目内置 `tools/pwsh` bundled 分支——本机 PATH 无 pwsh）；②真实 server 进程探针（`MCP_SHELL=cmd`，脚本 `.etmcp/test-tmp/win-validate/probe.mjs`）4/4 PASS：tools/list=27、`ver` 成功证明 cmd 档生效、`type "带引号空格路径"` 端到端成功（cmd 修复的真实进程回归）、普通命令不受影响。本机仅有 Node 24 单运行时，Node 20/22 与 Linux/macOS 矩阵归 CI runner（外部证据边界不变）。
+3. ~~Windows 本机平台验证~~（**已完成，2026-08-29**）：①release gate 11/11 全 passed（Node v24.14.0；shell spec 走项目内置 `tools/pwsh` bundled 分支——本机 PATH 无 pwsh）；②真实 server 进程探针 4/4 PASS：tools/list=27、`ver` 成功证明 cmd 档生效、`type "带引号空格路径"` 端到端成功（cmd 修复的真实进程回归）、普通命令不受影响（探针脚本随 2026-08-29 上传前清理移除；要点=StdioClientTransport 起 `build/index.js` + `MCP_SHELL=cmd` + ver/type/echo 三命令，可按此重建）。本机仅有 Node 24 单运行时，Node 20/22 与 Linux/macOS 矩阵归 CI runner（外部证据边界不变）。
 4. **SDK 1.30 升级挂起**——触发条件：某 1.x 版本确认修复 ZodEffects inputSchema 问题（届时可删 postinstall patch），或出现必须升级的安全通告。
 5. **Linux 验证由用户自行在 VPS 处理**（不在 agent 范围）。
 6. **发版决策**（4.1.0 建议，用户产品决策）：平台验证已完成，随时可进行，含 CHANGELOG [Unreleased] 定版、tag、publish。
