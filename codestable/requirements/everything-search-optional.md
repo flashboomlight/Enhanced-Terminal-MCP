@@ -3,9 +3,10 @@ doc_type: requirement
 slug: everything-search-optional
 pitch: Windows 上有 Everything 时加速搜索，没有时也能正常搜索，而且不会自动下载未知程序
 status: current
-last_reviewed: "2026-08-22"
+last_reviewed: "2026-08-29"
 implemented_by:
   - 2026-08-21-publish-es-optional
+  - 2026-08-29-search-and-adaptive-correctness
 tags: [windows, search, everything, supply-chain, fallback]
 ---
 
