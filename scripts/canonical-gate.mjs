@@ -18,7 +18,9 @@ const releaseDir = join(gateWorkspace, "release");
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const ciMode = process.argv.slice(2).includes("--ci");
-const unknownArgs = process.argv.slice(2).filter((arg) => arg !== "--ci");
+// pnpm on Windows forwards the "--" separator verbatim ("pnpm run gate -- --ci");
+// tolerate it on every platform so the same invocation works everywhere.
+const unknownArgs = process.argv.slice(2).filter((arg) => arg !== "--ci" && arg !== "--");
 
 if (unknownArgs.length > 0) {
   console.error(`Unknown canonical gate argument(s): ${unknownArgs.join(" ")}`);

@@ -28,8 +28,8 @@ if not defined NODE_MAJOR (
     call :maybe_pause
     exit /b 1
 )
-if %NODE_MAJOR% LSS 20 (
-    echo ERROR: Node.js 20 or newer is required.
+if %NODE_MAJOR% LSS 22 (
+    echo ERROR: Node.js 22.13 or newer is required by the pinned pnpm 11.21 toolchain.
     call :maybe_pause
     exit /b 1
 )
@@ -40,7 +40,7 @@ set "PNPM_VERSION="
 for /f "delims=" %%v in ('corepack pnpm --version') do set "PNPM_VERSION=%%v"
 if not defined PNPM_VERSION (
     echo ERROR: pnpm 11.21.0 is not available!
-    echo Please install Node.js 20+ with Corepack, or install pnpm 11.21.0 manually.
+    echo Please install Node.js 22.13+ with Corepack, or install pnpm 11.21.0 manually.
     call :maybe_pause
     exit /b 1
 )
