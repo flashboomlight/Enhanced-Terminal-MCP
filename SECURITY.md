@@ -21,5 +21,5 @@ Use GitHub **private security advisories** (preferred) for anything exploitable;
 
 | Version | Security fixes |
 | --- | --- |
-| 4.0.x | Yes |
-| < 4.0.0 | No |
+| 4.1.x | Yes |
+| < 4.1.0 | No |

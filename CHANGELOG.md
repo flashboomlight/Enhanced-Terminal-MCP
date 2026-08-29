@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] — 2026-08-30
+
 ### Added
 
 - Optional `fd` engine acceleration for `search_files` on Linux/macOS: a new platform-neutral `src/fd-resolver.ts` resolves `ENHANCED_TERMINAL_FD_PATH` (explicit, fail-closed: must be absolute + a regular file + pass a `--version` probe) → `fd`/`fdfind` on `PATH` → unavailable, with a process-level cache and non-sensitive diagnostics (`download_performed: false`, no raw `PATH`). When `fd` is used, arguments go through an argv array with no shell interpolation (`--color=never --absolute-path --glob --ignore-case --no-ignore --max-results N [--max-depth D] -- pattern dir`); non-empty stderr lines surface as `FD_PARTIAL_ERRORS` with `complete=false`, an exec failure degrades to native search with an observable `FD_EXEC_FAILED` warning, an explicit-path error returns `VALIDATION_ERROR` without silent fallback, and an implicit miss falls back silently. Tool count (27/26) and the `search_files` output schema are unchanged. New unit suites: `tests/unit/fd-resolver.test.ts` (resolver chain, platform-neutral) and `tests/unit/tools/search-fd.test.ts` (fd branch executed on all platforms via an `IS_WIN=false` module mock, incl. a real-`fd` smoke test).

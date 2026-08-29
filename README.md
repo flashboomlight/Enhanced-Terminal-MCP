@@ -1,4 +1,4 @@
-# Enhanced Terminal MCP Server v4.0
+# Enhanced Terminal MCP Server v4.1
 
 [![CI](https://github.com/flashboomlight/Enhanced-Terminal-MCP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/flashboomlight/Enhanced-Terminal-MCP/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
@@ -76,7 +76,7 @@ For a project-local installation, use the npm runner explicitly:
   "mcpServers": {
     "enhanced-terminal-mcp": {
       "command": "npx",
-      "args": ["--yes", "enhanced-terminal-mcp@4.0.0"]
+      "args": ["--yes", "enhanced-terminal-mcp@4.1.0"]
     }
   }
 }
