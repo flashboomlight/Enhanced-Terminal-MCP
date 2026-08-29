@@ -4,7 +4,7 @@
 > **维护规则**：每个 roadmap feature 收口（commit 落库 + 记忆更新）后，必须同步更新本文件的进度表、HEAD、下一步与坑清单。
 
 - **快照时间**：2026-08-29
-- **当前 HEAD**：`dc337b7`（cmd 引号路径 issue 修复已落库，工作树 clean；生产硬化 roadmap 13/13 闭环）
+- **当前 HEAD**：`35e5659`（lint 全清零；cmd 引号路径修复与 roadmap 13/13 均已落库，工作树 clean）
 - **最近一次全量回归**：`pnpm run gate`（release 模式）11 阶段全部 passed（69 文件 845 用例、coverage/latency/audit/package/clean consumer 达标）；含 cmd 引号路径修复（issue `2026-08-29-cmd-quoted-space-path`）后的回归
 
 ## 1. 项目一句话
