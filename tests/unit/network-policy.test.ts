@@ -165,7 +165,7 @@ describe("network-policy downloadToFile", () => {
   test("deny-private default blocks loopback download before any connection", async () => {
     delete process.env.MCP_SSRF_MODE;
     const dir = await freshDir();
-    const server = await startServer((req, res) => res.end("nope"));
+    const server = await startServer((_req, res) => res.end("nope"));
     try {
       const result = await downloadToFile(`${server.url}/file`, path.join(dir, "out.bin"));
       expect(result.ok).toBe(false);
@@ -180,7 +180,7 @@ describe("network-policy downloadToFile", () => {
     process.env.MCP_SSRF_MODE = "allow-private";
     const dir = await freshDir();
     const body = Buffer.from("hello download world");
-    const server = await startServer((req, res) => {
+    const server = await startServer((_req, res) => {
       res.setHeader("Content-Length", String(body.length));
       res.end(body);
     });
@@ -203,7 +203,7 @@ describe("network-policy downloadToFile", () => {
     process.env.MCP_SSRF_MODE = "allow-private";
     const dir = await freshDir();
     let hits = 0;
-    const server = await startServer((req, res) => {
+    const server = await startServer((_req, res) => {
       hits++;
       if (hits === 1) {
         res.statusCode = 302;
@@ -227,7 +227,7 @@ describe("network-policy downloadToFile", () => {
     process.env.MCP_SSRF_MODE = "allow-private";
     process.env.MCP_DOWNLOAD_MAX_REDIRECTS = "2";
     const dir = await freshDir();
-    const server = await startServer((req, res) => {
+    const server = await startServer((_req, res) => {
       res.statusCode = 302;
       res.setHeader("Location", "/loop");
       res.end();
@@ -245,7 +245,7 @@ describe("network-policy downloadToFile", () => {
     process.env.MCP_SSRF_MODE = "allow-private";
     process.env.MCP_DOWNLOAD_MAX_BYTES = "100";
     const dir = await freshDir();
-    const server = await startServer((req, res) => {
+    const server = await startServer((_req, res) => {
       res.setHeader("Content-Length", "10000");
       const chunk = Buffer.alloc(500, 0x61);
       const timer = setInterval(() => res.write(chunk), 5);
@@ -267,7 +267,7 @@ describe("network-policy downloadToFile", () => {
     process.env.MCP_SSRF_MODE = "allow-private";
     process.env.MCP_DOWNLOAD_TIMEOUT_MS = "1000";
     const dir = await freshDir();
-    const server = await startServer((req, res) => {
+    const server = await startServer((_req, res) => {
       res.setHeader("Content-Length", "100000000");
       const timer = setInterval(() => res.write(Buffer.alloc(1024, 0x62)), 50);
       res.on("close", () => clearInterval(timer));
@@ -288,7 +288,7 @@ describe("network-policy downloadToFile", () => {
     process.env.MCP_SSRF_MODE = "allow-private";
     const dir = await freshDir();
     const controller = new AbortController();
-    const server = await startServer((req, res) => {
+    const server = await startServer((_req, res) => {
       const timer = setInterval(() => res.write(Buffer.alloc(4096, 0x63)), 10);
       res.on("close", () => clearInterval(timer));
       res.on("error", () => clearInterval(timer));
@@ -309,7 +309,7 @@ describe("network-policy downloadToFile", () => {
   test("HTTP 404 surfaces EXECUTION_FAILED without writing the file", async () => {
     process.env.MCP_SSRF_MODE = "allow-private";
     const dir = await freshDir();
-    const server = await startServer((req, res) => {
+    const server = await startServer((_req, res) => {
       res.statusCode = 404;
       res.end("gone");
     });

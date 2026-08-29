@@ -394,7 +394,7 @@ export class TempManager {
     // 本进程条目跳过——以内存 live 值为准，避免 markWritten 同步延迟造成双计
     const ledger = await this.readQuotaLedgerLocked();
     let crossOutstanding = 0;
-    for (const [id, item] of Object.entries(ledger)) {
+    for (const item of Object.values(ledger)) {
       if (item.pid === process.pid) continue;
       crossOutstanding += item.bytes;
     }

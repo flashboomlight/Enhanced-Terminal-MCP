@@ -44,9 +44,9 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 ## 5. 下一步（用户已定排期，2026-08-29）
 
 1. ~~cmd 链路带引号空格路径~~（已完成：issue `2026-08-29-cmd-quoted-space-path`，verbatim `/d /s /c` 修复 + gate 全绿）。
-2. **lint 9 warnings 清理**（下一项：`src/temp-manager.ts` 未用 `id`、`tests/unit/network-policy.test.ts` 未用参数等）。
-3. **SDK 1.30 升级挂起**——触发条件：某 1.x 版本确认修复 ZodEffects inputSchema 问题（届时可删 postinstall patch），或出现必须升级的安全通告。
-4. **Windows 本机平台验证**（agent 执行）。
+2. ~~lint 9 warnings 清理~~（已完成：`temp-manager.ts` 改 `Object.values`、`network-policy.test.ts` 8 处改 `_req`，lint 0 warning）。
+3. **Windows 本机平台验证**（下一项，agent 执行）。
+4. **SDK 1.30 升级挂起**——触发条件：某 1.x 版本确认修复 ZodEffects inputSchema 问题（届时可删 postinstall patch），或出现必须升级的安全通告。
 5. **Linux 验证由用户自行在 VPS 处理**（不在 agent 范围）。
 6. **发版决策**（4.1.0 建议，用户产品决策）：平台验证完成后进行，含 CHANGELOG [Unreleased] 定版、tag、publish。
 
