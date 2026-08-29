@@ -146,6 +146,7 @@ function main() {
           "build/",
           "scripts/apply-mcp-sdk-patch.mjs",
           "README.md",
+          "README.zh-CN.md",
           "CHANGELOG.md",
           "LICENSE",
         ]),
@@ -159,6 +160,7 @@ function main() {
     const requiredFiles = [
       "package.json",
       "README.md",
+      "README.zh-CN.md",
       "CHANGELOG.md",
       "LICENSE",
       "scripts/apply-mcp-sdk-patch.mjs",

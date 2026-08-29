@@ -1,5 +1,7 @@
 # Enhanced Terminal MCP Server v4.0
 
+[中文文档 (Chinese)](./README.zh-CN.md)
+
 A powerful terminal/CLI interface for AI models via the [Model Context Protocol (MCP)](https://modelcontextprotocol.org/).
 
 Supports **27 tools** across 7 categories: command execution, file I/O, file management, system management, search, archives, and operational telemetry/session management.

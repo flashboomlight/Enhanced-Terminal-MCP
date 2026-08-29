@@ -13,6 +13,7 @@
     "build/",
     "scripts/apply-mcp-sdk-patch.mjs",
     "README.md",
+    "README.zh-CN.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
