@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a defect in Enhanced Terminal MCP
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this!
+
+        **Security vulnerabilities** must not be filed as public issues — please report them privately via [GitHub Security Advisories](https://github.com/flashboomlight/Enhanced-Terminal-MCP/security) (see `SECURITY.md`).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the defect and which tool it affects (e.g. execute_command, search_files).
+      placeholder: Tell us what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Command/tool call sequence and your MCP client configuration snippet (mcpServers entry) if relevant.
+      placeholder: |
+        1. Configure the server with ...
+        2. Call tool ... with arguments ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen instead.
+    validations:
+      required: false
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      description: Shell resolution, archiving, and search engines are platform-specific.
+      options:
+        - Windows
+        - Linux
+        - macOS
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "Node.js version (`node -v`), server version (4.0.0 …), and MCP client (Claude Desktop, Cherry Studio, …)."
+      placeholder: "Node 22.14.0, server 4.0.0, Cherry Studio 1.x"
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Relevant configuration
+      description: Non-default environment variables (e.g. MCP_SAFETY_MODE, MCP_COMMAND_CONFIRMATION, MCP_SHELL, ENHANCED_TERMINAL_ES_PATH / ENHANCED_TERMINAL_FD_PATH). Redact any secrets.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: stderr output of the server (set MCP_LOG_LEVEL=debug) or an excerpt of `.etmcp/logs/audit.jsonl`. Redact any secrets.
+      render: text
+    validations:
+      required: false

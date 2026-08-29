@@ -1,10 +1,31 @@
 # Enhanced Terminal MCP Server v4.0
 
+[![CI](https://github.com/flashboomlight/Enhanced-Terminal-MCP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/flashboomlight/Enhanced-Terminal-MCP/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Node.js ≥ 20](https://img.shields.io/badge/node-%3E%3D%2020-brightgreen)](./package.json)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-lightgrey)](#linux-说明)
+
 通过 [模型上下文协议 (Model Context Protocol, MCP)](https://modelcontextprotocol.org/) 为 AI 模型提供强大的终端 / CLI 接口。
 
 提供 **27 个工具**，覆盖 7 大类：命令执行、文件读写、文件管理、系统管理、搜索、归档、运维遥测与会话管理。
 
 > 本文档为英文 `README.md` 的中文翻译版；如有出入，以英文版为准。
+
+## 目录
+
+- [特性](#特性)
+- [快速开始](#快速开始)
+  - [环境变量](#环境变量)
+  - [Windows 默认 Shell](#windows-默认-shellpwsh-7)
+  - [Everything 搜索](#everything-搜索windows可选)
+- [Linux 说明](#linux-说明)
+- [工具参考](#工具参考)
+- [架构](#架构)
+- [开发](#开发)
+- [发布验证](#发布验证)
+- [供应链与完整性](#供应链与完整性)
+- [贡献](#贡献)
+- [许可证](#许可证)
 
 ## 特性
 
@@ -303,6 +324,10 @@ node scripts/verify-clean-consumer.mjs <path-to-tarball>
 
 使用完整 shell 字符串时，安全策略是**纵深防御而非沙箱**——威胁模型、hardBlock 底线、依赖策略与漏洞报告渠道见 [`SECURITY.md`](./SECURITY.md)。硬化路线图（`2026-07-12-remaining-hardening`、`2026-08-28-production-hardening`）已关闭；当前发布状态见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
+## 贡献
+
+欢迎贡献——请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)（改动 `src/security.ts` / `src/safeguard.ts` 前务必注意其中的安全红线），遵守[行为准则](./CODE_OF_CONDUCT.md)，漏洞请按 [SECURITY.md](./SECURITY.md) 私下报告。
+
 ## 许可证
 
-MIT
+[MIT](./LICENSE)——第三方归属见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)，版本变更见 [CHANGELOG.md](./CHANGELOG.md)。

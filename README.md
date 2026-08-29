@@ -1,10 +1,31 @@
 # Enhanced Terminal MCP Server v4.0
 
+[![CI](https://github.com/flashboomlight/Enhanced-Terminal-MCP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/flashboomlight/Enhanced-Terminal-MCP/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Node.js ≥ 20](https://img.shields.io/badge/node-%3E%3D%2020-brightgreen)](./package.json)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-lightgrey)](#linux-notes)
+
 [中文文档 (Chinese)](./README.zh-CN.md)
 
 A powerful terminal/CLI interface for AI models via the [Model Context Protocol (MCP)](https://modelcontextprotocol.org/).
 
 Supports **27 tools** across 7 categories: command execution, file I/O, file management, system management, search, archives, and operational telemetry/session management.
+
+## Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Environment Variables](#environment-variables)
+  - [Windows Default Shell (pwsh 7)](#windows-default-shell-pwsh-7)
+  - [Everything Search (Windows, optional)](#everything-search-windows-optional)
+- [Linux Notes](#linux-notes)
+- [Tool Reference](#tool-reference)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Release verification](#release-verification)
+- [Supply chain & integrity](#supply-chain--integrity)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -300,6 +321,10 @@ Third-party attribution and distribution boundaries (MCP SDK compatibility patch
 
 Security policy is **defense in depth, not a sandbox** when using full shell strings — see [`SECURITY.md`](./SECURITY.md) for the threat model, hardBlock floor, dependency policy, and vulnerability reporting. The hardening roadmaps (`2026-07-12-remaining-hardening`, `2026-08-28-production-hardening`) are closed; see [`CHANGELOG.md`](./CHANGELOG.md) for the current release state.
 
+## Contributing
+
+Contributions are welcome — please read [CONTRIBUTING.md](./CONTRIBUTING.md) first (note the security invariants before touching `src/security.ts` or `src/safeguard.ts`), follow the [Code of Conduct](./CODE_OF_CONDUCT.md), and report vulnerabilities privately per [SECURITY.md](./SECURITY.md).
+
 ## License
 
-MIT
+[MIT](./LICENSE) — third-party attributions are listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md), and notable changes in [CHANGELOG.md](./CHANGELOG.md).
