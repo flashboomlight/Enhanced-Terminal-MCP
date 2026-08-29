@@ -151,7 +151,6 @@ describe("search tools pure logic", () => {
       code: "EXECUTION_FAILED",
       detail: {
         reason: "state_path_missing",
-        expected_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         env_name: ES_EXE_ENV,
         default_path: path.join(stateDir, "tools", "es.exe"),
         download_performed: false,

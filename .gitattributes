@@ -10,4 +10,3 @@
 *.ico binary
 *.zip binary
 *.db binary
-# es_tool/*.exe 直接以普通二进制入库（136KB，曾用 LFS，为免克隆端依赖 git-lfs 已拆除）

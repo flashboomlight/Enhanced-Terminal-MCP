@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `prepack` clean builds, self-contained source maps, an explicit MIT `LICENSE`, source/npm bootstrap separation, and the zero-dependency `scripts/verify-package.mjs` tarball verifier with SHA-256 evidence.
 - An explicit `tsx` devDependency for the `dev` source entry; source bootstrap now validates Node 22.13+/pnpm 11.21.0 and supports `--non-interactive`.
 - Documentation closeout (production-hardening #13): the 4.0.0 CHANGELOG section no longer carries contradictory pre-v4 headless entries (the breaking-changes narrative already covers that lifecycle); the `usage-guide` prompt highlights were refreshed to v4.0; stale `remaining-hardening` roadmap pointers were replaced with closed-roadmap status across README/AGENTS/ARCHITECTURE; a root `SECURITY.md` documents the threat model, the unclosable hardBlock floor, execution profiles, dependency policy, and vulnerability reporting; the `tests/e2e-latency.test.ts` header was updated to v4.0.0.
+- `THIRD_PARTY_NOTICES.md` at the repository root records third-party attribution and distribution boundaries (MCP SDK compatibility patch, Zod, Everything interop-not-distributed, pwsh bootstrap download) and ships in the npm package; `patches/README.md` documents the SDK patch's copyright split.
 
 ### Changed
 
@@ -44,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `command.ts`: execute/watch shared preamble extracted (`resolveCommandLimits` / `prepareInvocation` / `finishCommandEnvelope`); no behavior change.
 - `adaptive.ts` `DEFAULT_TIMEOUTS` now only registers `execute_command` (the single call site); other entries were unreachable config.
 - Tests use project-internal `.etmcp/test-tmp` instead of a machine-specific temp directory; internal roadmap archives normalized to `YYYY-MM-DD-<slug>` naming with all path references updated.
+
+### Removed
+
+- Everything is no longer distributed in any form: the in-repo `es_tool/` fixture (`es.exe` + upstream `cli.c`) was removed from the working tree, and the pinned `ES_EXE_SHA256` integrity check in `src/es-integrity.ts` was dropped together with the `ES_EXE_PATH`/`ES_EXE_SHA256` exports. `ENHANCED_TERMINAL_ES_PATH` / `<state-dir>/tools/es.exe` now accept any existing regular-file `es.exe` you installed yourself (no version lock, nothing executed for probing); resolution failures keep the same `VALIDATION_ERROR`/`EXECUTION_FAILED` contract minus the `*_hash_mismatch` reasons and the `expected_sha256`/`actual_sha256` diagnostic fields. A successful resolution is cached per process (failures are retried on the next call), and `verify-package.mjs` keeps forbidding `es_tool/` in the tarball as a regression guard. Users who pin `ENHANCED_TERMINAL_ES_PATH` to an upgraded Everything CLI are no longer rejected.
 
 ### Fixed
 

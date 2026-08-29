@@ -76,8 +76,8 @@ function esResolutionFailure(resolution: Extract<EsExeResolution, { available: f
       suggestion: explicit
         ? `Fix ${diagnostic.env_name} or unset it and retry; the configured path will not silently fall back.`
         : toolName === "everything_search"
-          ? `Use search_files, or provide a verified es.exe through ${diagnostic.env_name} or ${diagnostic.default_path}.`
-          : `Use native search fallback; provide a verified es.exe through ${diagnostic.env_name} or ${diagnostic.default_path}.`,
+          ? `Use search_files, or provide an es.exe you installed through ${diagnostic.env_name} or ${diagnostic.default_path}.`
+          : `Use native search fallback; provide an es.exe you installed through ${diagnostic.env_name} or ${diagnostic.default_path}.`,
       detail: diagnostic,
     },
   );

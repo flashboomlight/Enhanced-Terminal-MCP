@@ -19,14 +19,14 @@
 - **临时资源管理器** — TTL + LRU 自动回收临时目录；`temp` 根仅在真正需要临时资源时创建
 - **命令输出分页** — 大型 `execute_command` 输出溢出到 `.etmcp/temp` 下的字节索引 page cache v2，可通过校验后的 `cache_id` / `page` / `pageSize` 逐页读取；小输出留在内存、永不落盘
 - **限流** — 命令执行使用令牌桶（10 req/s）
-- **Windows Everything 集成（可选）** — 通过 Everything CLI 实现亚 10ms 文件搜索，本地解析 `ENHANCED_TERMINAL_ES_PATH` 或 `<state-dir>/tools/es.exe`（SHA-256 锁定）；不可用时 `search_files` 回退原生搜索
+- **Windows Everything 集成（可选）** — 通过你自行安装的 Everything CLI 实现亚 10ms 文件搜索，解析 `ENHANCED_TERMINAL_ES_PATH` 或 `<state-dir>/tools/es.exe`；Everything 不随本包分发，不可用时 `search_files` 回退原生搜索
 - **可选 fd 搜索引擎（Linux/macOS）** — `search_files` 通过 `PATH` 上的 `fd`/`fdfind` 或显式 `ENHANCED_TERMINAL_FD_PATH`（fail-closed）加速；不可用时静默回退内置原生搜索
 
 ## 快速开始
 
 ### npm 消费者
 
-发布到 npm 后，在消费项目中安装并使用其 bin 入口。npm 包不包含 setup.bat、源码检出、捆绑 pwsh 或 Everything 开发夹具。安装必须允许生命周期脚本，因为 postinstall 会应用固定版本的 MCP SDK 兼容补丁。
+发布到 npm 后，在消费项目中安装并使用其 bin 入口。npm 包不包含 setup.bat、源码检出、捆绑 pwsh 或任何 Everything 组件。安装必须允许生命周期脚本，因为 postinstall 会应用固定版本的 MCP SDK 兼容补丁。
 
 ```bash
 # 全局安装
@@ -124,7 +124,7 @@ pnpm run build      # 或：npm run build
 | `MCP_COMMAND_MEMORY_OUTPUT_BYTES` | `1048576` | 每条命令的内存保留阈值；超过部分溢出到 page cache（`paged=true`） |
 | `MCP_COMMAND_MAX_STDERR_BYTES` | `1048576` | 每条命令保留的 stderr 上限 |
 | `MCP_TEMP_MAX_TOTAL_BYTES` | `1073741824` | LRU 淘汰触发前的临时总字节上限。跨进程的未完成预留经 `<state-dir>/temp/.quota.json` 镜像共享（死亡进程的陈旧条目自动回收）；协调文件（`.quota.json`、`.temp.lock`）不计入载荷预算 |
-| `ENHANCED_TERMINAL_ES_PATH` | — | 固定 SHA-256 Everything CLI（`es.exe`）的显式路径。优先于 `<state-dir>/tools/es.exe`；无效显式路径 fail-closed。仅当隐式状态二进制不可用时 `search_files` 才回退；`everything_search` 返回结构化安装详情。 |
+| `ENHANCED_TERMINAL_ES_PATH` | — | 指向你自行安装的 Everything CLI（`es.exe`）的显式路径。优先于 `<state-dir>/tools/es.exe`；必须是已存在的普通文件，无效显式路径 fail-closed（不静默回退、不锁版本）。仅当隐式状态二进制不可用时 `search_files` 才回退；`everything_search` 返回结构化安装详情。Everything 不随本包分发。 |
 | `ENHANCED_TERMINAL_FD_PATH` | — | 非 Windows `search_files` 加速用的 `fd` 可执行文件显式路径。必须为绝对路径 + 文件 + 通过 `--version` 探测；无效显式路径 fail-closed（`VALIDATION_ERROR`，不静默回退）。未设置时，每个进程探测一次 `PATH` 上的 `fd` / `fdfind`；都没有则静默使用原生搜索。 |
 | `MCP_SSRF_MODE` | 按面默认 | `deny-private` / `allow-private`。未设置：`download_file` 使用 `deny-private`（拦截环回/私网/链路本地/元数据目标，含 `169.254.169.254`），`network_info` 使用 `allow-private`（诊断不受影响）。显式值对两个面生效。禁用地址（未指定/多播/保留）始终拦截。永不使用代理环境变量。 |
 | `MCP_DOWNLOAD_MAX_BYTES` | `104857600` | 每次下载实际接收的最大字节数（100 MiB）；跨重试共享。超限中止流并删除 staging 文件。 |
@@ -148,6 +148,17 @@ pnpm run build      # 或：npm run build
 4. Windows PowerShell 5.1 回退（记录警告）
 
 pwsh 7 与 Windows PowerShell 5.1 使用调用层 UTF-8 前导码；cmd 保持 `chcp 65001`。使用 `MCP_SHELL=cmd` 恢复遗留 cmd.exe 行为。cmd/powershell 内联非 ASCII 乱码问题已在 M2 输出解码层（`src/command-output.ts`）修复。切换 shell 或安装 pwsh 后需重启服务（解析结果按进程生命周期缓存）。
+
+### Everything 搜索（Windows，可选）
+
+与 voidtools 的 [Everything](https://www.voidtools.com/) 的可选集成，在 Windows 上提供近乎即时的文件名搜索。**Everything 不随 Enhanced Terminal MCP 分发**——仓库与 npm 包均不包含。启用步骤：
+
+1. 从 voidtools 安装 Everything。
+2. 从同一来源获取 Everything CLI（`es.exe`）。
+3. 把服务指向你自己的副本：将 `ENHANCED_TERMINAL_ES_PATH` 设为 `es.exe` 的绝对路径，或把文件放到 `<state-dir>/tools/es.exe`。
+4. 成功解析按进程生命周期缓存；失败不缓存，下次调用重试——事后安装 `es.exe` 无需重启即可生效。
+
+服务只校验配置路径存在且为普通文件——不下载、不为探测执行任何二进制、不锁定特定 `es.exe` 版本。没有 Everything 时，`search_files` 自动使用原生搜索（Linux/macOS 上可用 `fd`），`everything_search` 返回结构化安装详情而不是伪装成空结果。
 
 ## Linux 说明
 
@@ -283,11 +294,12 @@ node scripts/verify-clean-consumer.mjs <path-to-tarball>
 
 | 资产 | 说明 |
 |------|------|
-| `es_tool/es.exe` | Everything CLI 仅作开发/测试夹具（锁定到 `src/es-integrity.ts` 中的 `ES_EXE_SHA256`：`5101b3a6d9542de378e077f4b8c66c4e608d3bff088092427749b65fbb18b342`）。生产解析顺序为 `ENHANCED_TERMINAL_ES_PATH` → `<state-dir>/tools/es.exe` → 不可用；该夹具不包含在 npm 包中。更新二进制 ⇒ 同步更新常量与测试。 |
 | `scripts/apply-mcp-sdk-patch.mjs` | `@modelcontextprotocol/sdk@1.29.0` 的零依赖 `postinstall` 补丁；只解析包自有的 SDK，版本、布局或模式漂移即 fail-closed。`patch-package` 仅作为 **devDependency**。 |
 | SDK 固定 | `@modelcontextprotocol/sdk` 保持精确 `1.29.0` 以维持 wire/API 兼容；其补丁后的传递依赖版本冻结在 `pnpm-lock.yaml`。 |
 | 包校验器 | `scripts/verify-package.mjs` 检查真实 tarball、包文件、入口、source map、禁止的本地资产与 SHA-256。 |
 | Zod | 依据记录在案的决策（2026-07-12）保持 **v3**，直到 zod v4 迁移验证完成。 |
+
+第三方归属与分发边界（MCP SDK 兼容补丁、Zod、Everything、pwsh bootstrap）记录在 [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md)，该文件随 npm 包一并发布。
 
 使用完整 shell 字符串时，安全策略是**纵深防御而非沙箱**——威胁模型、hardBlock 底线、依赖策略与漏洞报告渠道见 [`SECURITY.md`](./SECURITY.md)。硬化路线图（`2026-07-12-remaining-hardening`、`2026-08-28-production-hardening`）已关闭；当前发布状态见 [`CHANGELOG.md`](./CHANGELOG.md)。
 

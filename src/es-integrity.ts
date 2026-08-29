@@ -1,61 +1,39 @@
 /**
- * Everything CLI (es.exe) 完整性校验与本地可选路径解析
- * 生产路径只允许显式环境变量或固定 state 目录，不读取仓库 fixture
+ * Everything CLI (es.exe) 本地可选路径解析
+ * Everything 不随 Enhanced Terminal MCP 分发：用户自行安装后，经显式环境变量或固定 state 目录提供。
+ * 解析只校验路径存在且为普通文件（lstat，不跟随 symlink），不下载、不执行、不锁版本
+ * （2026-08-30 issue everything-distribution-compliance：移除固定 SHA-256 与仓库 fixture）。
  */
-import { createHash } from "node:crypto";
-import { lstat, readFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { lstat } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
 import { logger } from "./logger.js";
 import { getStateDirSync } from "./state-dir.js";
 
-/** Everything CLI 的固定 SHA-256（更新 binary 时必须同步改此常量与测试） */
-export const ES_EXE_SHA256 = "5101b3a6d9542de378e077f4b8c66c4e608d3bff088092427749b65fbb18b342";
 export const ES_EXE_ENV = "ENHANCED_TERMINAL_ES_PATH";
-
-const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
-/** 仓库开发/测试 fixture 路径，不作为生产 resolver 默认路径 */
-export const ES_EXE_PATH = join(MODULE_DIR, "..", "es_tool", "es.exe");
 
 export type EsExeSource = "explicit" | "state";
 export type EsExeReason =
   | "explicit_path_missing"
   | "explicit_path_not_file"
   | "explicit_path_unreadable"
-  | "explicit_hash_mismatch"
   | "state_path_missing"
   | "state_path_not_file"
-  | "state_path_unreadable"
-  | "state_hash_mismatch";
+  | "state_path_unreadable";
 
 export interface EsExeDiagnostic {
   reason: EsExeReason;
-  expected_sha256: string;
   env_name: string;
   default_path: string;
   download_performed: false;
   source: EsExeSource;
   path: string;
-  actual_sha256?: string;
 }
 
 export type EsExeResolution =
   | { available: true; source: EsExeSource; path: string }
   | { available: false; source: EsExeSource; diagnostic: EsExeDiagnostic };
 
-interface FileFingerprint {
-  size: number;
-  mtimeMs: number;
-  dev: number;
-  ino: number;
-}
-
-interface VerifiedCandidate {
-  fingerprint: FileFingerprint;
-  path: string;
-}
-
-let verifiedCandidate: VerifiedCandidate | null = null;
+let resolvedSuccess: { source: EsExeSource; path: string } | null = null;
 let verifyPromise: Promise<EsExeResolution> | null = null;
 
 function configuredPath(): string | null {
@@ -68,37 +46,18 @@ function defaultStatePath(): string {
   return join(getStateDirSync(), "tools", "es.exe");
 }
 
-function fileFingerprint(stat: Awaited<ReturnType<typeof lstat>>): FileFingerprint {
-  return {
-    size: Number(stat.size),
-    mtimeMs: Number(stat.mtimeMs),
-    dev: Number(stat.dev),
-    ino: Number(stat.ino),
-  };
-}
-
-function sameFingerprint(left: FileFingerprint, right: FileFingerprint): boolean {
-  return left.size === right.size && left.mtimeMs === right.mtimeMs && left.dev === right.dev && left.ino === right.ino;
-}
-
 function reasonFor(source: EsExeSource, suffix: "missing" | "not_file" | "unreadable"): EsExeReason {
   return `${source}_path_${suffix}` as EsExeReason;
 }
 
-function hashMismatchReason(source: EsExeSource): EsExeReason {
-  return `${source}_hash_mismatch` as EsExeReason;
-}
-
-function diagnostic(source: EsExeSource, path: string, reason: EsExeReason, actual_sha256?: string): EsExeDiagnostic {
+function diagnostic(source: EsExeSource, path: string, reason: EsExeReason): EsExeDiagnostic {
   return {
     reason,
-    expected_sha256: ES_EXE_SHA256,
     env_name: ES_EXE_ENV,
     default_path: defaultStatePath(),
     download_performed: false,
     source,
     path,
-    ...(actual_sha256 ? { actual_sha256 } : {}),
   };
 }
 
@@ -118,39 +77,23 @@ async function inspectCandidate(source: EsExeSource, path: string): Promise<EsEx
     logger.warn("es-integrity", reason, path);
     return { available: false, source, diagnostic: diagnostic(source, path, reason) };
   }
-
-  const fingerprint = fileFingerprint(stat);
-  if (verifiedCandidate?.path === path && sameFingerprint(verifiedCandidate.fingerprint, fingerprint)) {
-    return { available: true, source, path };
-  }
-
-  let contents: Buffer;
-  try {
-    contents = await readFile(path);
-  } catch (error) {
-    const reason = reasonFor(source, "unreadable");
-    logger.warn("es-integrity", reason, `${path}: ${String(error)}`);
-    return { available: false, source, diagnostic: diagnostic(source, path, reason) };
-  }
-  const actualSha256 = createHash("sha256").update(contents).digest("hex");
-  if (actualSha256 !== ES_EXE_SHA256) {
-    const reason = hashMismatchReason(source);
-    logger.error("es-integrity", reason, path);
-    return { available: false, source, diagnostic: diagnostic(source, path, reason, actualSha256) };
-  }
-
-  verifiedCandidate = { path, fingerprint };
   return { available: true, source, path };
 }
 
-/** 解析并校验本地 Everything binary；不创建目录、不下载、不读取仓库 fixture。 */
+/** 解析本地 Everything binary；不创建目录、不下载、不执行、仓库不分发 es.exe。 */
 export async function resolveEsExe(): Promise<EsExeResolution> {
   if (verifyPromise) return verifyPromise;
   verifyPromise = (async () => {
     const explicit = configuredPath();
-    if (explicit) return inspectCandidate("explicit", explicit);
-    const statePath = defaultStatePath();
-    return inspectCandidate("state", statePath);
+    const source: EsExeSource = explicit ? "explicit" : "state";
+    const path = explicit ?? defaultStatePath();
+    // 成功解析按 source+path 进程级缓存：env 变更自动失配重验；失败不缓存，下次调用重试
+    if (resolvedSuccess && resolvedSuccess.source === source && resolvedSuccess.path === path) {
+      return { available: true, source, path };
+    }
+    const result = await inspectCandidate(source, path);
+    if (result.available) resolvedSuccess = { source, path };
+    return result;
   })();
   try {
     return await verifyPromise;
@@ -165,8 +108,8 @@ export async function ensureEsExeIntegrity(): Promise<string | null> {
   return result.available ? result.path : null;
 }
 
-/** 测试用：清除成功 fingerprint 与 in-flight 缓存。 */
+/** 测试用：清除成功缓存与 in-flight 共享。 */
 export function resetEsIntegrityCache(): void {
-  verifiedCandidate = null;
+  resolvedSuccess = null;
   verifyPromise = null;
 }
