@@ -131,8 +131,14 @@ On Windows, command tools resolve a shell once per process, in this order:
 
 pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd keeps `chcp 65001`. Use `MCP_SHELL=cmd` to restore the legacy cmd.exe behavior. The cmd/powershell inline non-ASCII mojibake issue was fixed in the M2 output-decoding layer (`src/command-output.ts`); see `codestable/issues/2026-08-19-cmd-powershell-inline-mojibake/`. Changing shells or installing pwsh requires a server restart (resolution is cached for the process lifetime).
 
-## Tool Reference
+## Linux Notes
 
+- **Shell**: command execution uses `/bin/sh -c`. The pwsh/PowerShell resolution chain (`MCP_SHELL`, `MCP_POWERSHELL_PATH`, bundled `tools/pwsh`) is Windows-only and needs nothing on Linux.
+- **Archive tools**: `compress_archive` / `extract_archive` shell out to the system `zip` / `unzip` binaries — install them via your package manager (e.g. `apt-get install -y zip unzip`).
+- **Search**: `everything_search` is Windows-only; on Linux `search_files` falls back to the built-in native recursive search (same partial-result contract, slower on large trees).
+- Everything else — the safety layers, session persistence, audit logging, page cache, rate limiting — is platform-neutral, and the full environment-variable table above applies unchanged.
+
+## Tool Reference
 ### Command Tools
 | Tool | Description | Safety |
 |------|-------------|--------|
