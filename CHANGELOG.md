@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `src/temp-manager.ts` infrastructure (helpers, env readers, errors, interfaces, `AsyncMutex`, `ReservationImpl`) extracted to `src/temp-core.ts`; public API unchanged.
 - `command.ts`: execute/watch shared preamble extracted (`resolveCommandLimits` / `prepareInvocation` / `finishCommandEnvelope`); no behavior change.
 - `adaptive.ts` `DEFAULT_TIMEOUTS` now only registers `execute_command` (the single call site); other entries were unreachable config.
-- Tests use project-internal `.etmcp/test-tmp` instead of the machine-specific `E:/Codex_Temp`; codestable roadmap directories normalized to `YYYY-MM-DD-<slug>` naming with all path references updated.
+- Tests use project-internal `.etmcp/test-tmp` instead of a machine-specific temp directory; internal roadmap archives normalized to `YYYY-MM-DD-<slug>` naming with all path references updated.
 
 ### Fixed
 

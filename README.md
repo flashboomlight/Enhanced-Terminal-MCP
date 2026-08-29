@@ -130,7 +130,7 @@ On Windows, command tools resolve a shell once per process, in this order:
 3. pwsh 7 found on `PATH`
 4. Windows PowerShell 5.1 fallback (logs a warning)
 
-pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd keeps `chcp 65001`. Use `MCP_SHELL=cmd` to restore the legacy cmd.exe behavior. The cmd/powershell inline non-ASCII mojibake issue was fixed in the M2 output-decoding layer (`src/command-output.ts`); see `codestable/issues/2026-08-19-cmd-powershell-inline-mojibake/`. Changing shells or installing pwsh requires a server restart (resolution is cached for the process lifetime).
+pwsh 7 and Windows PowerShell 5.1 use the invocation-layer UTF-8 preamble; cmd keeps `chcp 65001`. Use `MCP_SHELL=cmd` to restore the legacy cmd.exe behavior. The cmd/powershell inline non-ASCII mojibake issue was fixed in the M2 output-decoding layer (`src/command-output.ts`). Changing shells or installing pwsh requires a server restart (resolution is cached for the process lifetime).
 
 ## Linux Notes
 
@@ -269,9 +269,9 @@ verifier JSON 输出、pnpm audit 结果、lockfile、SBOM 和 CI 生成的 prov
 | `scripts/apply-mcp-sdk-patch.mjs` | Zero-dep `postinstall` patch for `@modelcontextprotocol/sdk@1.29.0`; it resolves only the package-owned SDK and fails closed on version, layout, or pattern drift. `patch-package` is **devDependency only**. |
 | SDK pin | `@modelcontextprotocol/sdk` remains exactly `1.29.0` for wire/API compatibility; its patched transitive dependency versions are frozen in `pnpm-lock.yaml`. |
 | Package verifier | `scripts/verify-package.mjs` checks the actual tarball, package files, entry point, source maps, forbidden local assets and SHA-256. |
-| Zod | Stays on **v3** until roadmap spike `deps-zod-v4-spike` goes go (see `codestable/compound/2026-07-12-decision-zod-v3-remain.md`). |
+| Zod | Stays on **v3** by recorded decision (2026-07-12) until the zod v4 migration spike concludes go. |
 
-Security policy is **defense in depth, not a sandbox** when using full shell strings — see [`SECURITY.md`](./SECURITY.md) for the threat model, hardBlock floor, dependency policy, and vulnerability reporting, and `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md` for the boundary decision. The hardening roadmaps (`2026-07-12-remaining-hardening`, `2026-08-28-production-hardening`) are closed; see [`STATUS.md`](./STATUS.md) for the current state.
+Security policy is **defense in depth, not a sandbox** when using full shell strings — see [`SECURITY.md`](./SECURITY.md) for the threat model, hardBlock floor, dependency policy, and vulnerability reporting. The hardening roadmaps (`2026-07-12-remaining-hardening`, `2026-08-28-production-hardening`) are closed; see [`CHANGELOG.md`](./CHANGELOG.md) for the current release state.
 
 ## License
 
