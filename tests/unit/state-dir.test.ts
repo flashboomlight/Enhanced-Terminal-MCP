@@ -6,6 +6,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { IS_WIN } from "../../src/platform.js";
 import { resetStateDirCache } from "../../src/state-dir.js";
 
 describe("state-dir", () => {
@@ -83,7 +84,14 @@ describe("state-dir", () => {
   });
 
   test("mkdir failure logs warning and throws", async () => {
-    process.env.MCP_STATE_DIR = path.join("\\\\invalid\\path\\for\\state");
+    if (IS_WIN) {
+      process.env.MCP_STATE_DIR = path.join("\\\\invalid\\path\\for\\state");
+    } else {
+      // POSIX 下反斜杠是合法文件名字符；用"父组件是已存在文件"制造必失败（ENOTDIR）
+      const blocker = path.join(tmpProjectDir, "blocker");
+      await fs.writeFile(blocker, "x");
+      process.env.MCP_STATE_DIR = path.join(blocker, "sub");
+    }
     resetStateDirCache();
     const { ensureStateDir } = await import("../../src/state-dir.js");
     await expect(ensureStateDir()).rejects.toThrow("Failed to create state directory");

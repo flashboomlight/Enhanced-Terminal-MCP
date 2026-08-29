@@ -12,6 +12,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { IS_WIN } from "../../src/platform.js";
 import type { ShellSpec } from "../../src/shell.js";
 
 // cmd 兼容档 → powerShellTarget 回退 powershell.exe -NoProfile（v3.1 原行为，真实执行可用）
@@ -19,8 +20,9 @@ const compatShell: ShellSpec = { file: "cmd.exe", flavor: "cmd", source: "compat
 
 // ====================================================================
 // 【性能-A】PowerShell 内联路径 — 压缩/解压实际可用
+// Windows 专属：非 Windows 平台 getCompressSpec/getExtractSpec/getDownloadSpec 走 zip/curl 系统 spec（e2e-latency 已覆盖）
 // ====================================================================
-describe("【性能-A】PowerShell 内联路径压缩解压", () => {
+describe.skipIf(!IS_WIN)("【性能-A】PowerShell 内联路径压缩解压", () => {
   let tmpDir: string;
 
   beforeEach(async () => {
@@ -99,7 +101,8 @@ describe("【性能-A】PowerShell 内联路径压缩解压", () => {
 // 【性能-B】Everything 搜索结果按 dir_path 过滤
 // ====================================================================
 describe("【性能-B】Everything 搜索结果目录过滤逻辑", () => {
-  test("只保留 dir_path 前缀匹配的结果", () => {
+  // path.resolve 对 win32 路径的归一化是 Windows 语义；Everything 本身仅 Windows 可用
+  test.skipIf(!IS_WIN)("只保留 dir_path 前缀匹配的结果", () => {
     // 模拟 Everything 返回的全盘结果
     const allResults = [
       "D:\\Projects\\app\\src\\index.ts",

@@ -37,7 +37,8 @@ afterEach(() => {
 // resolveShell：mode 与优先级
 // ====================================================================
 describe("resolveShell 优先级", () => {
-  test("默认 pwsh 模式：bundled 存在且探测成功 → source=bundled", async () => {
+  // bundled 候选经 path.join 拼接为 win32 路径，仅在 Windows 语义下成立
+  test.skipIf(!IS_WIN)("默认 pwsh 模式：bundled 存在且探测成功 → source=bundled", async () => {
     const spec = await resolveShell(
       opts({
         exists: (p) => p === "D:\\fake-root\\tools\\pwsh\\pwsh.exe",
@@ -52,7 +53,8 @@ describe("resolveShell 优先级", () => {
     });
   });
 
-  test("显式路径胜出于 bundled 与 PATH pwsh", async () => {
+  // 显式路径校验走 path.isAbsolute，win32 绝对路径在非 Windows 判定不同
+  test.skipIf(!IS_WIN)("显式路径胜出于 bundled 与 PATH pwsh", async () => {
     const probed: string[] = [];
     const spec = await resolveShell(
       opts({
@@ -142,7 +144,8 @@ describe("resolveShell 优先级", () => {
     expect(probed).toEqual(["C:\\WINPS\\powershell.exe"]);
   });
 
-  test("显式路径指向 5.1 → flavor=powershell（按探测主版本判定）", async () => {
+  // 同上：显式路径的绝对性判定是 win32 语义
+  test.skipIf(!IS_WIN)("显式路径指向 5.1 → flavor=powershell（按探测主版本判定）", async () => {
     const spec = await resolveShell(
       opts({
         env: { MCP_POWERSHELL_PATH: "D:\\explicit\\powershell.exe" },
@@ -298,7 +301,8 @@ describe("buildShellInvocation", () => {
     expect(inv.args[3].endsWith("Get-Date")).toBe(true);
   });
 
-  test("cmd → verbatim /d /s /c + 整体引号（chcp 65001 前缀）", () => {
+  // chcp 65001 前缀由 wrapCommand 按 IS_WIN 条件添加，非 Windows 无此前缀
+  test.skipIf(!IS_WIN)("cmd → verbatim /d /s /c + 整体引号（chcp 65001 前缀）", () => {
     const inv = buildShellInvocation("echo hello", { file: "cmd.exe", flavor: "cmd", source: "compat" });
     expect(inv.args).toEqual(["/d", "/s", "/c", `"chcp 65001 >nul && echo hello"`]);
     expect(inv.windowsVerbatimArguments).toBe(true);

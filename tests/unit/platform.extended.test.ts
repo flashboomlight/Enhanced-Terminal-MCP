@@ -44,7 +44,14 @@ describe("getKillSpec 详细验证", () => {
   test("force 参数独立影响", () => {
     const normal = getKillSpec(1234, false);
     const forced = getKillSpec(1234, true);
-    expect(normal.args.length).not.toBe(forced.args.length);
+    if (IS_WIN) {
+      // taskkill /F 追加参数
+      expect(normal.args.length).not.toBe(forced.args.length);
+    } else {
+      // Unix kill 信号恒显式（src/platform.ts:87-88）：force 体现为信号值 -15 → -9，参数个数不变
+      expect(normal.args[0]).toBe("-15");
+      expect(forced.args[0]).toBe("-9");
+    }
   });
 
   test("Windows 使用 taskkill", () => {

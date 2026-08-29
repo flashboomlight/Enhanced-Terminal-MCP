@@ -47,7 +47,7 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 2. ~~lint 9 warnings 清理~~（已完成：`temp-manager.ts` 改 `Object.values`、`network-policy.test.ts` 8 处改 `_req`，lint 0 warning）。
 3. ~~Windows 本机平台验证~~（**已完成，2026-08-29**）：①release gate 11/11 全 passed（Node v24.14.0；shell spec 走项目内置 `tools/pwsh` bundled 分支——本机 PATH 无 pwsh）；②真实 server 进程探针 4/4 PASS：tools/list=27、`ver` 成功证明 cmd 档生效、`type "带引号空格路径"` 端到端成功（cmd 修复的真实进程回归）、普通命令不受影响（探针脚本随 2026-08-29 上传前清理移除；要点=StdioClientTransport 起 `build/index.js` + `MCP_SHELL=cmd` + ver/type/echo 三命令，可按此重建）。本机仅有 Node 24 单运行时，Node 20/22 与 Linux/macOS 矩阵归 CI runner（外部证据边界不变）。
 4. **SDK 1.30 升级挂起**——触发条件：某 1.x 版本确认修复 ZodEffects inputSchema 问题（届时可删 postinstall patch），或出现必须升级的安全通告。
-5. **Linux 验证由用户自行在 VPS 处理**（不在 agent 范围）。
+5. ~~**Linux 验证由用户自行在 VPS 处理**~~（**已完成，2026-08-29**）：VPS 环境修复（node_modules 跨机拷贝损坏重装、pnpm 11 strictDepBuilds 机器级放行、补 zip/unzip）+ 16 条 Windows 耦合单测补平台守卫（issue `2026-08-29-linux-test-platform-guards`），Linux 全量 822 过/25 跳过/0 失败，工具层覆盖 89/89；全程问题记录见根目录 `LINUX-VALIDATION-ISSUES.md`。
 6. **发版决策**（4.1.0 建议，用户产品决策）：平台验证已完成，随时可进行，含 CHANGELOG [Unreleased] 定版、tag、publish。
 
 ## 6. 关键约束与坑（踩过一次的，勿再踩）
@@ -63,6 +63,8 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 - **机器特定路径**：pnpm store 在 `E:/pnpm/v11`（机器配置，不得写进仓库文件/发布物）。
 - **已知遗留（非阻塞）**：SDK 1.30 升级等生态（触发条件见下）；README/AGENTS/ARCHITECTURE 中部分历史文字已由 #13 收口，剩余历史版本段为有意保留。cmd 链路带引号空格路径已修复（`2026-08-29-cmd-quoted-space-path`：verbatim `/d /s /c` + 整体引号）。
 - **全量测试高负载 flake**：#12 已将 lock-lease heartbeat 改为串行续租、测试改为等待可观察 heartbeat，并为 Windows staging rename 增加有界 EPERM/EBUSY/EACCES 退避；#13 又修复 paging 测试 afterEach `fs.rm` 的 ENOTEMPTY 竞态（`maxRetries: 10, retryDelay: 100` 有界重试——100ms TTL 异步 sweep 在高负载下晚于枚举写入所致；修复前两次全量各挂 1 个不同用例、定向 5/5 过）。有界重试不吞错；后续其他测试如再现同类 flake 按同款逐文件处理，并继续观察 CI runner 矩阵稳定性。
+- **Linux/VPS 环境三坑**（2026-08-29 VPS 验证实录，详见根目录 `LINUX-VALIDATION-ISSUES.md`）：①node_modules 不可跨机器/跨平台拷贝——pnpm 的符号链接视图与平台原生包在拷贝后全毁，必须目标机 `pnpm install` 重装；②pnpm 11 默认 `strictDepBuilds=true` 会把依赖构建脚本未批准变成 install 硬失败、阻断所有 `pnpm run`——机器级处置是全局 `config.yaml` 写 `strictDepBuilds: false`（`onlyBuiltDependencies`/`allowBuilds` 全局不生效，仅项目级 `pnpm-workspace.yaml` 可用）；③Linux 归档工具依赖系统 `zip`/`unzip` 二进制（README 只文档化了 Windows 侧依赖）。
+- **单测套件的 Windows 语义耦合**：`resolveShell` 的 win32 路径拼接/绝对性判定、`wrapCommand` 的 chcp 前缀按 `IS_WIN` 条件化、`kill -15/-9` 信号恒显式、关键进程名单分平台——写跨平台测试时按 issue `2026-08-29-linux-test-platform-guards` 的手法补守卫或平台感知断言；e2e-latency 的 tools/list 200ms 阈值在共享 VPS 高负载下会边缘越限（P-11），release gate 以维护机/CI 为准。
 
 ## 7. 权威文档索引
 

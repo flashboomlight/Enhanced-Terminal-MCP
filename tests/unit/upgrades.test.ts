@@ -6,6 +6,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { IS_WIN } from "../../src/platform.js";
 
 // ====================================================================
 // 【性能-1】telemetry 增量计数器
@@ -202,7 +203,8 @@ describe("【功能-4】compress_archive 返回 size_bytes", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  test("压缩后 stat 输出文件获取 size_bytes", async () => {
+  // 直接构造 PowerShell 命令建 zip，Windows 专属；Linux 的 compress_archive 端到端由 e2e-latency 覆盖
+  test.skipIf(!IS_WIN)("压缩后 stat 输出文件获取 size_bytes", async () => {
     const srcFile = path.join(tmpDir, "test.txt");
     const outFile = path.join(tmpDir, "out.zip");
 

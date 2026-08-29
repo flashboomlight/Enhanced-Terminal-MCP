@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { IS_WIN } from "../../src/platform.js";
 
 // Mock safeguard before importing middleware
 vi.mock("./safeguard.js", () => ({
@@ -181,8 +182,11 @@ describe("stream", () => {
     quickExec = mod.quickExec;
   });
 
+  // spawnStream 机制用例按平台选真实 shell（上方 spawn mock 仅对 cmd.exe//bin/sh/PowerShell 放行真实 spawn）
+  const shellCmd = (cmd: string): [string, string[]] => (IS_WIN ? ["cmd.exe", ["/c", cmd]] : ["/bin/sh", ["-c", cmd]]);
+
   test("spawnStream executes simple command", async () => {
-    const r = await spawnStream("cmd.exe", ["/c", "echo hello"], { timeout: 5000 });
+    const r = await spawnStream(...shellCmd("echo hello"), { timeout: 5000 });
     expect(r.stdout.trim()).toBe("hello");
     expect(r.exitCode).toBe(0);
     expect(r.timedOut).toBe(false);
@@ -198,13 +202,13 @@ describe("stream", () => {
   });
 
   test("spawnStream captures stderr", async () => {
-    const r = await spawnStream("cmd.exe", ["/c", "echo err 1>&2"], { timeout: 5000 });
+    const r = await spawnStream(...shellCmd("echo err 1>&2"), { timeout: 5000 });
     expect(r.stderr.trim()).toBe("err");
   });
 
   test("spawnStream truncates output exceeding maxOutput", async () => {
     // Generate output larger than maxOutput (set to 100 bytes)
-    const r = await spawnStream("cmd.exe", ["/c", `echo ${"A".repeat(200)}`], { timeout: 5000, maxOutput: 100 });
+    const r = await spawnStream(...shellCmd(`echo ${"A".repeat(200)}`), { timeout: 5000, maxOutput: 100 });
     expect(r.stdout.length).toBeLessThanOrEqual(120); // 100 + truncation message
     expect(r.stdout).toContain("TRUNCATED");
   });

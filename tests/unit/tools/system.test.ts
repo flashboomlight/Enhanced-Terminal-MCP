@@ -6,6 +6,7 @@
  * network_info 成功路径由 e2e 覆盖。
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { IS_WIN } from "../../../src/platform.js";
 import type { ProcessIdentity, ProcessIdentityProvider } from "../../../src/process-identity.js";
 import { Errors } from "../../../src/result.js";
 import { initSafeGuard } from "../../../src/safeguard.js";
@@ -176,7 +177,10 @@ describe("system tools decision paths (unit)", () => {
   });
 
   test("kill_process refuses critical process names", async () => {
-    const result = await registerTools().get("kill_process")?.handler({ name: "csrss.exe" });
+    // 关键进程名单分平台（safeguard.ts CRITICAL_PROCESSES_WIN/_UNIX）：Windows 用 csrss.exe，Unix 用 init
+    const result = await registerTools()
+      .get("kill_process")
+      ?.handler({ name: IS_WIN ? "csrss.exe" : "init" });
 
     expect(result?.isError).toBe(true);
     expect(result?.structuredContent.error).toMatchObject({ code: "PROCESS_PROTECTED" });
