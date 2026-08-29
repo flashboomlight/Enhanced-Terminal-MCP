@@ -13,10 +13,13 @@ vi.mock("child_process", async (importOriginal) => {
   return {
     ...actual,
     spawn: vi.fn((...args: any[]) => {
-      // For stream/shell-spec tests with real executables (cmd/sh/PowerShell), use real spawn
+      // 真实 spawn 放行：shell/shell 探测命令（cmd/sh/PowerShell/where）必须走真实进程，
+      // 否则 mock 的 kill 不触发 close，spawnStream 会永远挂住（getShellSpec 预热即此路径）
       if (
         args[0] === "cmd.exe" ||
         args[0] === "/bin/sh" ||
+        args[0] === "where" ||
+        args[0] === "where.exe" ||
         /(?:^|[\\/])(?:powershell|pwsh)\.exe$/i.test(String(args[0]))
       ) {
         return actual.spawn(...(args as Parameters<typeof actual.spawn>));
