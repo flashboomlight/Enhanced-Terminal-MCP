@@ -241,7 +241,7 @@ pnpm run gate            # Canonical release gate (all stages blocking)
 pnpm run gate -- --ci   # Same gate; latency is explicit advisory in CI
 ```
 
-Development uses pnpm `11.21.0`. pnpm can reuse a machine-configured shared content store; on the maintainer machine, `pnpm store path` is `E:\pnpm\v11`. This path is configuration, not part of the repository contract. Each MCP project keeps its own `node_modules`, virtual store, and lockfile. Do not share a runtime `node_modules` directory or use `NODE_PATH` between projects. The published package remains installable by npm as shown in Quick Start.
+Development uses pnpm `11.21.0`. pnpm can reuse a machine-configured shared content store; the store path is machine-local configuration (inspect it with `pnpm store path`), not part of the repository contract, and must not be written into repository files, package metadata, lockfiles, or published artifacts. Each MCP project keeps its own `node_modules`, virtual store, and lockfile. Do not share a runtime `node_modules` directory or use `NODE_PATH` between projects. The published package remains installable by npm as shown in Quick Start.
 
 ## Release verification
 

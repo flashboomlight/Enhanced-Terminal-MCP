@@ -61,7 +61,7 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 - **门禁与临时目录**：`pnpm run gate` 是唯一完整门禁；测试 `TEMP/TMP/TMPDIR` 显式指向项目内 `.etmcp/test-tmp`，**任何任务数据禁止落 C 盘**（含工具缓存/下载/npm-cache）。
 - **canonical gate**：`pnpm run gate` 默认执行 release blocking gate；CI 使用同一脚本的 `pnpm run gate -- --ci`，仅把 latency 明确记录为 advisory；gate report 位于 `.etmcp/gate-report.json`，package/consumer 临时物位于 `.etmcp/gate-work` 或 release verifier 的 `.etmcp` 范围。
 - **vitest 输出解析坑**：输出带 ANSI 码，`grep "Tests  "` 匹配不到要用宽松模式；`grep failed` 会误中测试名（如 "reads a failed command cache"）。
-- **机器特定路径**：pnpm store 在 `E:/pnpm/v11`（机器配置，不得写进仓库文件/发布物）。
+- **机器特定路径**：pnpm store 为机器级配置（用 `pnpm store path` 查询本机实际路径），具体路径不得写进仓库文件/发布物。
 - **已知遗留（非阻塞）**：SDK 1.30 升级等生态（触发条件见下）；README/AGENTS/ARCHITECTURE 中部分历史文字已由 #13 收口，剩余历史版本段为有意保留。cmd 链路带引号空格路径已修复（`2026-08-29-cmd-quoted-space-path`：verbatim `/d /s /c` + 整体引号）。
 - **全量测试高负载 flake**：#12 已将 lock-lease heartbeat 改为串行续租、测试改为等待可观察 heartbeat，并为 Windows staging rename 增加有界 EPERM/EBUSY/EACCES 退避；#13 又修复 paging 测试 afterEach `fs.rm` 的 ENOTEMPTY 竞态（`maxRetries: 10, retryDelay: 100` 有界重试——100ms TTL 异步 sweep 在高负载下晚于枚举写入所致；修复前两次全量各挂 1 个不同用例、定向 5/5 过）。有界重试不吞错；后续其他测试如再现同类 flake 按同款逐文件处理，并继续观察 CI runner 矩阵稳定性。
 - **Linux/VPS 环境三坑**（2026-08-29 VPS 验证实录，详见根目录 `LINUX-VALIDATION-ISSUES.md`）：①node_modules 不可跨机器/跨平台拷贝——pnpm 的符号链接视图与平台原生包在拷贝后全毁，必须目标机 `pnpm install` 重装；②pnpm 11 默认 `strictDepBuilds=true` 会把依赖构建脚本未批准变成 install 硬失败、阻断所有 `pnpm run`——机器级处置是全局 `config.yaml` 写 `strictDepBuilds: false`（`onlyBuiltDependencies`/`allowBuilds` 全局不生效，仅项目级 `pnpm-workspace.yaml` 可用）；③Linux 归档工具依赖系统 `zip`/`unzip` 二进制（README 只文档化了 Windows 侧依赖）。
