@@ -180,6 +180,9 @@ describe("stream", () => {
     const mod = await import("../../src/stream.js");
     spawnStream = mod.spawnStream;
     quickExec = mod.quickExec;
+    // 预热 shell 解析：Windows runner 上首次 PATH/版本探测在并行负载下可能很慢，
+    // quickExec 本身只应测量 spawn 链路（解析逻辑由 shell.test.ts 用注入候选覆盖）
+    await (await import("../../src/shell.js")).getShellSpec();
   });
 
   // spawnStream 机制用例按平台选真实 shell（上方 spawn mock 仅对 cmd.exe//bin/sh/PowerShell 放行真实 spawn）
@@ -199,7 +202,7 @@ describe("stream", () => {
     expect(r.stdout.trim()).toBe("hello");
     expect(r.exitCode).toBe(0);
     expect(r.timedOut).toBe(false);
-  });
+  }, 60000);
 
   test("spawnStream captures stderr", async () => {
     const r = await spawnStream(...shellCmd("echo err 1>&2"), { timeout: 5000 });

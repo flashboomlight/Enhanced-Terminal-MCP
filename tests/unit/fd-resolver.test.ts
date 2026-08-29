@@ -85,8 +85,8 @@ describe("resolveFd 解析链", () => {
   });
 
   test("显式路径探测失败 → explicit_probe_failed", async () => {
-    // /etc/hostname 是稳定存在的普通文件（非 fd）
-    const r = await resolveFd(opts({ env: { [FD_PATH_ENV]: "/etc/hostname" } }));
+    // process.execPath 是跨平台稳定存在的普通文件（非 fd）
+    const r = await resolveFd(opts({ env: { [FD_PATH_ENV]: process.execPath } }));
     expect(r.available).toBe(false);
     if (!r.available) expect(r.diagnostic.reason).toBe("explicit_probe_failed");
   });
