@@ -857,12 +857,17 @@ no-match、达到结果/遍历/响应预算、权限错误、外部 CLI unavaila
 - 交付：SDK/传递依赖升级或精确 overrides、lockfile、SDK patch 兼容、source/npm 双 bootstrap 契约、非交互式 clean consumer、SBOM/provenance、package sourcemap/许可证元数据和 bundled executable 完整性验证。
 - 验收：`pnpm audit --prod` 无未豁免 high/critical；package manifest 与 README 一致；npm package 不要求不存在的 lockfile/source/build；source checkout 与 npm consumer 均可在 non-interactive 模式安装、启动并执行 smoke；patch mismatch fail-closed 且只写 package 自有依赖；下载有 timeout/size cap；包内无不可追溯 sourcemap、fixture 或本地状态。
 
-### 12. `security-and-mcp-conformance-gates`
+### 12. `security-and-mcp-conformance-gates`（状态：done）
 
 - 所属模块：validation-and-gates、CI
 - 依赖：`bounded-command-execution`、`kill-process-identity`、`path-policy-no-follow`、`secret-redaction-and-state-protection`、`network-and-archive-safety`、`audit-health-and-state-writer`、`tool-wrapper-and-surface-contract`、`search-and-adaptive-correctness`、`dependency-and-bootstrap-release`。
 - 交付：hostile-input、MCP conformance、cross-platform smoke、main/tools coverage、audit、pack、canonical gate、action pinning/least-privilege 和 release evidence 的阻断流水线。
 - 验收：CI 调用唯一 canonical gate；`pnpm run gate`/release gate 一次干净通过；安全回归、协议 conformance、覆盖率、依赖、package、支持平台和供应链验证全部成为 release evidence，latency 的阻断级别与 gate 命名一致。
+- 当前 feature：2026-08-29-security-and-mcp-conformance-gates
+- 设计：features/2026-08-29-security-and-mcp-conformance-gates/security-and-mcp-conformance-gates-design.md
+- checklist：features/2026-08-29-security-and-mcp-conformance-gates/security-and-mcp-conformance-gates-checklist.yaml
+- acceptance：features/2026-08-29-security-and-mcp-conformance-gates/security-and-mcp-conformance-gates-acceptance.md
+- 验收回写（2026-08-29）：`scripts/canonical-gate.mjs` 成为唯一 gate 入口，release 模式阻断 build/tsc/lint/full test/main coverage/tools coverage/latency/audit/package verifier/pack/clean consumer，CI `--ci` 模式仅显式保留 latency advisory；新增真实 MCP conformance、hostile-input corpus、platform smoke 和 gate report；CI 改为 Windows Node 22 canonical gate 与 Windows/Linux/macOS × Node 20/22/24 smoke 矩阵，action 固定 commit SHA、权限收紧为 `contents: read`；transport close/error/fatal 接入脱敏幂等 shutdown；lock heartbeat 串行续租与 Windows staging rename 有界重试关闭已知 flake。release gate 全绿：69 文件 845 用例、主 coverage 82.21/75.09/85.5/85.22、tools coverage 64.72/54.39/71.42/68.52、latency 24/24、audit/package/consumer 全部通过。
 
 ### 13. `docs-and-architecture-closeout`
 
@@ -981,7 +986,7 @@ git diff --check                     -> pass
 
 ### 8.6 问题归属与验收证据矩阵
 
-以下矩阵防止“审计报告有编号、roadmap 有条目、但没有任何 feature 对它负责”的断链。每个问题至少要有一个实现 feature 和一个可重复的验收证据；其中 hardening-contract-and-profiles、kill-process-identity、dependency-and-bootstrap-release 已为 done，其余问题仍是未来实施的 release stop 清单，不代表所有问题已经修复。
+以下矩阵防止“审计报告有编号、roadmap 有条目、但没有任何 feature 对它负责”的断链。每个问题至少要有一个实现 feature 和一个可重复的验收证据；截至 2026-08-29，#1–#12 已有实现/验收归属，#13 负责最终文档一致性收口。
 
 | 问题 | 负责 feature | 最低验收证据 |
 |---|---|---|
@@ -1027,3 +1032,5 @@ git diff --check                     -> pass
 - 2026-08-29：完成 `network-and-archive-safety` 实现与 acceptance；新增 `src/network-policy.ts` 与 `src/zip-policy.ts`，download/extract 换纯 Node 实现并建立 SSRF 校验、直连已验证 IP、逐跳 redirect 重验、双路展开预算与 staging 两阶段解压，compress 增加源树预算预演，network_info 接入 egress 校验，关闭 REL-04/SEC-07 本范围缺口；items.yaml 与本主文档已回写为 `done`，解锁 `audit-health-and-state-writer` 与 `tool-wrapper-and-surface-contract`。
 - 2026-08-29：完成 `audit-health-and-state-writer` 实现与 acceptance；新增 `src/lock-lease.ts`（temp/migration 锁统一 owner/heartbeat/fencing，长持锁不被接管、崩溃 owner 自动恢复、未知迁移锁 fail-closed），audit serialized writer（失败保留重试 + 三层字节上限 + 按大小轮换 + §5.7 契约面）、session revision writer（写窗口变更必补写）、temp 跨进程配额 ledger、LRU oversized 拒绝、truthful health 四组件聚合（关闭审计 OPS-01/OPS-02 与 §8.2 "audit writer failure / state writer race / lock fencing" 行）；items.yaml 与本主文档已回写为 `done`，`search-and-adaptive-correctness` 与 `security-and-mcp-conformance-gates` 的依赖进一步收敛。
 - 2026-08-29：完成 `search-and-adaptive-correctness` 实现与 acceptance；新增 `src/partial-result.ts` 与 `src/native-search.ts` 建立 partial-result 契约（complete/warnings/truncated），`everything_search` 错误分类消灭 CLI 失败假成功（SEARCH-01），walk/PS/grep 遍历错误与 list 子目录不可读全部结构化暴露（SEARCH-02），搜索/list/process 参数双层有界校验，Unix process_list 先筛选再排序截断关闭全量泄露（SYS-01），adaptiveTimeout 改真实 nearest-rank P95×3（PERF-01），partial 结果不入 LRU 缓存；items.yaml 与本主文档已回写为 `done`，解锁 `security-and-mcp-conformance-gates` 最后一条依赖。
+
+- 2026-08-29：完成 `security-and-mcp-conformance-gates` 实现与 acceptance；新增 canonical gate、MCP conformance、hostile-input corpus、platform smoke 和 release report，主 coverage/audit/package/clean consumer 纳入 `pnpm run gate`，CI 以固定 action SHA、最小权限和 Windows/Linux/macOS × Node 20/22/24 smoke 矩阵执行；transport close/error/fatal 统一进入脱敏幂等 shutdown，lock heartbeat/Windows staging rename 已加固；items.yaml 与本主文档回写为 `done`，仅余 `docs-and-architecture-closeout`。

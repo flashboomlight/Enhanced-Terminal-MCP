@@ -11,6 +11,21 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { type AcquiredLock, LockFenceLostError, LockLeaseTimeoutError, withFencedLock } from "../../src/lock-lease.js";
 
+/** 等待锁文件出现指定的新 heartbeat，避免用固定 sleep 猜测文件系统调度。 */
+async function waitForHeartbeat(lockPath: string, previousAt?: number, timeoutMs = 1000): Promise<{ at: number }> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const raw = JSON.parse(await fs.readFile(lockPath, "utf-8")) as { at?: number };
+      if (typeof raw.at === "number" && (previousAt === undefined || raw.at > previousAt)) return { at: raw.at };
+    } catch {
+      // 初次抢锁或 Windows rename 窗口期间文件可能暂时不可读，继续等待有界窗口。
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`heartbeat did not advance within ${timeoutMs}ms`);
+}
+
 describe("lock-lease", () => {
   let tmpDir: string;
 
@@ -82,17 +97,19 @@ describe("lock-lease", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    // 持锁方每 30ms 续租；竞争方 staleMs=80ms：只要心跳存活就永远不该接管
+    // 持锁方每 30ms 续租；等待实际观察到 heartbeat，再用有余量的 stale window 验证不接管
     const held = withFencedLock(lockPath(), { timeoutMs: 5000, staleMs: 60000, heartbeatMs: 30 }, () => gate);
-    await new Promise((r) => setTimeout(r, 80));
-    // 心跳至少跳了两轮：锁内容 at 应已刷新到近期
-    const raw = JSON.parse(await fs.readFile(lockPath(), "utf-8")) as { at: number };
-    expect(Date.now() - raw.at).toBeLessThan(80);
-    await expect(
-      withFencedLock(lockPath(), { timeoutMs: 120, staleMs: 80, heartbeatMs: 0 }, async () => "never"),
-    ).rejects.toBeInstanceOf(LockLeaseTimeoutError);
-    release();
-    await held;
+    try {
+      const first = await waitForHeartbeat(lockPath());
+      const raw = await waitForHeartbeat(lockPath(), first.at);
+      expect(Date.now() - raw.at).toBeLessThan(250);
+      await expect(
+        withFencedLock(lockPath(), { timeoutMs: 350, staleMs: 250, heartbeatMs: 0 }, async () => "never"),
+      ).rejects.toBeInstanceOf(LockLeaseTimeoutError);
+    } finally {
+      release();
+      await held;
+    }
   });
 
   test("release never removes another owner's lock", async () => {

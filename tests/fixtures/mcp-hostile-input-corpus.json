@@ -1,0 +1,148 @@
+[
+  {
+    "id": "execute-timeout-zero",
+    "tool": "execute_command",
+    "arguments": { "command": "echo hostile", "timeout": 0 },
+    "kind": "protocol"
+  },
+  {
+    "id": "execute-page-size-overflow",
+    "tool": "execute_command",
+    "arguments": { "command": "echo hostile", "pageSize": 10001 },
+    "kind": "protocol"
+  },
+  {
+    "id": "batch-count-overflow",
+    "tool": "batch_execute",
+    "arguments": { "commands": "{{OVER_100_COMMANDS}}" },
+    "kind": "protocol"
+  },
+  {
+    "id": "watch-duration-zero",
+    "tool": "watch_command",
+    "arguments": { "command": "echo hostile", "duration": 0 },
+    "kind": "protocol"
+  },
+  {
+    "id": "read-path-traversal",
+    "tool": "read_file",
+    "arguments": { "file_path": "../../etc/passwd" },
+    "kind": "tool",
+    "code": "PATH_FORBIDDEN"
+  },
+  {
+    "id": "read-encoding-invalid",
+    "tool": "read_file",
+    "arguments": { "file_path": "{{WORK}}/sentinel.txt", "encoding": "not-an-encoding" },
+    "kind": "tool",
+    "code": "VALIDATION_ERROR"
+  },
+  {
+    "id": "write-path-traversal",
+    "tool": "write_file",
+    "arguments": { "file_path": "../../etc/hostile", "content": "must not write" },
+    "kind": "tool",
+    "code": "PATH_FORBIDDEN"
+  },
+  {
+    "id": "list-depth-zero",
+    "tool": "list_directory",
+    "arguments": { "dir_path": "{{WORK}}", "max_depth": 0 },
+    "kind": "protocol"
+  },
+  {
+    "id": "search-results-overflow",
+    "tool": "search_files",
+    "arguments": { "dir_path": "{{WORK}}", "pattern": "*", "max_results": 501 },
+    "kind": "protocol"
+  },
+  {
+    "id": "everything-query-overflow",
+    "tool": "everything_search",
+    "arguments": { "query": "{{OVER_512_CHARS}}" },
+    "kind": "protocol"
+  },
+  {
+    "id": "grep-redos-pattern",
+    "tool": "grep_content",
+    "arguments": { "dir_path": "{{WORK}}", "pattern": "(a+)+$" },
+    "kind": "tool",
+    "code": "EXECUTION_FAILED"
+  },
+  {
+    "id": "copy-source-traversal",
+    "tool": "copy_move",
+    "arguments": { "source": "../../etc/passwd", "destination": "{{WORK}}/copy.txt", "operation": "copy" },
+    "kind": "tool",
+    "code": "PATH_FORBIDDEN"
+  },
+  {
+    "id": "delete-path-traversal",
+    "tool": "delete_path",
+    "arguments": { "target_path": "../../etc/passwd" },
+    "kind": "tool",
+    "code": "PATH_FORBIDDEN"
+  },
+  {
+    "id": "kill-pid-name-xor",
+    "tool": "kill_process",
+    "arguments": { "pid": 1, "name": "node" },
+    "kind": "tool",
+    "code": "VALIDATION_ERROR"
+  },
+  {
+    "id": "kill-wildcard-name",
+    "tool": "kill_process",
+    "arguments": { "name": "*" },
+    "kind": "protocol"
+  },
+  {
+    "id": "network-ping-missing-target",
+    "tool": "network_info",
+    "arguments": { "action": "ping" },
+    "kind": "tool",
+    "code": "VALIDATION_ERROR"
+  },
+  {
+    "id": "environment-get-missing-name",
+    "tool": "environment_vars",
+    "arguments": { "action": "get" },
+    "kind": "tool",
+    "code": "VALIDATION_ERROR"
+  },
+  {
+    "id": "session-cwd-missing-value",
+    "tool": "session_state",
+    "arguments": { "action": "set_cwd" },
+    "kind": "tool",
+    "code": "VALIDATION_ERROR"
+  },
+  {
+    "id": "session-env-missing-value",
+    "tool": "session_state",
+    "arguments": { "action": "set_env", "key": "ETM_HOSTILE_TEST" },
+    "kind": "tool",
+    "code": "VALIDATION_ERROR"
+  },
+  {
+    "id": "download-invalid-protocol",
+    "tool": "download_file",
+    "arguments": { "url": "file:///etc/passwd", "save_path": "{{WORK}}/download.bin" },
+    "kind": "tool",
+    "code": "URL_INVALID"
+  },
+  {
+    "id": "compress-output-traversal",
+    "tool": "compress_archive",
+    "arguments": { "source_path": "{{WORK}}/sentinel.txt", "output_path": "../../tmp/hostile.zip" },
+    "kind": "tool",
+    "code": "PATH_FORBIDDEN"
+  },
+  {
+    "id": "extract-archive-traversal",
+    "tool": "extract_archive",
+    "arguments": { "archive_path": "../../tmp/hostile.zip", "output_dir": "{{WORK}}/extract" },
+    "kind": "tool",
+    "code": "PATH_FORBIDDEN"
+  }
+]

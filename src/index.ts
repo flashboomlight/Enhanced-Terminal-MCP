@@ -20,8 +20,9 @@ import { logger } from "./logger.js";
 import { processPool } from "./pool.js";
 import { processSupervisor } from "./process-supervisor.js";
 import { initializeExecutionProfile } from "./profile.js";
+import { ErrorCode, type ErrorCodeType } from "./result.js";
 import { initSafeGuard } from "./safeguard.js";
-import { redactError } from "./secret-governance.js";
+import { redactError, redactText, sanitizeLogField } from "./secret-governance.js";
 import { session } from "./session.js";
 import { tempManager } from "./temp-manager.js";
 import { getRegisteredToolCount } from "./tool-registry.js";
@@ -43,6 +44,22 @@ async function readAuditLog(uri: URL) {
   return {
     contents: [{ uri: uri.href, text: JSON.stringify(entries, null, 2) }],
   };
+}
+
+/** 将启动/运行期 fatal 错误安全写到 stderr，并以非零退出结束。 */
+function reportFatal(error: unknown): never {
+  const candidate =
+    error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+  const code: ErrorCodeType =
+    typeof candidate === "string" && Object.values(ErrorCode).includes(candidate as ErrorCodeType)
+      ? (candidate as ErrorCodeType)
+      : ErrorCode.INTERNAL_ERROR;
+  const safe = redactError(error, code);
+  console.error(`[FATAL] Server crashed: [${safe.code}] ${safe.message}`);
+  if (error instanceof Error && error.stack) {
+    console.error(redactText(sanitizeLogField(error.stack, 8000)));
+  }
+  process.exit(1);
 }
 
 async function main() {
@@ -81,11 +98,11 @@ async function main() {
   // 等待 session 从磁盘恢复完成，确保接受请求前 cwd/env 已就绪
   await session.loaded;
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  let shuttingDown = false;
+  let fatalRequested = false;
+  let fatalError: unknown;
 
   // 优雅退出：先 drain 所有 managed child，再 flush session/audit
-  let shuttingDown = false;
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -102,7 +119,7 @@ async function main() {
         await session.flush();
       } catch (error) {
         process.exitCode = 1;
-        logger.warn("server", "session-flush-failed", String(error));
+        logger.warn("server", "session-flush-failed", redactError(error).message);
       }
       try {
         // audit flush 不再丢条目：deadline 内没写完的滞留条目必须可见（exitCode 1）
@@ -113,17 +130,41 @@ async function main() {
         }
       } catch (error) {
         process.exitCode = 1;
-        logger.warn("server", "audit-flush-failed", String(error));
+        logger.warn("server", "audit-flush-failed", redactError(error).message);
       }
+      if (fatalRequested) reportFatal(fatalError);
       process.exit(process.exitCode ?? 0);
     })().catch((error: unknown) => {
       process.exitCode = 1;
-      logger.error("server", "shutdown-failed", String(error));
+      logger.error("server", "shutdown-failed", redactError(error).message);
       process.exit(1);
     });
   };
+
+  const requestFatalShutdown = (error: unknown): void => {
+    if (fatalRequested) return;
+    fatalRequested = true;
+    fatalError = error;
+    process.exitCode = 1;
+    logger.error("server", "fatal", redactError(error).message);
+    shutdown();
+  };
+
+  const transport = new StdioServerTransport();
+  transport.onerror = (error) => {
+    logger.error("transport", "error", redactError(error).message);
+    requestFatalShutdown(error);
+  };
+  transport.onclose = () => {
+    logger.info("transport", "closed", "MCP transport closed; draining server");
+    shutdown();
+  };
+  process.on("uncaughtException", requestFatalShutdown);
+  process.on("unhandledRejection", requestFatalShutdown);
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+
+  await server.connect(transport);
 
   logger.info(
     "server",
@@ -132,10 +173,4 @@ async function main() {
   );
 }
 
-main().catch((e) => {
-  // fatal stderr 不回显原始异常文本（可能携带命令/凭据）；栈帧保留定位能力
-  const err = redactError(e);
-  console.error(`[FATAL] Server crashed: [${err.code}] ${err.message}`);
-  if (e instanceof Error && e.stack) console.error(e.stack);
-  process.exit(1);
-});
+main().catch((e) => reportFatal(e));

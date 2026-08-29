@@ -10,7 +10,7 @@ Supports **27 tools** across 7 categories: command execution, file I/O, file man
 - **Risk-Gated Command Confirmation** — set `MCP_COMMAND_CONFIRMATION=risk-gated` so ordinary commands run without confirmation while heavy commands (batch >5, destructive residue, performance words, long watch) ask once with the reason via MCP Elicitation
 - **Path & URL Security** — traversal detection, forbidden paths, sensitive file patterns, secret scanning
 - **Performance Optimized** — LRU result cache (128-entry, sliding TTL, ~32MB cap), adaptive timeouts, spawn-based streaming
-- **Structured Errors** — 20 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
+- **Structured Errors** — 31 error codes with `retryable`, `suggestion`, and `param` hints for LLMs
 - **Session Persistence** — cwd, env vars, and command history survive restarts (auto-saved to `.etmcp/session.json`)
 - **Lazy State Directory** — `.etmcp` is created only when the first real artifact is persisted (session state, audit entry, temp/page-cache resource); startup, restore, and resource reads never create it
 - **Audit Logging** — structured JSON Lines audit log at `.etmcp/logs/audit.jsonl` (mode: `off` / `errors` / `all`)
@@ -224,16 +224,21 @@ pnpm install
 pnpm run build          # clean build/ and compile TypeScript
 pnpm exec tsc --noEmit  # Type-check without emitting
 pnpm test               # Run unit tests
+pnpm run test:conformance   # Real stdio MCP protocol checks
+pnpm run test:hostile-input # Bounded/policy hostile-input corpus
+pnpm run test:platform-smoke # Minimal cross-platform server smoke
 pnpm run test:latency   # E2E latency benchmarks
 pnpm run lint           # Biome linter
 pnpm run format         # Biome formatter
+pnpm run gate            # Canonical release gate (all stages blocking)
+pnpm run gate -- --ci   # Same gate; latency is explicit advisory in CI
 ```
 
 Development uses pnpm `11.21.0`. pnpm can reuse a machine-configured shared content store; on the maintainer machine, `pnpm store path` is `E:\pnpm\v11`. This path is configuration, not part of the repository contract. Each MCP project keeps its own `node_modules`, virtual store, and lockfile. Do not share a runtime `node_modules` directory or use `NODE_PATH` between projects. The published package remains installable by npm as shown in Quick Start.
 
 ## Release verification
 
-维护者在发布前应运行以下命令。先 clean build，再直接运行源码侧 verifier；它会对实际 npm tarball 校验 manifest、入口 shebang、Node syntax、source map、禁发文件和 SHA-256。verifier 不发布、不上传、不签名，也不代替 CI provenance。
+维护者在发布前应运行 `pnpm run gate`。它是唯一 canonical release gate，依次执行 clean build、类型检查、lint、全量测试、主/工具层 coverage、latency、生产依赖 audit、实际 npm tarball verifier 和 clean consumer。也可以按下面的命令单独排查发布阶段；verifier 不发布、不上传、不签名，也不代替 CI provenance。
 
 ```bash
 pnpm run audit:prod

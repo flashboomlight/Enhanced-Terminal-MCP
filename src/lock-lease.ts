@@ -193,31 +193,41 @@ export async function withFencedLock<T>(
 
   // ---- 持锁心跳：验证 token 后 staging+rename 续租；发现外来 token 即停跳 ----
   let fenceLost = false;
-  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let heartbeatStopped = false;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let heartbeatPromise: Promise<void> | null = null;
   const stopHeartbeat = (): void => {
+    heartbeatStopped = true;
     if (heartbeatTimer) {
-      clearInterval(heartbeatTimer);
+      clearTimeout(heartbeatTimer);
       heartbeatTimer = null;
     }
   };
-  if (heartbeatMs > 0) {
-    heartbeatTimer = setInterval(() => {
-      void (async () => {
+  const scheduleHeartbeat = (): void => {
+    if (heartbeatStopped || fenceLost || heartbeatMs <= 0) return;
+    heartbeatTimer = setTimeout(() => {
+      heartbeatTimer = null;
+      heartbeatPromise = (async () => {
         const current = await readLockInfo(lockPath);
         if (current === null || current === "corrupt" || current.token !== token) {
           fenceLost = true;
-          stopHeartbeat();
           logger.warn("lock-lease", "fence-lost", lockPath);
           return;
         }
         try {
           await atomicWriteLock(lockPath, { ...current, pid: process.pid, at: Date.now(), token });
         } catch {
-          // 瞬态写失败（如 rename 窗口）：下一跳续租即可，不中断持锁
+          // 瞬态写失败（如 rename 窗口）：下一轮继续尝试续租，不中断持锁。
         }
-      })();
+      })().finally(() => {
+        heartbeatPromise = null;
+        scheduleHeartbeat();
+      });
     }, heartbeatMs);
     heartbeatTimer.unref?.();
+  };
+  if (heartbeatMs > 0) {
+    scheduleHeartbeat();
   }
 
   const lock: AcquiredLock = {
@@ -235,6 +245,7 @@ export async function withFencedLock<T>(
     return await fn(lock);
   } finally {
     stopHeartbeat();
+    if (heartbeatPromise) await heartbeatPromise;
     // token 校验释放：锁已被接管时静默跳过，绝不误删他人锁
     try {
       const current = await readLockInfo(lockPath);

@@ -8,7 +8,7 @@ scope: src/、tests/、package.json、pnpm-lock.yaml、scripts/、.github/workfl
 keywords: [production, security, reliability, mcp, release, ci, audit]
 status: active
 confidence: high
-updated: "2026-08-28"
+updated: "2026-08-29"
 supersedes: 2026-08-22-explore-enhanced-terminal-overview.md
 ---
 
@@ -21,7 +21,7 @@ supersedes: 2026-08-22-explore-enhanced-terminal-overview.md
 1. 当前仓库的架构、实现、测试和发布链路是否可以直接作为生产版本发布。
 2. 如果不能，哪些问题必须先修，哪些属于部署边界或后续硬化。
 
-原始审计基线为 `main` 分支代码 HEAD `974f4aca8bfe05c38dac0cf06225713b1ccb5034`。随后已完成 `hardening-contract-and-profiles`、`kill-process-identity` 与 `dependency-and-bootstrap-release` 三条 feature；当前工作区还包含 `process-supervisor-and-cancellation` 的未验收部分实现和 CodeStable 进度回写，剩余 P0/P1 结论不能因为代码已接线就视为解除。仓库根目录没有 `.codegraph/`，因此代码关系以 Serena 符号读取、源码行号、测试和实际命令结果为准。
+原始审计基线为 `main` 分支代码 HEAD `974f4aca8bfe05c38dac0cf06225713b1ccb5034`。截至 2026-08-29，production-hardening #1–#12 已完成实现与 acceptance；本文件第 2/3 节保留原始风险基线，第 6.1 及各 feature 实施状态是当前收口依据。仓库根目录没有 `.codegraph/`，因此代码关系以 Serena 符号读取、源码行号、测试和实际命令结果为准。
 
 ## 速答
 
@@ -143,7 +143,7 @@ flowchart LR
 - **Round 7：process supervisor acceptance 反向核验（代用户执行）**——修复中断点遗留：定位 registry cleanup 竞态根因（close 事件与 termination promise 完成顺序不确定）并实现 child 已退出即双向立即回收，收口 lint 三处，cancel 测试 registry 断言改为 bounded 等待并显式提高 test timeout。三轮审计（横向取证：零裸 spawn/execFile、零同步进程调用、零 /IM/pkill；场景映射：17 场景逐条对应证据；稳定性：13 次以上连续全绿，记录 1 次未复现的并行负载偶发）后 12 checks 全部 passed、17 场景均有证据映射。门禁全绿：build、tsc、lint 0/0、全量 51 文件 639 用例、latency 24/24、tools coverage 59.37/48.55/65.62/63.26、`git diff --check`。未发现新的 feature 内未归属问题。
 - **Round 8：bounded-command-execution acceptance 反向核验（代用户执行）**——design/checklist/实现/验收同一会话完成：三个命令工具 schema 收紧 + handler 层 `validateBoundedCommandInput` 二次校验、batch parent BudgetAccount（聚合预检、output 配额、deadline 分类、parallel 共享 ledger）。审计发现并修复 validator 字符计数用 UTF-16 `.length` 而 schema `boundedString` 用 code point 的同源性差异；确认 `budget_input` 为防御分支（聚合预检保证常规流不可达）并如实记录。10 checks 全部 passed；门禁全绿：build、tsc、lint 0/0、全量 52 文件 658 用例、latency 24/24、tools coverage 59.74/48.90/66.32/63.73、新增 29 用例 3 连跑全绿。未发现新的 feature 内未归属问题。
 - **Round 9：path-policy-no-follow acceptance 反向核验（代用户执行）**——SEC-03 收口：新增 `src/path-policy.ts`（读语义 real 解析重验、写/删/移 no-follow、原子 staging 写、state/temp 根替换检查）并接入 files 五工具、manage 两工具、session cwd 恢复与 ensureStateDir/ensureRoot。审计逐点核对 files/manage 全部落盘调用已改用解析后路径、黑名单唯一来源保持 security.ts；补充递归删除 junction 目录用例（仅移除链接层、目标内容保留）。10 checks 全部 passed；门禁全绿：build、tsc、lint 0/0、全量 53 文件 678 用例、latency 24/24、tools coverage 60.74/49.63/65.97/64.51、48 用例 3 连跑全绿。行为收紧（symlink→敏感目录读取由可读变拒绝）为设计目的。未发现新的 feature 内未归属问题。
-- **当前方案结论**——审计方案本身的编号、feature 归属和验收证据矩阵已闭环；`hardening-contract-and-profiles`、`process-supervisor-and-cancellation`、`bounded-command-execution`、`kill-process-identity`、`path-policy-no-follow` 与 `dependency-and-bootstrap-release` 均已验收为 `done`（最小闭环达成）；截至 2026-08-29 共 11 条子 feature 验收为 `done`，仅余 `security-and-mcp-conformance-gates`（#12）与 `docs-and-architecture-closeout`（#13），当前源码仍不能被描述为无条件生产就绪。`pnpm audit --prod`、npm/source bootstrap、全局 child-process registry、finite/bounded 预算边界、文件路径 symlink/TOCTOU 防护、秘密脱敏、网络/archive 预算、工具 surface/schema、搜索 partial-result 与 adaptive 语义均已解除；MCP conformance、canonical CI gate（#12）与文档统一收口（#13）仍是 release stop。
+- **当前方案结论**——审计方案本身的编号、feature 归属和验收证据矩阵已闭环；截至 2026-08-29 共 12 条子 feature 验收为 `done`，仅余 `docs-and-architecture-closeout`（#13）。`pnpm audit --prod`、npm/source bootstrap、全局 child-process registry、finite/bounded 预算边界、文件路径 symlink/TOCTOU 防护、秘密脱敏、网络/archive 预算、工具 surface/schema、搜索 partial-result、adaptive 语义、MCP conformance、canonical gate 和 CI action/权限策略均已有实现与本地 release-gate 证据；跨平台矩阵仍由 CI workflow 在对应 runner 上提供最终外部运行证据，文档统一收口（#13）仍是 release closeout。
 
 #### 6.2 第一条 feature 实施状态
 
@@ -185,14 +185,18 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 `search-and-adaptive-correctness` 已完成实现与 acceptance，roadmap item 已回写为 `done`，验收报告为 `codestable/features/2026-08-29-search-and-adaptive-correctness/search-and-adaptive-correctness-acceptance.md`。已落地：`src/partial-result.ts`（SearchWarning/WARNING_CODES/SEARCH_BUDGET/pushWarning/assert 同源校验）与 `src/native-search.ts`（walk/grep 遍历错误 complete=false+warnings、命中行 1000 code point 截断、迭代 AbortError）；`everything_search` 错误分类（timedOut→TIMEOUT、maxBuffer→RESOURCE_LIMIT、其余→EXECUTION_FAILED 有限 detail），`search_files` CLI 失败经 EVERYTHING_EXEC_FAILED warning 后 native 兜底（关闭 SEARCH-01）；PS grep `-ErrorVariable` 合计回传、Unix grep 非零+有输出 GREP_PARTIAL_RESULTS、list_directory 递归子目录不可读 partial（关闭 SEARCH-02）；搜索/list/process schema+handler 双层有界校验；Unix process_list 重写 `buildUnixProcessListCommand` 先筛选再排序截断（关闭 SYS-01 全量泄露）；`adaptiveTimeout` 改非 cache-hit 样本 nearest-rank P95×3（关闭 PERF-01）；partial 结果不入 LRU 缓存。门禁全绿（全量 66 文件 835 用例、latency 24/24、tools coverage 64.72/54.39/71.42/68.52；第 3/4 次运行各撞 1 个既有 flake——lock-lease heartbeat 时序与 paging Windows rename EPERM，均非本 feature 改动面，复跑全绿）。SEARCH-01/SEARCH-02/SYS-01/PERF-01 与 §8.2 "partial search/list result truthfulness" 行闭合；Unix 真实 smoke 与 TTL/rename flake 加固归属 `security-and-mcp-conformance-gates`。
 
+#### 6.12 `security-and-mcp-conformance-gates` 实施状态
+
+`security-and-mcp-conformance-gates` 已完成实现与 acceptance，roadmap item 已回写为 `done`，验收报告为 `codestable/features/2026-08-29-security-and-mcp-conformance-gates/security-and-mcp-conformance-gates-acceptance.md`。已落地：`scripts/canonical-gate.mjs` 作为唯一 gate 入口，release 模式阻断 build、tsc、lint、full test、main/tools coverage、latency、dependency audit、package verifier、实际 pack 和 clean consumer，CI `--ci` 模式显式保留 latency advisory；新增真实 stdio MCP conformance、hostile-input corpus、platform smoke 和有限 gate report；CI 使用固定 action commit SHA、`contents: read` 最小权限、Windows Node 22 canonical gate 与 Windows/Linux/macOS × Node 20/22/24 smoke 矩阵；`src/index.ts` 接通 transport close/error/fatal 的脱敏幂等 shutdown；`lock-lease` heartbeat 改串行续租，Windows staging rename 增加有界瞬态失败重试。最终本地 release gate 全绿：69 个测试文件、845 个用例，主 coverage 82.21/75.09/85.5/85.22，工具层 coverage 64.72/54.39/71.42/68.52，latency 24/24，audit/package/consumer 全部通过。Linux/macOS 与 Node 20/22 的实际 runner 结果由 CI 矩阵提供，本地不冒充远程证据；#13 仍负责最终文档一致性收口。
+
 ### 7. 推荐修复顺序
 
 这是执行建议，不是对产品边界的替代决策：
 
-1. **Release stop**：`kill_process` identity、SEC-02 依赖 audit、REL-01/REL-06 npm/source bootstrap 和 package evidence、全局 child-process registry/cancellation/shutdown（`process-supervisor-and-cancellation`）、三个命令工具的 finite/bounded schema 与 parent budget（`bounded-command-execution`，最小闭环达成）、文件路径 symlink/TOCTOU/no-follow（`path-policy-no-follow`，SEC-03 收口）、session/audit/logger/prompt/error/cache 的秘密治理与 env 大小写策略（`secret-redaction-and-state-protection`，SEC-04/SEC-05 收口）已完成；`tool-wrapper-and-surface-contract`（#9，REL-05/PRO-01/PRO-02 与 SEC-06 capability 部分收口）与 `audit-health-and-state-writer`（#8，OPS-01/OPS-02 与 lock fencing 收口）已完成；`search-and-adaptive-correctness`（#10，SEARCH-01/02、SYS-01、PERF-01 收口）已完成；下一步按 DAG 推进 `security-and-mcp-conformance-gates`（#12，依赖全部满足）。
+1. **Release stop**：#1–#12 的实现、MCP conformance、hostile-input、canonical gate、release evidence、action pinning、最小权限和本地 release gate 已完成；跨平台矩阵需在 CI runner 上执行，最终文档一致性由 `docs-and-architecture-closeout`（#13）收口。
 2. **Resource stop**：统一所有 MCP 输入的 finite/bounded schema，补 parent/child/batch/tree/response/queue budget、限流和所有 child-process registry，接入 cancellation 与 descendant termination。
 3. **Security hardening**：完成 symlink/TOCTOU/no-follow、session cwd/state 根、capability/host disclosure、env key 大小写归一化、状态/日志/result/prompt redaction、状态文件权限和 SSRF/DNS/proxy/ZIP 预算。
-4. **Correctness and gate hardening**：修复 search partial-result、Unix process filter、adaptive 语义、100ms TTL flaky 和 Windows rename；CI 加主 coverage、dependency audit、package dry-run、MCP conformance、canonical gate、支持平台和 hostile-input 套件。
+4. **Correctness and gate hardening**：search partial-result、Unix process filter、adaptive 语义、TTL/Windows rename 稳定性、主 coverage、dependency audit、package dry-run、MCP conformance、canonical gate、支持平台和 hostile-input 套件已由 #10/#12 落地；CI runner 执行结果作为外部矩阵证据保留。
 5. **Contract/docs closeout**：统一 v4.0.0/27 tools、双 bootstrap、profile/capability、CHANGELOG 旧 headless 历史边界、usage-guide、AGENTS、ARCHITECTURE、SECURITY 和发行说明。
 
 ## 未决问题
@@ -203,14 +207,15 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 ## 后续建议
 
-截至 2026-08-29，#1–#11 共 11 条已完成，仅余 #12/#13。建议下一步按 DAG 推进 `security-and-mcp-conformance-gates`（#12，依赖全部满足），由其做一次全量 acceptance 级生产审计，最后 `docs-and-architecture-closeout`（#13）收口。
+截至 2026-08-29，#1–#12 共 12 条已完成，仅余 #13。建议下一步完成 `docs-and-architecture-closeout`，以最终代码、package manifest、CI evidence 和 27/26 surface 统一现状文档。
 
 ## 相关文档
 
 - `codestable/compound/2026-08-22-explore-enhanced-terminal-overview.md`（已标记 outdated 的上一版项目总览）
-- `codestable/architecture/ARCHITECTURE.md`（当前架构入口，已同步三条已完成 feature 与 process-supervisor partial implementation；仍需最终文档收口处理旧 v3.1/28 tools 文字）
+- `codestable/architecture/ARCHITECTURE.md`（当前架构入口，已同步 #1–#12 的系统事实；#13 仍负责最终文档一致性收口）
 - `codestable/features/2026-08-28-process-supervisor-and-cancellation/process-supervisor-and-cancellation-design.md`（supervisor 设计、实施中断点和未验收边界）
 - `codestable/features/2026-08-28-dependency-and-bootstrap-release/dependency-and-bootstrap-release-acceptance.md`（依赖、bootstrap、package、SBOM 和 clean consumer 验收）
+- `codestable/features/2026-08-29-security-and-mcp-conformance-gates/security-and-mcp-conformance-gates-acceptance.md`（canonical gate、MCP conformance、hostile-input、平台 smoke 和 CI 供应链验收）
 - `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md`（shell 执行不是 OS sandbox 的边界决定）
 - `codestable/compound/2026-08-28-decision-confirmation-model.md`（v4.0.0 确认模型决定）
 - `codestable/roadmap/2026-07-12-remaining-hardening/remaining-hardening-roadmap.md`（剩余 hardening 与明确不做边界）

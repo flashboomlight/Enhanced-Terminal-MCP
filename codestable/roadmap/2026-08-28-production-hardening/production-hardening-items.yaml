@@ -102,10 +102,10 @@ items:
       - tool-wrapper-and-surface-contract
       - search-and-adaptive-correctness
       - dependency-and-bootstrap-release
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-29-security-and-mcp-conformance-gates
     minimal_loop: false
-    notes: 修复 100ms TTL/Windows rename flaky；主 test:coverage 不能只配置不执行；workflow 必须调用 canonical gate、固定 action SHA 并声明最小权限
+    notes: "已完成并通过 acceptance；scripts/canonical-gate.mjs 成为唯一 gate 入口，纳入 main/tools coverage、latency、audit、package verifier、实际 pack 和 clean consumer；新增 MCP conformance、hostile-input corpus、platform smoke；CI 使用固定 action SHA、contents: read 最小权限与 Windows/Linux/macOS x Node 20/22/24 smoke 矩阵；transport close/error/fatal 接入幂等 shutdown，lock heartbeat/Windows staging rename flake 已修复"
 
   - slug: docs-and-architecture-closeout
     description: 以最终代码、package manifest、profile matrix 和 gate evidence 统一 v4.0.0/27/26 tools、bootstrap、sandbox 边界、CHANGELOG、usage-guide、维护入口和现状文档

@@ -14,7 +14,7 @@ implements: [everything-search-optional]
 
 > 状态：current
 > 创建日期：2026-08-16（由 `cs-arch backfill` 按 v3.1.0 代码现状补全）
-> 最后核对：2026-08-29（M2 A+ 输出协议、M3 Everything 可选发布、M4 最终本地收口、hardening-contract-and-profiles、kill-process-identity、dependency-and-bootstrap-release、process-supervisor-and-cancellation、bounded-command-execution、path-policy-no-follow、secret-redaction-and-state-protection 与 network-and-archive-safety 均已完成验收；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口）
+> 最后核对：2026-08-29（M2 A+ 输出协议、M3 Everything 可选发布、M4 最终本地收口、production-hardening #1–#12 均已完成验收；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口）
 
 ## 1. 项目简介
 
@@ -86,7 +86,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `src/process-supervisor.ts` | 当前工作树中的 managed child registry：`ProcessSupervisor`/`processSupervisor`、snapshot/state、active limit、timeout/AbortSignal、幂等 termination、Unix group/Windows PID-tree adapter 和 shutdown report；feature 尚未完成 acceptance |
 | `src/process-identity.ts` | `kill_process` 的严格目标解析、Windows/Linux/macOS identity probe、start-time token、PID-only/tree termination adapter 和退出确认；无法证明身份时 fail-closed |
 | `src/wrap.ts` | handler 包装：MCP `extra` → `RequestContext`、telemetry 记录 + 缓存命中/回填 |
-| `src/cache.ts` | LRU 实现 + `CACHEABLE_TOOLS`（7 个只读工具）+ 工具级 TTL + 按前缀/路径失效 |
+| `src/cache.ts` | LRU 实现 + `CACHEABLE_TOOLS`（6 个只读工具）+ 工具级 TTL + 按前缀/路径失效 |
 | `src/telemetry.ts` | 指标环形历史（1000 条）+ 按工具聚合 + 全局 summary + `latencySamples(toolName)`（非 cache-hit 延迟样本，供 adaptive P95） |
 | `src/session.ts` | cwd/env/history 管理，去抖持久化到 `<projectRoot>/.etmcp/session.json`；恢复消毒 |
 | `src/state-dir.ts` | 统一状态目录解析：固定 `projectRoot`（`realpath(process.cwd())`，进程级不变）、默认 `<projectRoot>/.etmcp`、`MCP_STATE_DIR` 覆盖只解析一次；`getStateDir` 为纯解析（不创建目录），`ensureStateDir` 仅供写路径在真实产生物落盘前调用；旧 `.enhanced-terminal-mcp` 迁移协议 |
@@ -120,6 +120,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 | `scripts/apply-mcp-sdk-patch.mjs` | postinstall 零依赖 SDK 补丁脚本；`patch-package` 仅 devDependency |
 | `scripts/verify-package.mjs` | 源码侧发布验证器：实际 tarball 清单、manifest、入口、source map、禁发文件和 SHA-256；不随 npm package 发布 |
 | `scripts/verify-clean-consumer.mjs` | 源码侧 clean npm consumer、package-owned SDK 隔离、SBOM 和 startup smoke 验证器；不随 npm package 发布 |
+| `scripts/canonical-gate.mjs` | 唯一 canonical release/CI gate：按阶段执行质量、测试、coverage、latency、audit、package 和 clean consumer，并写入有限 `.etmcp/gate-report.json`；不随 npm package 发布 |
 | `patches/` | patch 开发参考 |
 | `build/` | `pnpm run build` 先清理后生成的 tsc 产物；不应保留已从 `src/` 删除的历史文件 |
 | `scripts/clean-build.mjs` | build 前只清理项目根目录下的 `build/`，避免旧编译文件进入 npm 发布包 |
@@ -148,13 +149,13 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 
 - **ADR-1 stdio 单传输**：`StdioServerTransport`，每客户端一进程；所有日志走 stderr 避免污染协议流。
 - **ADR-2 全部工具带类型化 schema**：Zod `inputSchema` + `outputSchema` + `annotations`（readOnly/destructive/idempotent hints），输出同时给人类文本和 `structuredContent`。
-- **ADR-3 统一结果协议**：所有 handler 返回 `ToolResult`，错误统一 20 个错误码并携带 LLM 可决策的 `retryable/suggestion/param`；命令类 `SECRET_DETECTED` 与完整 A+ envelope 已随 M2 落地。
+- **ADR-3 统一结果协议**：所有 handler 返回 `ToolResult`，错误统一 31 个错误码并携带 LLM 可决策的 `retryable/suggestion/param`；命令类 `SECRET_DETECTED` 与完整 A+ envelope 已随 M2 落地。
 - **ADR-4 中间件化横切**：`wrapHandler` 统一做 telemetry 和缓存，handler 本体不感知。
 - **ADR-5 安全双层**：`security.ts` 硬性底线（任何模式生效）+ `safeguard.ts` 策略层（strict/normal/off + 命令分级确认）；normal 默认 Elicitation 逐次确认；决策顺序 strict →（risk-gated：ordinary 放行 / heavy 带原因确认）→ off → normal；危险命令正则、关键进程保护属于硬底线。hardBlock 全模式（含 off）不可关闭；非 allow 安全决策统一以 `action=safety.decision` 写入审计（heavy 决策含 `risk_level`/`risk_category`）。原 headless surface（`MCP_CONFIRMATION_MODE`/`MCP_ALLOWED_ROOTS`/`delete_preview`）已于 v4.0.0 整体拆除（DEC-002：对齐官方 MCP——Roots 已废弃、目录限制归宿主沙箱）。
 - **ADR-6 跨平台 CommandSpec**：能参数化的系统命令一律 `execFile(file, args)`；需要 shell 特性的才走 shell，并限制在上游已校验的输入。
 - **ADR-7 Windows 默认 PowerShell（2026-08-16 powershell-default-shell 起取代旧 cmd 方案）**：命令工具与平台 spec 统一消费 `shell.ts` 解析的 shell spec。默认 `MCP_SHELL=pwsh`，按「`MCP_POWERSHELL_PATH` 显式路径（fail closed）→ 项目便携 pwsh 7（`tools/pwsh`）→ PATH pwsh → Windows PowerShell 5.1 回退」一次解析、进程级缓存（成败皆缓存，改配置/装 pwsh 需重启）；`MCP_SHELL=cmd|powershell` 为兼容档（cmd 档下 PS 类平台 spec 回退 powershell.exe 保持 v3.1 行为）；Unix 不进入该流程仍 `/bin/sh`。中文 Windows 实测 pwsh 7 管道输出同为 GBK，故 invocation 层对 pwsh 7 与 5.1 统一加 UTF-8 preamble。
 - **ADR-8 流式执行**：既有 `safeExec` / `quickExec` 继续使用 `spawnStream`（输出超上限截断并终止；超时先 SIGTERM，2s 后 SIGKILL）；`execute_command` / `batch_execute` / `watch_command` 已切换到 `capture.ts` 共享捕获与 `command-output.ts` 编排；输出超限停止 retention 并继续 drain，公开成功/错误 envelope 已随 M2 收口。
-- **ADR-9 只缓存幂等只读工具**：`CACHEABLE_TOOLS` 白名单 7 个工具；默认 TTL 30s，目录 5s、系统信息 60s；写操作按路径失效相关缓存；含密钥扫描命中的内容不写入 LRU。
+- **ADR-9 只缓存幂等只读工具**：`CACHEABLE_TOOLS` 白名单 6 个工具；默认 TTL 30s，目录 5s、系统信息 60s；写操作按路径失效相关缓存；含密钥扫描命中的内容不写入 LRU。
 - **ADR-10 会话持久化**：cwd/env/history 存 `<projectRoot>/.etmcp/session.json`，去抖写盘，重启恢复并消毒（拒绝危险 env 键与非法 cwd）。
 - **ADR-11 Windows 搜索可选 Everything**：执行前经 `es-integrity` 解析（`ENHANCED_TERMINAL_ES_PATH` → state 目录 → unavailable）并做固定 SHA-256 校验；`search_files` 只对隐式 unavailable 原生兜底，显式配置错误 fail-closed；`everything_search` 返回包含原因、固定 hash、默认路径和 `download_performed=false` 的结构化安装提示；npm 发布物不包含 `es.exe`。
 - **ADR-12 SDK 补丁**：SDK 输出 schema 缺 `required` 数组会让严格校验器（OpenAI/DeepSeek 等）失败；postinstall 零依赖脚本只对 package-owned SDK 1.29.0 保证显式 `required: []`，版本/布局/模式漂移 fail-closed。
@@ -168,6 +169,7 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 - **ADR-20 进程身份绑定终止（2026-08-28）**：`kill-process-identity` 已将 `kill_process` 收敛为严格互斥的 PID 或精确名称；名称先枚举且必须唯一，PID/name 都必须取得并在终止前重验 platform identity token/start time。Windows 不使用 name `/IM`，Unix 不使用 `pkill`；`force=true` 才请求已验证 process tree/process-group termination，目标未消失或 proof 不可用时返回结构化失败。该能力仍是单工具 provider，不等于后续全局 process supervisor、active registry、统一 cancellation 或 OS sandbox。
 - **ADR-21 发布与 bootstrap 收敛（2026-08-28）**：dependency-and-bootstrap-release 保持 SDK 1.29.0 wire/API 基线，仅刷新其声明范围内的传递依赖；pnpm audit --prod --audit-level=high 作为 high/critical 阻断。源码入口由 setup.bat 负责 pnpm/build/可选 pwsh bootstrap，npm consumer 只使用发布包的 bin/build/index.js，运行期不下载。prepack 强制 clean build，tsconfig inlineSources 使 source map 自包含，package files 不含 source/tests/lockfile/state/fixture/bundled pwsh；postinstall 只 patch package-owned SDK，使用同目录原子替换，版本/布局/模式漂移 fail-closed。setup bootstrap 具备 Node/pnpm 版本检查、--non-interactive、120 秒下载超时、250 MB 下载上限和 staged reparse 检查；tsx 作为 devDependency 固定。源码侧 verifier 产生 tarball SHA-256，clean consumer 另行验证不同版本 SDK 不被误改、CycloneDX SBOM 和 startup smoke。provenance/签名仍由后续 CI/release gate 产生，不能由本地 checksum 代替。
 - **ADR-22 统一进程监管与取消（2026-08-28）**：`process-supervisor-and-cancellation` 已验收。全部生产 child（三个命令工具捕获路径、`spawnStream`、`safeExecFile`、Everything/grep/system/archive、kill identity、shell where probe、supervisor 自身控制进程）经 `processSupervisor` registry 纳管；active 上限在 spawn 前生效，timeout/AbortSignal/termination 幂等；Windows 使用 PID-only `taskkill /PID <pid> /T /F`，Unix 使用 detached 进程组负 PID 信号，均不接受用户输入作为 tree scope；capture pending bytes 有界；RequestContext cancellation 贯穿 command/search/system/archive；shutdown 先 supervisor drain（非 clean 记录 degraded evidence）再 flush session/audit。验收期间修复 registry cleanup 竞态（child 已退出即双向立即回收）。descendant/parent budget 归属 `bounded-command-execution`；本 ADR 不宣称 OS 级进程隔离。
+- **ADR-23 统一安全/协议/发布门禁（2026-08-29）**：`security-and-mcp-conformance-gates` 已验收。`pnpm run gate` 由 `scripts/canonical-gate.mjs` 作为唯一编排入口，release 模式阻断 build、tsc、lint、full test、主/工具 coverage、latency、production audit、package verifier、实际 pack 和 clean consumer；CI 使用同一入口的 `--ci` 模式，仅将既有 latency advisory 语义显式写入 gate report。真实 MCP conformance、hostile-input corpus 和 platform smoke 使用现有 SDK/测试基础设施，不新增 runtime dependency、不修改既有安全核心或工具 surface。CI required workflow 使用固定 action commit SHA、`contents: read` 最小权限，并以 Windows Node 22 采集完整 release evidence，另以 Windows/Linux/macOS × Node 20/22/24 运行最小 smoke。transport close/error/fatal 统一进入一次幂等的 supervisor drain → session/audit flush 路径；`sandboxed-production` backend 不可用时仍 fail-closed，不宣称 OS sandbox。
 
 ## 6. 已知约束 / 硬边界
 
@@ -200,11 +202,11 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 - 默认超时：execute 30s（自适应 P95×3，上限 4×；`adaptive.ts` 的 DEFAULT_TIMEOUTS 仅登记 execute_command，其余工具超时由各自 handler 显式给定：batch 每步 30s、watch 5s、下载 120s）。
 
 ### 测试与覆盖策略
-- 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；主 coverage 配置排除 `src/index.ts`、`src/tools/**`、`src/**/*.test.ts` 和 `tests/**`，因为 Vitest/V8 无法收集子进程覆盖率；工具行为主要由 `tests/e2e-latency.test.ts` 子进程 e2e 覆盖，工具纯逻辑由 `tests/unit/tools/` 覆盖（files/manage/system/archive 有专属单测）。coverage 运行跳过延迟基准文件，避免插桩开销造成假失败。
-- 工具层有专属覆盖率门禁 `pnpm run test:coverage:tools`（`vitest.tools-coverage.config.ts`，底线 statements/lines 55、functions 60、branches 45），使被主配置排除的工具层保持可度量、防回归；完整本地门禁一键跑 `pnpm run gate`。
-- CI（`.github/workflows/ci.yml`）：ubuntu 跑 lint + 类型检查；windows runner（Node 22/24 矩阵）跑 build、tsc、全量测试、工具层覆盖门禁；latency 基准在 CI 上 `continue-on-error`（阈值按开发机校准，共享 runner 噪声大）。
+- 单元测试位于 `tests/unit/`（源码侧不混放 `*.test.ts`）；主 coverage 配置排除 `src/index.ts`、`src/tools/**`、`src/**/*.test.ts` 和 `tests/**`，因为 Vitest/V8 无法收集子进程覆盖率；工具行为主要由 `tests/e2e-latency.test.ts`、`tests/mcp-conformance.test.ts`、`tests/hostile-input.test.ts` 和 `tests/platform-smoke.test.ts` 的子进程 e2e 覆盖，工具纯逻辑由 `tests/unit/tools/` 覆盖。coverage 运行跳过延迟基准文件，避免插桩开销造成假失败。
+- 工具层有专属覆盖率门禁 `pnpm run test:coverage:tools`（`vitest.tools-coverage.config.ts`，底线 statements/lines 55、functions 60、branches 45），主 coverage 由 `pnpm run test:coverage` 纳入 canonical gate；完整 release 门禁一键跑 `pnpm run gate`，CI 用同一入口的 `pnpm run gate -- --ci`。
+- CI（`.github/workflows/ci.yml`）：required Windows Node 22 job 调用 canonical gate 并上传 gate/coverage evidence；Windows/Linux/macOS × Node 20/22/24 矩阵运行 platform smoke、MCP conformance 和 hostile-input。CI latency 在 `--ci` 模式中执行并显式记录 advisory，不通过 workflow `continue-on-error` 隐藏阶段。
 - 当前基线在 merge-e-hardening-base 验收时刷新；e2e 延迟阈值全部达标为准入。
-- 发布验证：源码侧执行 `pnpm run build`、`pnpm run audit:prod` 或等价 audit 命令、`node scripts/verify-package.mjs`、`node scripts/verify-clean-consumer.mjs <tarball>`；package verifier 当前验证 189 个文件，clean consumer 验证 package-owned SDK 1.29.0、consumer SDK 1.30.0、96 个生产 SBOM 组件和 startup smoke。该命令链尚未替代后续 canonical CI/security gate。
+- 发布验证：源码侧可单独执行 `pnpm run audit:prod`、`node scripts/verify-package.mjs` 和 `node scripts/verify-clean-consumer.mjs <tarball>`；canonical `pnpm run gate` 将 audit、实际 pack、package verifier 和 clean consumer 纳入同一阻断链。最近一次 gate 的 package verifier 验证 229 个文件，clean consumer 验证 package-owned SDK 1.29.0、consumer SDK 1.30.0、96 个生产 SBOM 组件和 startup smoke；本地 checksum 仍不替代 CI provenance。
 
 ## 变更日志
 
@@ -218,6 +220,8 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 - 2026-08-29：`tool-wrapper-and-surface-contract` 完成验收——新增 `src/tool-registry.ts` 以 SDK `RegisteredTool.enabled` 为唯一真源的真实启用计数，banner/health（`tools.enabled/disabled`）/usage-guide 与 `tools/list` 27/26 三面同源一致；`wrapHandler` 收敛未预期异常（取消→`CANCELLED`、其余→`INTERNAL_ERROR` 且经脱敏）并新增 `MCP_RESPONSE_MAX_BYTES`（默认 2 MiB）响应兜底；session_state/environment_vars/network_info 缺参显式 `VALIDATION_ERROR`（删除隐式 ping 127.0.0.1/localhost 默认）；`capabilityGate` 接线五个披露面（关闭审计 REL-05/PRO-01/PRO-02 与 SEC-06 capability 部分）；门禁全绿（全量 58 文件 752 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 9/13。
 - 2026-08-29：`audit-health-and-state-writer` 完成验收——新增 `src/lock-lease.ts` 统一 temp/migration 锁的 owner/lease heartbeat/fencing 语义（心跳存活的长持锁不被接管、staging+rename 原子接管保留 fence 单调、崩溃 owner 立即恢复、未知迁移锁 fail-closed）；audit 改单飞行写链（失败保留退避重试、entry/queue 字节上限、按大小轮换 `audit.jsonl.N`、`record()/flush()/health()` 落 §5.7 契约）；session revision writer 以 revision 比对修复写窗口 dirty 竞态；temp 跨进程配额经 `.quota.json` ledger 互见 outstanding；LRU 超限 entry 拒绝 + 计数；`health://status` 从恒 `ok` 改为 `healthy|degraded|failed` + components 四组件聚合（关闭审计 OPS-01/OPS-02 与 lock fencing 验收行）；门禁全绿（全量 63 文件 786 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 10/13。
 - 2026-08-29：`search-and-adaptive-correctness` 完成验收——新增 `src/partial-result.ts`（SearchWarning/WARNING_CODES/SEARCH_BUDGET/pushWarning/assert 同源校验）与 `src/native-search.ts`（native 遍历层 complete=false+warnings、命中行截断、AbortError）；`everything_search` 错误分类消灭 CLI 失败假成功（关闭 SEARCH-01），walk/PS `-ErrorVariable`/Unix grep/list 子目录遍历错误全部 partial 结构化暴露（关闭 SEARCH-02）；搜索/list/process schema+handler 双层有界校验；Unix process_list 重写 `buildUnixProcessListCommand` 先筛选再排序截断（关闭 SYS-01）；`adaptiveTimeout` 改非 cache-hit 样本 nearest-rank P95×3（关闭 PERF-01）；partial 结果不入 LRU 缓存；四工具输出补 complete/warnings/truncated（纯新增向后兼容）；门禁全绿（全量 66 文件 835 用例、latency 24/24、tools coverage 达标）；生产硬化 roadmap 进度 11/13。
+
+- 2026-08-29：`security-and-mcp-conformance-gates` 完成实现与验收——新增 `scripts/canonical-gate.mjs`、MCP conformance/hostile-input/platform smoke 测试与 corpus，`pnpm run gate` 纳入主 coverage、audit、package verifier、实际 pack 和 clean consumer；CI 改为固定 action SHA + `contents: read`、Windows Node 22 canonical gate 与 Windows/Linux/macOS × Node 20/22/24 smoke 矩阵；`src/index.ts` 接通 transport close/error/fatal 的脱敏幂等 shutdown；`lock-lease` heartbeat 改串行续租并修复 Windows staging rename 的有界重试/已知时序 flake。release gate 通过（69 文件 845 用例、主 coverage 82.21/75.09/85.5/85.22、tools coverage 64.72/54.39/71.42/68.52、latency 24/24、audit/package/consumer 全部通过）；生产硬化 roadmap 进度 12/13。
 
 ## 7. 规划入口（非现状）
 

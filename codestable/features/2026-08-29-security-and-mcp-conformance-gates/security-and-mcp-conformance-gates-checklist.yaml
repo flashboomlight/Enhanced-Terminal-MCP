@@ -1,0 +1,99 @@
+feature: 2026-08-29-security-and-mcp-conformance-gates
+created: 2026-08-29
+
+steps:
+  - action: "编排骨架：建立 canonical gate 阶段模型、D 盘临时范围、fail-fast 和有限 GateReport"
+    exit_signal: "pnpm run gate 能按稳定顺序执行既有质量/测试/发布阶段；任一阶段失败返回非零并保留 failed/skipped 状态报告"
+    status: done
+  - action: "协议节点：新增真实 stdio MCP conformance 套件并覆盖 profile、output schema、错误和 Elicitation 边界"
+    exit_signal: "initialize、tools/list、resources、prompts、tools/call、structured result、错误、risk-gated 和 sandbox profile 场景均有真实 client 证据"
+    status: done
+  - action: "安全输入节点：新增 corpus 驱动 hostile-input 套件并覆盖 schema/handler 双层校验"
+    exit_signal: "越界、缺参、路径/URL/regex、PID/name/action 等 hostile case 均返回预期结构化结果，危险 case 不产生副作用"
+    status: done
+  - action: "平台节点：新增最小 platform smoke 入口并接入 Node 20/22/24 与 Windows/Linux/macOS 矩阵"
+    exit_signal: "每个声明支持的矩阵组合完成 server/client、只读工具、普通命令、资源/prompt 和安全错误 smoke；unsupported 能力显式记录"
+    status: done
+  - action: "运行时节点：将 transport close/error/fatal 接入幂等 shutdown，并保留 supervisor drain → session/audit flush 顺序"
+    exit_signal: "取消、断连、transport error、startup fatal、uncaught exception 和 unhandled rejection 都返回正确退出状态且不重复清理/泄露敏感文本"
+    status: done
+  - action: "稳定性节点：修复已确认的 TTL margin 和 Windows rename/文件句柄竞态"
+    exit_signal: "相关场景重复运行通过；失败不会通过无限重试、吞错或扩大全局 timeout 隐藏"
+    status: done
+  - action: "CI/发布节点：把 canonical gate 接入 required workflow，固定 action SHA、收紧权限并上传 release evidence"
+    exit_signal: "workflow 只调用 canonical gate；required 阶段无 continue-on-error；package/audit/consumer/report 证据可定位且临时数据留在 D 盘"
+    status: done
+  - action: "验收收口：运行全量 gate、平台/协议/hostile 检查并完成范围反向审计与 CodeStable 回写"
+    exit_signal: "design 的关键场景和明确不做项逐条有证据，roadmap item 可从 in-progress 更新为 done，#13 保持为唯一后续项"
+    status: done
+
+checks:
+  - item: "canonical gate 使用单一入口 pnpm run gate，并按稳定阶段 fail-fast；报告区分 passed/failed/skipped"
+    source: 编排骨架 | 跨层纪律
+    status: passed
+  - item: "canonical gate 阻断 build、tsc、lint、full test、main coverage、tools coverage、release audit、package verifier 和 clean consumer"
+    source: 名词契约 | 验收场景
+    status: passed
+  - item: "release 默认 gate 的 latency 阻断；CI 使用同一入口的显式 --ci 模式保留当前 advisory 语义并写入报告"
+    source: 编排骨架 | 跨层纪律
+    status: passed
+  - item: "GateReport 只含阶段名、状态、退出码、耗时和有限摘要，不含完整命令输出、秘密或用户环境值"
+    source: 名词契约 | 跨层纪律
+    status: passed
+  - item: "真实 MCP client 完成 initialize、server info/capabilities、tools/list、resources/list/templates/read、prompts/list/get"
+    source: 验收场景
+    status: passed
+  - item: "默认与 file_info disabled 两种配置下工具 surface 为 27/26、名称唯一、delete_preview 不存在，input/output schema 为 object 且 required 形状正确"
+    source: 名词契约 | 验收场景
+    status: passed
+  - item: "成功 tools/call 与结构化错误 tools/call 均通过 MCP outputSchema 校验，错误带 isError=true 和 error.code，不产生 rejected promise"
+    source: 跨层纪律 | 验收场景
+    status: passed
+  - item: "risk-gated heavy command、hardBlock 和 sandboxed-production unsupported profile 的结果语义保持既有契约"
+    source: 跨层纪律 | 验收场景
+    status: passed
+  - item: "MCP cancellation、client disconnect、transport close/error、startup fatal、uncaught exception 和 unhandled rejection 均进入一次幂等 shutdown"
+    source: 编排骨架 | 验收场景
+    status: passed
+  - item: "hostile corpus 覆盖 command/batch/watch 的越界、超长、超量和非法 page 输入，并在 spawn 前返回 VALIDATION_ERROR/RESOURCE_LIMIT"
+    source: 验收场景
+    status: passed
+  - item: "hostile corpus 覆盖 search/list 的 pattern/query/file pattern/depth/results/top/filter 越界和 ReDoS 输入"
+    source: 验收场景
+    status: passed
+  - item: "hostile corpus 覆盖 PID/name XOR、wildcard/name path、self/parent/critical process、action-dependent 缺参"
+    source: 验收场景
+    status: passed
+  - item: "hostile corpus 覆盖 traversal/sensitive/symlink/no-follow、invalid URL/private host、Zip Slip/member/device entry，并证明无写入/网络/解压副作用"
+    source: 验收场景
+    status: passed
+  - item: "SDK schema 层与直接 handler 入口的 hostile 校验语义一致，Infinity/NaN 等不可 wire 值由直接入口测试覆盖"
+    source: 名词契约 | 跨层纪律
+    status: passed
+  - item: "Node 20/22/24 与 Windows/Linux/macOS platform smoke 完成基础 server/client、只读工具、普通命令、资源/prompt 和安全错误验证"
+    source: 验收场景
+    status: passed
+  - item: "Everything 缺失在 Unix 被识别为 expected unsupported，Windows shell/Everything 分支不把可选能力失败伪装成成功"
+    source: 跨层纪律 | 验收场景
+    status: passed
+  - item: "workflow 第三方 action 固定完整 commit SHA，权限最小为 contents: read，required 阶段不使用 continue-on-error"
+    source: 挂载点 | 验收场景
+    status: passed
+  - item: "package verifier、clean consumer、SBOM、audit 和 gate report 纳入 release evidence；local checksum 不冒充 provenance/signature"
+    source: 跨层纪律 | 验收场景
+    status: passed
+  - item: "TTL/Windows rename 竞态场景稳定重复通过，未使用无限 retry、吞错或全局 timeout 放宽掩盖失败"
+    source: 验收场景
+    status: passed
+  - item: "不新增 runtime dependency、remote transport、认证、多租户或 sandbox backend"
+    source: 范围守护
+    status: passed
+  - item: "不修改 hardBlock/dangerous patterns/SafeGuard/command policy 默认值、错误码兼容表、工具名字或业务 output"
+    source: 范围守护
+    status: passed
+  - item: "不重新引入 delete_preview、MCP_CONFIRMATION_MODE、MCP_ALLOWED_ROOTS、headless surface 或 workspace allowlist"
+    source: 范围守护
+    status: passed
+  - item: "ProcessPool 保持 active=false；setup/npm bootstrap、runtime download、checksum/provenance 边界不被 gate 改写"
+    source: 范围守护
+    status: passed

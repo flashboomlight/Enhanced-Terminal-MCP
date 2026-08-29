@@ -31,6 +31,7 @@ import {
   STAGING_HEARTBEAT_INTERVAL_MS,
   STAGING_LEASE_MS,
   type StagingEntry,
+  sleep,
   TempCapacityExceededError,
   type TempDir,
   TempLockTimeoutError,
@@ -70,6 +71,22 @@ interface QuotaLedgerItem {
 }
 
 type QuotaLedger = Record<string, QuotaLedgerItem>;
+
+/** Windows 文件系统短暂占用时，对同卷 staging rename 做有界退避重试。 */
+async function renameStagingWithRetry(source: string, destination: string): Promise<void> {
+  const retryDelays = [25, 50, 100, 200, 400];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(source, destination);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const retryable = process.platform === "win32" && (code === "EPERM" || code === "EBUSY" || code === "EACCES");
+      if (!retryable || attempt >= retryDelays.length) throw error;
+      await sleep(retryDelays[attempt]);
+    }
+  }
+}
 
 export class TempManager {
   private root: string | null = null;
@@ -667,7 +684,7 @@ export class TempManager {
           .rm(path.join(st.dir, ".heartbeat"), { force: true })
           .catch((e) => logger.debug("temp-manager", "heartbeat-rm-failed", String(e)));
         try {
-          await fs.rename(st.dir, finalDir);
+          await renameStagingWithRetry(st.dir, finalDir);
         } catch (e) {
           // rename 失败时恢复 lease，避免 local staging 变成不可恢复的孤儿目录
           await this.writeHeartbeat(st.dir);
