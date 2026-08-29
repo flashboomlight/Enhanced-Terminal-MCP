@@ -4,7 +4,7 @@
 > **维护规则**：每个 roadmap feature 收口（commit 落库 + 记忆更新）后，必须同步更新本文件的进度表、HEAD、下一步与坑清单。
 
 - **快照时间**：2026-08-29
-- **当前 HEAD**：`16d1996`（#12 改动已随本 feature 提交落库）
+- **当前 HEAD**：`0329ba6`（#12 security-and-mcp-conformance-gates 已落库，工作树 clean）
 - **最近一次全量回归**：`pnpm run gate` EXIT=0（69 文件 845 用例、主 coverage 82.21/75.09/85.5/85.22、latency 24/24、tools coverage 64.72/54.39/71.42/68.52、audit/package/consumer 全部通过）
 
 ## 1. 项目一句话
