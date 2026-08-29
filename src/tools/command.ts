@@ -441,6 +441,7 @@ export function registerCommandTools(server: McpServer) {
             requestId: context.requestId,
             scopeId: context.scopeId,
             kind: "execute-command",
+            windowsVerbatimArguments: inv.windowsVerbatimArguments,
           });
           session.pushHistory(commandText);
           const { capturedMs, error, ok, envelope } = finishCommandEnvelope(result, t0);
@@ -621,6 +622,7 @@ export function registerCommandTools(server: McpServer) {
                 requestId: context.requestId,
                 scopeId: context.scopeId,
                 kind: "batch-command",
+                windowsVerbatimArguments: inv.windowsVerbatimArguments,
               });
               const latency = Date.now() - ct0;
               const error = commandError(r);
@@ -794,6 +796,7 @@ export function registerCommandTools(server: McpServer) {
           requestId: context.requestId,
           scopeId: context.scopeId,
           kind: "watch-command",
+          windowsVerbatimArguments: inv.windowsVerbatimArguments,
         });
         const { capturedMs, error, ok, envelope } = finishCommandEnvelope(result, t0, "Watch command");
         audit.record({

@@ -1,6 +1,9 @@
 /**
  * shell.ts 单元测试 — 解析器全量注入候选，跨平台确定性运行
  */
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { IS_WIN } from "../../src/platform.js";
 import {
@@ -12,6 +15,7 @@ import {
   resolveShell,
   ShellResolutionError,
 } from "../../src/shell.js";
+import { spawnStream } from "../../src/stream.js";
 
 // 常用注入：默认假设 nothing exists（各用例按需覆盖）
 function opts(over: Partial<ResolveShellOptions> = {}): ResolveShellOptions {
@@ -294,9 +298,10 @@ describe("buildShellInvocation", () => {
     expect(inv.args[3].endsWith("Get-Date")).toBe(true);
   });
 
-  test("cmd → /c + chcp 65001 前缀", () => {
+  test("cmd → verbatim /d /s /c + 整体引号（chcp 65001 前缀）", () => {
     const inv = buildShellInvocation("echo hello", { file: "cmd.exe", flavor: "cmd", source: "compat" });
-    expect(inv.args).toEqual(["/c", "chcp 65001 >nul && echo hello"]);
+    expect(inv.args).toEqual(["/d", "/s", "/c", `"chcp 65001 >nul && echo hello"`]);
+    expect(inv.windowsVerbatimArguments).toBe(true);
   });
 
   test("unix → -c", () => {
@@ -322,5 +327,41 @@ describe("powerShellTarget", () => {
   test("cmd 兼容档 → 回退 v3.1 的 powershell.exe", () => {
     const t = powerShellTarget({ file: "cmd.exe", flavor: "cmd", source: "compat" });
     expect(t).toEqual({ file: "powershell.exe", baseArgs: ["-NoProfile"] });
+  });
+});
+
+// ====================================================================
+// cmd flavor 引号空格路径回归（issue 2026-08-29-cmd-quoted-space-path）
+// 真实 spawn：verbatim + /d /s /c + 整体引号形态下，含引号空格路径与普通命令均正确执行
+// ====================================================================
+describe("cmd flavor quoted-space path", () => {
+  const itWin = IS_WIN ? test : test.skip;
+
+  itWin("type 带引号的空格路径文件成功输出内容", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cmd-quote-issue-"));
+    const filePath = path.join(dir, "probe dir with space", "probe file.txt");
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, "CMD-QUOTE-OK", "utf8");
+    try {
+      const inv = buildShellInvocation(`type "${filePath}"`, { file: "cmd.exe", flavor: "cmd", source: "compat" });
+      const r = await spawnStream(inv.file, inv.args, {
+        timeout: 15000,
+        windowsVerbatimArguments: inv.windowsVerbatimArguments,
+      });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("CMD-QUOTE-OK");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  });
+
+  itWin("无引号普通命令在 verbatim 形态下不受影响", async () => {
+    const inv = buildShellInvocation("echo PLAIN-OK", { file: "cmd.exe", flavor: "cmd", source: "compat" });
+    const r = await spawnStream(inv.file, inv.args, {
+      timeout: 15000,
+      windowsVerbatimArguments: inv.windowsVerbatimArguments,
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("PLAIN-OK");
   });
 });

@@ -382,6 +382,7 @@ export function registerSearchTools(server: McpServer) {
               const { stdout, stderr } = await execFileManaged(inv.file, inv.args, {
                 timeoutMs: 30000,
                 maxBuffer: 10 * 1024 * 1024,
+                windowsVerbatimArguments: inv.windowsVerbatimArguments,
                 signal: context.signal,
                 requestId: context.requestId,
                 scopeId: context.scopeId,

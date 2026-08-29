@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `adaptive.ts` `DEFAULT_TIMEOUTS` now only registers `execute_command` (the single call site); other entries were unreachable config.
 - Tests use project-internal `.etmcp/test-tmp` instead of the machine-specific `E:/Codex_Temp`; codestable roadmap directories normalized to `YYYY-MM-DD-<slug>` naming with all path references updated.
 
+### Fixed
+
+- `MCP_SHELL=cmd` flavor: commands containing quoted paths with spaces (e.g. `type "D:\my dir\file.txt"`) now execute correctly instead of failing with `文件名、目录名或卷标语法不正确`. The cmd invocation is built as verbatim `cmd /d /s /c "<command>"` (the npm/cross-spawn standard form), so embedded quotes reach cmd intact; `/d` also skips cmd AutoRun scripts. Plain commands are unaffected, and the pwsh/powershell/unix branches are unchanged.
+
 ## [4.0.0] — 2026-08-28
 
 ### Breaking Changes

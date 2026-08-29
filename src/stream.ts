@@ -34,6 +34,7 @@ export async function spawnStream(
     scopeId?: string;
     kind?: string;
     tree?: boolean;
+    windowsVerbatimArguments?: boolean;
   },
 ): Promise<StreamResult> {
   const timeout = opts?.timeout ?? 30000;
@@ -48,6 +49,7 @@ export async function spawnStream(
       cwd: opts?.cwd,
       env: opts?.env ? { ...process.env, ...opts.env } : process.env,
       windowsHide: true,
+      windowsVerbatimArguments: opts?.windowsVerbatimArguments,
       stdio: ["ignore", "pipe", "pipe"],
       kind: opts?.kind ?? "stream",
       requestId: opts?.requestId,
@@ -145,6 +147,7 @@ export async function quickExec(
     cwd,
     maxOutput: 1024 * 1024,
     kind: "quick-exec",
+    windowsVerbatimArguments: inv.windowsVerbatimArguments,
   });
   return { stdout: r.stdout, exitCode: r.exitCode, timedOut: r.timedOut };
 }

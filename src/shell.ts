@@ -33,6 +33,8 @@ export interface ShellSpec {
 export interface ShellInvocation {
   file: string;
   args: string[];
+  /** cmd flavor 下为 true：spawn 必须按 verbatim 拼接命令行，否则 Node 的 CRT 转义会把内嵌引号写成 \" 破坏 cmd 解析。 */
+  windowsVerbatimArguments?: boolean;
 }
 
 export type ShellErrorCode = "INVALID_SHELL_MODE" | "SHELL_PATH_INVALID" | "SHELL_NOT_FOUND";
@@ -278,7 +280,15 @@ export function buildShellInvocation(command: string, spec: ShellSpec): ShellInv
     case "powershell":
       return { file: spec.file, args: ["-NoProfile", "-NonInteractive", "-Command", PS_UTF8_PREAMBLE + command] };
     case "cmd":
-      return { file: spec.file, args: ["/c", wrapCommand(command)] };
+      // cmd.exe 不按 MS CRT 规则解引号：Node 默认 argv 转义会把内嵌引号写成 \"，
+      // 与 /c 的引号剥除规则冲突（含引号的空格路径必坏，见 issue 2026-08-29-cmd-quoted-space-path）。
+      // verbatim + /d /s /c + 整体引号是 npm/cross-spawn 同款标准形态：/d 隔离 AutoRun，
+      // /s 让 cmd 只剥最外层一对引号，内部引号原样保留。
+      return {
+        file: spec.file,
+        args: ["/d", "/s", "/c", `"${wrapCommand(command)}"`],
+        windowsVerbatimArguments: true,
+      };
     case "unix":
       return { file: spec.file, args: ["-c", command] };
   }

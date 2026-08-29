@@ -5,7 +5,7 @@
 
 - **快照时间**：2026-08-29
 - **当前 HEAD**：`8c29218`（#13 docs-and-architecture-closeout 已落库；production-hardening roadmap 13/13 全部完成，工作树 clean）
-- **最近一次全量回归**：`pnpm run gate`（release 模式）11 阶段全部 passed——build/tsc/lint、69 文件 845 用例、主 coverage 与 tools coverage 阈值达标、latency 24/24、audit/package verifier/pack/clean consumer 全部通过；期间发现并修复 paging 测试高负载 `fs.rm` ENOTEMPTY 竞态（有界重试，test-only）
+- **最近一次全量回归**：`pnpm run gate`（release 模式）11 阶段全部 passed（69 文件 845 用例、coverage/latency/audit/package/clean consumer 达标）；含 cmd 引号路径修复（issue `2026-08-29-cmd-quoted-space-path`）后的回归
 
 ## 1. 项目一句话
 
@@ -41,15 +41,14 @@ Enhanced Terminal MCP v4.0.0：TypeScript ESM 的 MCP stdio 服务端，提供 *
 
 完整授权文本（原话要点、各阶段细则、"重大决策"判定标准、授权不覆盖的硬约束、与 AGENTS.md 条款的关系）见 **`CS-AUTOMATION.md`**——它是本节的权威来源，冲突时以其为准。
 
-## 5. 下一步（roadmap 已闭环，新工作按需开工）
+## 5. 下一步（用户已定排期，2026-08-29）
 
-production-hardening 13/13 全部完成，无既定 roadmap 待办。后续可选项（均为独立任务，开工前先检索归档）：
-
-1. **发版决策**（用户产品决策）：4.0.x tag / npm publish、CHANGELOG [Unreleased] 定版。
-2. **CI runner 观察**：Windows/Linux/macOS × Node 20/22/24 smoke 矩阵的首轮真实 runner 结果与 artifact。
-3. **cmd 链路带引号空格路径**（需独立 issue，修 spawnStream/shell 构造属执行核心）。
-4. **SDK 1.30 升级**（等生态，须连 outputSchema patch + conformance 一起验证）。
-5. **lint 既有 9 warnings 清理**（逐 issue）。
+1. ~~cmd 链路带引号空格路径~~（已完成：issue `2026-08-29-cmd-quoted-space-path`，verbatim `/d /s /c` 修复 + gate 全绿）。
+2. **lint 9 warnings 清理**（下一项：`src/temp-manager.ts` 未用 `id`、`tests/unit/network-policy.test.ts` 未用参数等）。
+3. **SDK 1.30 升级挂起**——触发条件：某 1.x 版本确认修复 ZodEffects inputSchema 问题（届时可删 postinstall patch），或出现必须升级的安全通告。
+4. **Windows 本机平台验证**（agent 执行）。
+5. **Linux 验证由用户自行在 VPS 处理**（不在 agent 范围）。
+6. **发版决策**（4.1.0 建议，用户产品决策）：平台验证完成后进行，含 CHANGELOG [Unreleased] 定版、tag、publish。
 
 ## 6. 关键约束与坑（踩过一次的，勿再踩）
 
@@ -62,7 +61,7 @@ production-hardening 13/13 全部完成，无既定 roadmap 待办。后续可�
 - **canonical gate**：`pnpm run gate` 默认执行 release blocking gate；CI 使用同一脚本的 `pnpm run gate -- --ci`，仅把 latency 明确记录为 advisory；gate report 位于 `.etmcp/gate-report.json`，package/consumer 临时物位于 `.etmcp/gate-work` 或 release verifier 的 `.etmcp` 范围。
 - **vitest 输出解析坑**：输出带 ANSI 码，`grep "Tests  "` 匹配不到要用宽松模式；`grep failed` 会误中测试名（如 "reads a failed command cache"）。
 - **机器特定路径**：pnpm store 在 `E:/pnpm/v11`（机器配置，不得写进仓库文件/发布物）。
-- **已知遗留（非阻塞）**：cmd 链路无法携带带引号空格路径（修 spawnStream 需独立 issue）；SDK 1.30 升级等生态；README/AGENTS/ARCHITECTURE 中部分历史文字由 #13 统一处理。
+- **已知遗留（非阻塞）**：SDK 1.30 升级等生态（触发条件见下）；README/AGENTS/ARCHITECTURE 中部分历史文字已由 #13 收口，剩余历史版本段为有意保留。cmd 链路带引号空格路径已修复（`2026-08-29-cmd-quoted-space-path`：verbatim `/d /s /c` + 整体引号）。
 - **全量测试高负载 flake**：#12 已将 lock-lease heartbeat 改为串行续租、测试改为等待可观察 heartbeat，并为 Windows staging rename 增加有界 EPERM/EBUSY/EACCES 退避；#13 又修复 paging 测试 afterEach `fs.rm` 的 ENOTEMPTY 竞态（`maxRetries: 10, retryDelay: 100` 有界重试——100ms TTL 异步 sweep 在高负载下晚于枚举写入所致；修复前两次全量各挂 1 个不同用例、定向 5/5 过）。有界重试不吞错；后续其他测试如再现同类 flake 按同款逐文件处理，并继续观察 CI runner 矩阵稳定性。
 
 ## 7. 权威文档索引

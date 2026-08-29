@@ -85,7 +85,7 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 
 - `fileURLToPath` 在 Windows 路径含空格时行为不稳定，路径解析优先使用 `dirname(fileURLToPath(import.meta.url))` + `path.join`
 - `build/` 目录下的 `version.js` 与 `src/version.ts` 共享相同的 package.json 相对路径逻辑
-- cmd flavor 命令串无法安全携带带引号的空格路径：Node spawn 默认 argv 转义产生 `\"` 序列与 cmd 引号规则冲突（`/s` 更甚）。需要执行含空格路径下的脚本时，用 `cwd` 参数 + 纯 basename 命令规避；修改 `spawnStream`/shell 构造属执行核心，须另立 issue
+- cmd flavor 命令行构造已修复：verbatim `/d /s /c` + 整体引号（npm/cross-spawn 标准形态，issue `2026-08-29-cmd-quoted-space-path`），带引号的空格路径可正确执行；`/d` 同时禁用 cmd AutoRun。shell 调用构造属执行核心，调整仍须另立 issue
 - Windows 输出编码由 `src/shell.ts` 的 invocation 负责：pwsh/5.1 使用 UTF-8 preamble，cmd flavor 使用 `chcp 65001`；不要假设所有 shell 都要套 `cmd.exe /c`。
 - 修改 `src/**` 后，依赖 `build/index.js` 的 e2e/latency 子进程测试必须先执行 `pnpm run build`；build 会先由 `scripts/clean-build.mjs` 清理旧产物，再生成当前编译结果
 - 本项目位于 D 盘，开发依赖安装统一使用 pnpm。pnpm 的共享 content store 由机器配置决定，当前 `pnpm store path` 为 `E:/pnpm/v11`；不得把这个机器路径写入实现文件、package metadata、lockfile 或发布物。每个项目仍保留自己的 `node_modules` 和 virtual store，不共享运行时目录。

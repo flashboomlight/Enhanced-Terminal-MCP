@@ -70,6 +70,7 @@ export interface ManagedExecFileOptions extends ProcessTrackingOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   maxBuffer?: number;
+  windowsVerbatimArguments?: boolean;
 }
 
 export interface ManagedExecFileResult {
@@ -562,7 +563,7 @@ export function execFileManaged(
   options: ManagedExecFileOptions = {},
 ): Promise<ManagedExecFileResult> {
   if (options.signal?.aborted) return Promise.reject(createProcessAbortError());
-  const { cwd, env, maxBuffer, ...tracking } = options;
+  const { cwd, env, maxBuffer, windowsVerbatimArguments, ...tracking } = options;
   return new Promise((resolve, reject) => {
     let managed: ManagedProcess | null = null;
     let child: ChildProcess | null = null;
@@ -578,6 +579,7 @@ export function execFileManaged(
           maxBuffer: maxBuffer ?? 10 * 1024 * 1024,
           encoding: "utf8",
           windowsHide: true,
+          windowsVerbatimArguments,
           detached: options.tree !== false && !IS_WINDOWS,
         },
         (error, stdout, stderr) => {

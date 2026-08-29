@@ -276,6 +276,7 @@ export async function runCommandOutput(
     requestId?: string | number;
     scopeId?: string;
     kind?: string;
+    windowsVerbatimArguments?: boolean;
   },
 ): Promise<CommandOutputRun> {
   const streams: Record<CaptureStreamName, StreamState> = {
@@ -448,6 +449,7 @@ export async function runCommandOutput(
     requestId: opts.requestId,
     scopeId: opts.scopeId,
     kind: opts.kind,
+    windowsVerbatimArguments: opts.windowsVerbatimArguments,
     onChunk: (stream, chunk) => processRaw(stream, chunk),
   });
   if (capture.error) throw capture.error;

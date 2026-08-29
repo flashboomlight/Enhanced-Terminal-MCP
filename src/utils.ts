@@ -32,6 +32,7 @@ export async function safeExec(
     cwd,
     env: { PYTHONIOENCODING: "utf-8" },
     kind: "shell-exec",
+    windowsVerbatimArguments: inv.windowsVerbatimArguments,
   });
   if (r.cancelled) {
     throw new Error("Operation cancelled");

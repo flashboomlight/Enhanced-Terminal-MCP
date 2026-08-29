@@ -52,6 +52,7 @@ export async function captureCommand(
     scopeId?: string;
     kind?: string;
     tree?: boolean;
+    windowsVerbatimArguments?: boolean;
     maxPendingBytes?: number;
     onChunk?: CaptureChunkHandler;
   },
@@ -98,6 +99,7 @@ export async function captureCommand(
         cwd: opts?.cwd,
         env: opts?.env ? { ...process.env, ...opts.env } : process.env,
         windowsHide: true,
+        windowsVerbatimArguments: opts?.windowsVerbatimArguments,
         stdio: ["ignore", "pipe", "pipe"],
         kind: opts?.kind ?? "capture",
         requestId: opts?.requestId,
