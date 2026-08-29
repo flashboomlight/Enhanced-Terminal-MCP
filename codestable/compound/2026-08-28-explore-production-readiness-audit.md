@@ -189,15 +189,19 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 `security-and-mcp-conformance-gates` 已完成实现与 acceptance，roadmap item 已回写为 `done`，验收报告为 `codestable/features/2026-08-29-security-and-mcp-conformance-gates/security-and-mcp-conformance-gates-acceptance.md`。已落地：`scripts/canonical-gate.mjs` 作为唯一 gate 入口，release 模式阻断 build、tsc、lint、full test、main/tools coverage、latency、dependency audit、package verifier、实际 pack 和 clean consumer，CI `--ci` 模式显式保留 latency advisory；新增真实 stdio MCP conformance、hostile-input corpus、platform smoke 和有限 gate report；CI 使用固定 action commit SHA、`contents: read` 最小权限、Windows Node 22 canonical gate 与 Windows/Linux/macOS × Node 20/22/24 smoke 矩阵；`src/index.ts` 接通 transport close/error/fatal 的脱敏幂等 shutdown；`lock-lease` heartbeat 改串行续租，Windows staging rename 增加有界瞬态失败重试。最终本地 release gate 全绿：69 个测试文件、845 个用例，主 coverage 82.21/75.09/85.5/85.22，工具层 coverage 64.72/54.39/71.42/68.52，latency 24/24，audit/package/consumer 全部通过。Linux/macOS 与 Node 20/22 的实际 runner 结果由 CI 矩阵提供，本地不冒充远程证据；#13 仍负责最终文档一致性收口。
 
+#### 6.13 `docs-and-architecture-closeout` 实施状态
+
+`docs-and-architecture-closeout` 已完成实现与 acceptance，roadmap item 已回写为 `done`，验收报告为 `codestable/features/2026-08-29-docs-and-architecture-closeout/docs-and-architecture-closeout-acceptance.md`。已落地（DOC-01 关闭）：CHANGELOG [4.0.0] 段删除与 Breaking Changes 矛盾的 v3.x headless 条目（Added/Changed/Fixed 三组）并修正 27/26 现状口径，[Unreleased] 合并为单组 Added/Changed、清理被 canonical gate 取代的旧 CI/gate 描述并补 #13 条目；`usage-guide` prompt 更新为 v4.0 现状要点（首行动态计数契约不变，tool-visibility/conformance 断言随 gate 通过）；README/AGENTS/ARCHITECTURE 过期 remaining-hardening 指引改为闭环口径并补 production-hardening closed 标注；新建根 `SECURITY.md`（威胁模型边界、hardBlock 不可关闭底线、profile 边界、依赖维护政策、GitHub advisory/Issues 报告渠道）并在 README Supply chain 加链接；`tests/e2e-latency.test.ts` 头注释更新 v4.0.0。实现期发现 paging 测试在全量高负载下 afterEach `fs.rm` ENOTEMPTY 竞态（两次全量各挂 1 个不同用例、定向 5/5 过），按 #12 先例以 `fs.rm` 有界重试修复（test-only，不吞错）。复扫证据：`NEW in v3.1` 全库零命中、无 "28 tools by default" 现状叙述、[4.0.0] 段仅存 Breaking Changes 的合法 headless 拆除叙述、search-yaml active 检索无过期 headless 现状。release gate 11 阶段全部 passed（mode=release，69 文件 845 用例、latency stage 通过、coverage/audit/package verifier/pack/clean consumer 达标）。**至此 13/13 全部完成，本审计的推荐修复顺序闭环；未决问题（产品目标边界、session env 持久化、下载/解压预算默认值）仍属产品决策，不因 roadmap 闭环而视为已批。**
+
 ### 7. 推荐修复顺序
 
 这是执行建议，不是对产品边界的替代决策：
 
-1. **Release stop**：#1–#12 的实现、MCP conformance、hostile-input、canonical gate、release evidence、action pinning、最小权限和本地 release gate 已完成；跨平台矩阵需在 CI runner 上执行，最终文档一致性由 `docs-and-architecture-closeout`（#13）收口。
+1. **Release stop**：#1–#12 的实现、MCP conformance、hostile-input、canonical gate、release evidence、action pinning、最小权限和本地 release gate 已完成；#13 已完成文档一致性收口。跨平台矩阵的实际 runner 结果由 CI 矩阵作为外部证据持续提供。
 2. **Resource stop**：统一所有 MCP 输入的 finite/bounded schema，补 parent/child/batch/tree/response/queue budget、限流和所有 child-process registry，接入 cancellation 与 descendant termination。
 3. **Security hardening**：完成 symlink/TOCTOU/no-follow、session cwd/state 根、capability/host disclosure、env key 大小写归一化、状态/日志/result/prompt redaction、状态文件权限和 SSRF/DNS/proxy/ZIP 预算。
 4. **Correctness and gate hardening**：search partial-result、Unix process filter、adaptive 语义、TTL/Windows rename 稳定性、主 coverage、dependency audit、package dry-run、MCP conformance、canonical gate、支持平台和 hostile-input 套件已由 #10/#12 落地；CI runner 执行结果作为外部矩阵证据保留。
-5. **Contract/docs closeout**：统一 v4.0.0/27 tools、双 bootstrap、profile/capability、CHANGELOG 旧 headless 历史边界、usage-guide、AGENTS、ARCHITECTURE、SECURITY 和发行说明。
+5. **Contract/docs closeout**：~~统一 v4.0.0/27 tools、双 bootstrap、profile/capability、CHANGELOG 旧 headless 历史边界、usage-guide、AGENTS、ARCHITECTURE、SECURITY 和发行说明~~（已完成，2026-08-29：#13 落地 CHANGELOG 收口、usage-guide v4.0、SECURITY.md 与三份权威文档闭环口径）。
 
 ## 未决问题
 
@@ -207,7 +211,7 @@ dependency-and-bootstrap-release 已完成实现与 acceptance，roadmap item �
 
 ## 后续建议
 
-截至 2026-08-29，#1–#12 共 12 条已完成，仅余 #13。建议下一步完成 `docs-and-architecture-closeout`，以最终代码、package manifest、CI evidence 和 27/26 surface 统一现状文档。
+截至 2026-08-29，#1–#13 共 13 条全部完成，production-hardening roadmap 闭环。后续新工作（如 cmd 链路带引号空格路径、SDK 1.30 升级、`sandboxed-production` 隔离 backend）应按 `STATUS.md` 的下一步与 `CS-AUTOMATION.md` 授权开工，不再挂在本文档的推荐顺序下。
 
 ## 相关文档
 

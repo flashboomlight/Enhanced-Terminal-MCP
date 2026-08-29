@@ -110,7 +110,7 @@ items:
   - slug: docs-and-architecture-closeout
     description: 以最终代码、package manifest、profile matrix 和 gate evidence 统一 v4.0.0/27/26 tools、bootstrap、sandbox 边界、CHANGELOG、usage-guide、维护入口和现状文档
     depends_on: [security-and-mcp-conformance-gates, dependency-and-bootstrap-release]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-08-29-docs-and-architecture-closeout
     minimal_loop: false
-    notes: 只回写已经落地的现状；不把 roadmap 计划提前写进 architecture/requirements
+    notes: "已完成并通过 acceptance；CHANGELOG [4.0.0] 段删除与 Breaking Changes 矛盾的 v3.x headless 条目、[Unreleased] 合并为单组 Added/Changed 并补 #13 条目；usage-guide prompt 更新为 v4.0 现状要点（首行动态计数契约不变）；README/AGENTS/ARCHITECTURE 过期 remaining-hardening 指引改为闭环口径并补 production-hardening closed 标注；新建根 SECURITY.md（威胁模型边界、hardBlock 底线、profile 边界、依赖维护政策、漏洞报告渠道）并在 README Supply chain 加链接；e2e-latency 头注释更新 v4.0.0；零运行时行为改动，不建 dependabot/CODEOWNERS、不 bump 版本"

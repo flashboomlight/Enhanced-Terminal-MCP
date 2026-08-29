@@ -97,7 +97,7 @@ python codestable/tools/validate-yaml.py --file <doc> --require doc_type --requi
 - `postinstall` 使用 `scripts/apply-mcp-sdk-patch.mjs`（零依赖），`patch-package` 仅 devDependency
 - 命令策略：`MCP_COMMAND_POLICY=blocklist|allow`，allow 时用 `MCP_COMMAND_ALLOW` 词级白名单且禁止 shell 元字符
 - 状态目录默认是 `<projectRoot>/.etmcp`；`MCP_STATE_DIR` 覆盖时不自动迁移 legacy 状态。`.etmcp` 根与 `temp/` 都是懒创建：只在首个真实产生物（session 持久化 / audit 写入 / temp 资源 / 迁移产物）落盘时创建，启动与读路径零创建；`getStateDir` 是纯解析，写路径用 `ensureStateDir`。
-- 剩余 hardening / 产品边界规划：`codestable/roadmap/2026-07-12-remaining-hardening/`（按 items 开工，禁止开放式“再补几条正则”）
+- hardening 规划已闭环：旧 `codestable/roadmap/2026-07-12-remaining-hardening/`（closed）与 production-hardening roadmap（13/13，2026-08-29 收口）仅作历史保留；新工作按项目根 `STATUS.md` 的下一步开工，禁止开放式"再补几条正则"
 - 不承诺 shell 整串执行下的形式化安全：见 `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md`
 
 ## UI 验证要求

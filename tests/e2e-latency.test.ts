@@ -1,5 +1,5 @@
 /**
- * 端到端延迟测试 — Enhanced Terminal MCP v3.1.0
+ * 端到端延迟测试 — Enhanced Terminal MCP v4.0.0
  *
  * 通过 MCP SDK Client 以子进程方式连接 Server，
  * 真实调用每个工具并测量完整往返延迟（含协议序列化/反序列化、进程 IPC）。

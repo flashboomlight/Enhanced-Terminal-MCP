@@ -553,15 +553,19 @@ export function registerUtilityTools(server: McpServer) {
           type: "text",
           text: injectContext(`Enhanced Terminal MCP v${VERSION} provides ${getRegisteredToolCount()} tools for file operations, command execution, search, telemetry, and temp resources.
 
-NEW in v3.1:
-- telemetry_report: View tool call metrics (latency, error rate, cache hit rate, temp stats, audit status)
-- temp_stats: View temporary resource usage and auto-recycled counts
-- execute_command paging: Use cache_id/page/pageSize to read large outputs incrementally without re-running commands
-- audit logging: Structured JSON Lines log at .etmcp/logs/audit.jsonl
-- session_state: Manage session working directory and env context
-- cache_stats / cache_invalidate: Manage LRU result cache
-- All tools now return structured output with outputSchema for LLM chainable decisions
-- Structured error codes with retryable/suggestion hints
+NEW in v4.0:
+- Risk-gated command confirmation: MCP_COMMAND_CONFIRMATION=all|risk-gated; heavy commands confirm once with the risk reason, and the hardBlock floor stays unclosable in every mode
+- Execution profiles: local-trusted-shell (default) vs sandboxed-production capability matrix; undeclared capabilities fail closed with CAPABILITY_DENIED
+- Partial-result contract: search/list tools return complete/truncated/warnings with structured warning codes instead of silently swallowing read failures
+- Bounded responses: MCP_RESPONSE_MAX_BYTES output budget; oversized results return RESOURCE_LIMIT instead of unbounded payloads
+- Truthful health://status: healthy/degraded/failed aggregated from the audit writer, temp capacity, process supervisor, and session persistence
+- telemetry_report: view tool call metrics (latency, error rate, cache hit rate, temp stats, audit state)
+- temp_stats: view temporary resource usage and auto-recycled counts
+- execute_command paging: use cache_id/page/pageSize to read large outputs incrementally without re-running commands
+- audit logging: structured JSON Lines log at .etmcp/logs/audit.jsonl with size-based rotation
+- session_state: manage session working directory and env context
+- cache_stats / cache_invalidate: manage the LRU result cache
+- All tools return structured output with outputSchema for LLM-chainable decisions; error codes carry retryable/suggestion hints
 - Safety mode: strict/normal/off via MCP_SAFETY_MODE env var`),
         },
       },

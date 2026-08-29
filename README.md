@@ -264,7 +264,7 @@ verifier JSON 输出、pnpm audit 结果、lockfile、SBOM 和 CI 生成的 prov
 | Package verifier | `scripts/verify-package.mjs` checks the actual tarball, package files, entry point, source maps, forbidden local assets and SHA-256. |
 | Zod | Stays on **v3** until roadmap spike `deps-zod-v4-spike` goes go (see `codestable/compound/2026-07-12-decision-zod-v3-remain.md`). |
 
-Security policy is **defense in depth, not a sandbox** when using full shell strings — see `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md` and remaining work in `codestable/roadmap/2026-07-12-remaining-hardening/`.
+Security policy is **defense in depth, not a sandbox** when using full shell strings — see [`SECURITY.md`](./SECURITY.md) for the threat model, hardBlock floor, dependency policy, and vulnerability reporting, and `codestable/compound/2026-07-12-decision-command-execution-not-sandbox.md` for the boundary decision. The hardening roadmaps (`2026-07-12-remaining-hardening`, `2026-08-28-production-hardening`) are closed; see [`STATUS.md`](./STATUS.md) for the current state.
 
 ## License
 

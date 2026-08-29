@@ -4,7 +4,7 @@ slug: enhanced-terminal
 scope: Enhanced Terminal MCP 的系统总架构、模块边界和运行时约束
 summary: 记录当前 MCP 入口、工具层、安全层、命令输出运行时和状态管理结构
 status: current
-last_reviewed: "2026-08-28"
+last_reviewed: "2026-08-29"
 tags: [mcp, typescript, terminal, security, command-output]
 depends_on: []
 implements: [everything-search-optional]
@@ -14,7 +14,7 @@ implements: [everything-search-optional]
 
 > 状态：current
 > 创建日期：2026-08-16（由 `cs-arch backfill` 按 v3.1.0 代码现状补全）
-> 最后核对：2026-08-29（M2 A+ 输出协议、M3 Everything 可选发布、M4 最终本地收口、production-hardening #1–#12 均已完成验收；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口）
+> 最后核对：2026-08-29（M2 A+ 输出协议、M3 Everything 可选发布、M4 最终本地收口、production-hardening #1–#13 全部完成验收——#13 文档收口统一 CHANGELOG/usage-guide/SECURITY.md/旧指引；`.etmcp` 懒创建口径随 state-dir-eager-creation issue 修复收口）
 
 ## 1. 项目简介
 
@@ -223,11 +223,13 @@ Enhanced Terminal MCP v4.0.0 是一个基于 TypeScript / Node.js 的 MCP server
 
 - 2026-08-29：`security-and-mcp-conformance-gates` 完成实现与验收——新增 `scripts/canonical-gate.mjs`、MCP conformance/hostile-input/platform smoke 测试与 corpus，`pnpm run gate` 纳入主 coverage、audit、package verifier、实际 pack 和 clean consumer；CI 改为固定 action SHA + `contents: read`、Windows Node 22 canonical gate 与 Windows/Linux/macOS × Node 20/22/24 smoke 矩阵；`src/index.ts` 接通 transport close/error/fatal 的脱敏幂等 shutdown；`lock-lease` heartbeat 改串行续租并修复 Windows staging rename 的有界重试/已知时序 flake。release gate 通过（69 文件 845 用例、主 coverage 82.21/75.09/85.5/85.22、tools coverage 64.72/54.39/71.42/68.52、latency 24/24、audit/package/consumer 全部通过）；生产硬化 roadmap 进度 12/13。
 
+- 2026-08-29：`docs-and-architecture-closeout` 完成验收（roadmap 13/13 闭环）——CHANGELOG [4.0.0] 段删除与 Breaking Changes 矛盾的 v3.x headless 条目、[Unreleased] 合并为单组 Added/Changed 小节并补 #13 条目；`usage-guide` prompt 更新为 v4.0 现状要点（首行动态计数契约不变）；README/AGENTS/ARCHITECTURE 的过期 remaining-hardening 指引改为闭环口径；新建根 `SECURITY.md`（威胁模型边界、hardBlock 底线、profile 边界、依赖维护政策、漏洞报告渠道）；`tests/e2e-latency.test.ts` 头注释更新到 v4.0.0。零运行时行为改动。
+
 ## 7. 规划入口（非现状）
 
-剩余未闭环工作与**明确不做**边界见规划层（勿把计划写回本节当现状）：
+规划层只保留历史与边界决策（勿把计划写回本节当现状）；当前进度与下一步见项目根 `STATUS.md`：
 
 - `codestable/roadmap/2026-08-19-merge-e-hardening-into-d/`（已完成，保留为历史规划与验收记录）
-- `codestable/roadmap/2026-07-12-remaining-hardening/remaining-hardening-roadmap.md`
-- `codestable/roadmap/2026-07-12-remaining-hardening/remaining-hardening-items.yaml`
+- `codestable/roadmap/2026-07-12-remaining-hardening/`（closed：15 条全 done/dropped）
+- `codestable/roadmap/2026-08-28-production-hardening/`（closed：13/13 done，2026-08-29 收口）
 - 约束决策：`compound/2026-07-12-decision-command-execution-not-sandbox.md`

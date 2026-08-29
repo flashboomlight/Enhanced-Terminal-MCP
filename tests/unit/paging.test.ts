@@ -36,7 +36,10 @@ describe("page-cache v2", () => {
     if (originalMax !== undefined) process.env.MCP_MAX_TEMP_DIRS = originalMax;
     else delete process.env.MCP_MAX_TEMP_DIRS;
     resetStateDirCache();
-    await fs.rm(tmpStateDir, { recursive: true, force: true });
+    // Windows 高负载下，100ms TTL 的异步 sweep/spill 可能在本 rm 的枚举与 rmdir 之间写入条目
+    // 导致 ENOTEMPTY；fs.rm 的有界重试（ENOTEMPTY/EBUSY/EPERM 线性退避）消除竞态，
+    // 重试耗尽仍会抛出真实错误，不吞错、不无限重试。
+    await fs.rm(tmpStateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   async function filesIn(dir: string): Promise<string[]> {

@@ -875,6 +875,7 @@ no-match、达到结果/遍历/响应预算、权限错误、外部 CLI unavaila
 - 依赖：`security-and-mcp-conformance-gates`、`dependency-and-bootstrap-release`，因为文档必须以最终代码、发布物和门禁结果为准。
 - 交付：统一 v4.0.0/27/26 tools、双 bootstrap、profile/capability、sandbox boundary、CHANGELOG、usage-guide、AGENTS、architecture、SECURITY/依赖维护入口和 acceptance/roadmap 状态。
 - 验收：用户文档、架构文档、工具 surface、health/prompt 和 package manifest 不再互相矛盾；实际落地内容回写现状档案。
+- 验收回写（2026-08-29）：CHANGELOG [4.0.0] 段删除与 Breaking Changes 矛盾的 v3.x headless 条目（Added/Changed/Fixed 三组）、`ENHANCED_TERMINAL_DISABLE_FILE_INFO` 括注改为 27/26 现状口径、[Unreleased] 合并为单组 Added/Changed 并补 #13 条目；`usage-guide` prompt 更新为 v4.0 现状要点（risk-gated、profile、partial-result、响应预算、truthful health），首行动态计数契约不变；README/AGENTS/ARCHITECTURE 的过期 remaining-hardening 指引改为闭环口径并补 production-hardening closed 标注；新建根 `SECURITY.md`（威胁模型边界、hardBlock 底线、profile 边界、依赖政策、漏洞报告渠道）并接入 README Supply chain；`tests/e2e-latency.test.ts` 头注释更新 v4.0.0。实现期发现并修复 paging 测试在高负载下的 afterEach `fs.rm` ENOTEMPTY 竞态（有界重试，test-only，不触运行时）。复扫 grep（`NEW in v3.1` 零命中、无 "28 tools by default" 现状叙述）与 search-yaml active 检索均通过；release gate 11 阶段全部 passed（69 文件 845 用例、latency stage 通过、coverage/audit/package/consumer 达标，详见 acceptance）。
 
 ## 7. 排期思路
 
@@ -986,7 +987,7 @@ git diff --check                     -> pass
 
 ### 8.6 问题归属与验收证据矩阵
 
-以下矩阵防止“审计报告有编号、roadmap 有条目、但没有任何 feature 对它负责”的断链。每个问题至少要有一个实现 feature 和一个可重复的验收证据；截至 2026-08-29，#1–#12 已有实现/验收归属，#13 负责最终文档一致性收口。
+以下矩阵防止“审计报告有编号、roadmap 有条目、但没有任何 feature 对它负责”的断链。每个问题至少要有一个实现 feature 和一个可重复的验收证据；截至 2026-08-29，#1–#13 全部 13 条已有实现/验收归属，roadmap 闭环。
 
 | 问题 | 负责 feature | 最低验收证据 |
 |---|---|---|
@@ -1002,11 +1003,11 @@ git diff --check                     -> pass
 | SEARCH-01 / SEARCH-02 / SYS-01 / PERF-01 | `search-and-adaptive-correctness` | CLI error/no-match/partial truth、Unix filter、每项/响应预算、adaptive skewed-latency 测试 |
 | OPS-01 / OPS-02 | `audit-health-and-state-writer` | serialized writer、queue failure/retry/rotation、lock lease/fencing、degraded health 测试 |
 | PRO-02 | `tool-wrapper-and-surface-contract` / 独立性能决策 | `pool_stats.active=false` 与文案一致；若要激活必须另开性能 feature |
-| DOC-01 | `docs-and-architecture-closeout` | active 文档检索无过期 headless 现状；现状文档、README、CHANGELOG、package 一致 |
+| DOC-01 | `docs-and-architecture-closeout` | active 文档检索无过期 headless 现状；现状文档、README、CHANGELOG、package 一致——已完成：CHANGELOG [4.0.0] 矛盾条目清理、[Unreleased] 单组化、usage-guide v4.0、根 SECURITY.md、README/AGENTS/ARCHITECTURE 闭环口径，复扫 grep 与 search-yaml 检索证据见 acceptance |
 
 ## 9. 观察项
 
-- 当前 `AGENTS.md` 和 `ARCHITECTURE.md` 的 v3.1.0/28 tools 文字属于现状档案过期问题，待 `docs-and-architecture-closeout` 按实际落地结果回写。
+- ~~当前 `AGENTS.md` 和 `ARCHITECTURE.md` 的 v3.1.0/28 tools 文字属于现状档案过期问题~~（已解决，2026-08-29：AGENTS/ARCHITECTURE/README/CHANGELOG/usage-guide 均已按 v4.0.0/27/26 现状回写；shell 兼容档的语义性 "v3.1 行为" 引用按 #13 design 白名单保留）。
 - 当前 `codestable/compound/2026-08-22-explore-enhanced-terminal-overview.md` 与 `codestable/compound/2026-08-28-explore-safe-block-diagnosis.md` 均已标记 `outdated`，新的证据在 `2026-08-28-explore-production-readiness-audit.md`。
 - `@modelcontextprotocol/sdk` 目前精确锁定 1.29.0 是为了兼容 outputSchema patch；升级必须连同 patch、SDK 行为和 conformance 一起验证。
 - `ProcessPool` 当前是诚实的 inactive stub；本 roadmap 不默认激活它，因为预热 shell 会引入状态污染、管道阻塞、环境残留和回收复杂度。
@@ -1034,3 +1035,5 @@ git diff --check                     -> pass
 - 2026-08-29：完成 `search-and-adaptive-correctness` 实现与 acceptance；新增 `src/partial-result.ts` 与 `src/native-search.ts` 建立 partial-result 契约（complete/warnings/truncated），`everything_search` 错误分类消灭 CLI 失败假成功（SEARCH-01），walk/PS/grep 遍历错误与 list 子目录不可读全部结构化暴露（SEARCH-02），搜索/list/process 参数双层有界校验，Unix process_list 先筛选再排序截断关闭全量泄露（SYS-01），adaptiveTimeout 改真实 nearest-rank P95×3（PERF-01），partial 结果不入 LRU 缓存；items.yaml 与本主文档已回写为 `done`，解锁 `security-and-mcp-conformance-gates` 最后一条依赖。
 
 - 2026-08-29：完成 `security-and-mcp-conformance-gates` 实现与 acceptance；新增 canonical gate、MCP conformance、hostile-input corpus、platform smoke 和 release report，主 coverage/audit/package/clean consumer 纳入 `pnpm run gate`，CI 以固定 action SHA、最小权限和 Windows/Linux/macOS × Node 20/22/24 smoke 矩阵执行；transport close/error/fatal 统一进入脱敏幂等 shutdown，lock heartbeat/Windows staging rename 已加固；items.yaml 与本主文档回写为 `done`，仅余 `docs-and-architecture-closeout`。
+
+- 2026-08-29：完成 `docs-and-architecture-closeout` 实现与 acceptance（roadmap 13/13 闭环）；CHANGELOG [4.0.0] 段清理与 Breaking Changes 矛盾的 headless 条目并单组化 [Unreleased]，usage-guide 更新 v4.0 要点，README/AGENTS/ARCHITECTURE 旧指引改闭环口径，新建根 SECURITY.md，e2e-latency 头注释 v4.0.0；顺带修复 paging 测试高负载 `fs.rm` ENOTEMPTY 竞态（有界重试，test-only）；items.yaml 与本主文档回写为 `done`，**production-hardening roadmap 全部完成**。
