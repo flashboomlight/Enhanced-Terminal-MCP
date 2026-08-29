@@ -4,7 +4,7 @@
 > **维护规则**：每个 roadmap feature 收口（commit 落库 + 记忆更新）后，必须同步更新本文件的进度表、HEAD、下一步与坑清单。
 
 - **快照时间**：2026-08-29
-- **当前 HEAD**：`e53808f`（#13 docs-and-architecture-closeout 已完成并随本次提交落库，工作树 clean）
+- **当前 HEAD**：`8c29218`（#13 docs-and-architecture-closeout 已落库；production-hardening roadmap 13/13 全部完成，工作树 clean）
 - **最近一次全量回归**：`pnpm run gate`（release 模式）11 阶段全部 passed——build/tsc/lint、69 文件 845 用例、主 coverage 与 tools coverage 阈值达标、latency 24/24、audit/package verifier/pack/clean consumer 全部通过；期间发现并修复 paging 测试高负载 `fs.rm` ENOTEMPTY 竞态（有界重试，test-only）
 
 ## 1. 项目一句话
