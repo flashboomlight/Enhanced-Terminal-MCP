@@ -57,3 +57,11 @@ tools/.pwsh-old
 # Runtime state (merged default .etmcp; legacy pre-migration)
 .etmcp/
 .enhanced-terminal-mcp/
+
+# Local AI-process artifacts (kept in the working tree, never committed)
+STATUS.md
+AGENTS.md
+CS-AUTOMATION.md
+LINUX-VALIDATION-ISSUES.md
+codestable/
+.are-data/
