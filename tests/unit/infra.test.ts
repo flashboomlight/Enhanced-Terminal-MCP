@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { IS_WIN } from "../../src/platform.js";
 
 // Mock safeguard before importing middleware
@@ -176,14 +176,14 @@ describe("stream", () => {
   let spawnStream: typeof import("../../src/stream.js")["spawnStream"];
   let quickExec: typeof import("../../src/stream.js")["quickExec"];
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     const mod = await import("../../src/stream.js");
     spawnStream = mod.spawnStream;
     quickExec = mod.quickExec;
-    // 预热 shell 解析：Windows runner 上首次 PATH/版本探测在并行负载下可能很慢，
-    // quickExec 本身只应测量 spawn 链路（解析逻辑由 shell.test.ts 用注入候选覆盖）
+    // 预热 shell 解析（仅一次）：Windows runner 上首次 PATH/版本探测在并行负载下可能
+    // 超过 15s，per-test 预热会把每个用例的钩子拖超时；解析逻辑由 shell.test.ts 覆盖
     await (await import("../../src/shell.js")).getShellSpec();
-  });
+  }, 120000);
 
   // spawnStream 机制用例按平台选真实 shell（上方 spawn mock 仅对 cmd.exe//bin/sh/PowerShell 放行真实 spawn）
   const shellCmd = (cmd: string): [string, string[]] => (IS_WIN ? ["cmd.exe", ["/c", cmd]] : ["/bin/sh", ["-c", cmd]]);
