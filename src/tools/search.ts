@@ -117,7 +117,7 @@ export function registerSearchTools(server: McpServer) {
     {
       title: "Search Files",
       description:
-        "Search for files by name pattern. Auto-starts Everything engine for instant results on Windows, uses fd when available on Linux/macOS, falls back to native search.",
+        "Search for files by name pattern. Uses the Everything engine for instant results on Windows (you provide es.exe), fd when available on Linux/macOS, falls back to native search.",
       inputSchema: SearchFilesInput,
       outputSchema: withErrorSchema(
         z.object({

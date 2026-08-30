@@ -553,6 +553,9 @@ export function registerUtilityTools(server: McpServer) {
           type: "text",
           text: injectContext(`Enhanced Terminal MCP v${VERSION} provides ${getRegisteredToolCount()} tools for file operations, command execution, search, telemetry, and temp resources.
 
+NEW in v4.1:
+- Optional fd search engine on Linux/macOS: search_files accelerates via fd/fdfind on PATH or an explicit ENHANCED_TERMINAL_FD_PATH (explicit config errors fail closed); silent native fallback when absent
+
 NEW in v4.0:
 - Risk-gated command confirmation: MCP_COMMAND_CONFIRMATION=all|risk-gated; heavy commands confirm once with the risk reason, and the hardBlock floor stays unclosable in every mode
 - Execution profiles: local-trusted-shell (default) vs sandboxed-production capability matrix; undeclared capabilities fail closed with CAPABILITY_DENIED
