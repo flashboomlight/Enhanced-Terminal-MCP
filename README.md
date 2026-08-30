@@ -199,7 +199,7 @@ The server only validates that the configured path exists and is a regular file 
 ### File Tools
 | Tool | Description | Cache |
 |------|-------------|-------|
-| `read_file` | Read file with paging (offset/limit), encoding auto-detection | 30s |
+| `read_file` | Read file with paging (offset/lines), encoding auto-detection | 30s |
 | `write_file` | Write or append content; secret scanning blocks credential writes | — |
 | `list_directory` | Recursive listing with symlink cycle protection, batch stat | 5s |
 | `file_info` | Size, type, timestamps | 30s |

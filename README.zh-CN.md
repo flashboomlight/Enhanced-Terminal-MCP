@@ -200,7 +200,7 @@ pwsh 7 与 Windows PowerShell 5.1 使用调用层 UTF-8 前导码；cmd 保持 `
 ### 文件工具
 | 工具 | 说明 | 缓存 |
 |------|------|------|
-| `read_file` | 带分页（offset/limit）读取文件，编码自动检测 | 30s |
+| `read_file` | 带分页（offset/lines）读取文件，编码自动检测 | 30s |
 | `write_file` | 写入或追加内容；秘密扫描拦截凭据写入 | — |
 | `list_directory` | 带符号链接环保护的递归列表，批量 stat | 5s |
 | `file_info` | 大小、类型、时间戳 | 30s |

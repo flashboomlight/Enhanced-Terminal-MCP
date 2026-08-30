@@ -56,7 +56,7 @@ export function registerFileTools(server: McpServer) {
     "read_file",
     {
       title: "Read File",
-      description: "Read the contents of a file. Supports paging via offset/limit.",
+      description: "Read the contents of a file. Supports paging via offset/lines.",
       inputSchema: ReadFileInput,
       outputSchema: withErrorSchema(
         z.object({
