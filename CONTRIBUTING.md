@@ -72,3 +72,7 @@ public issue.
 By contributing, you agree that your contributions are licensed under the
 project's [MIT License](./LICENSE) and follow the
 [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+---
+
+> This project makes no guarantees about update frequency, issue resolution timelines, or long-term support.

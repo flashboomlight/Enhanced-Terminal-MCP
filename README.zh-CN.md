@@ -296,3 +296,7 @@ node scripts/verify-clean-consumer.mjs <path-to-tarball>
 ## 许可证
 
 [MIT](./LICENSE)——第三方归属见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)，版本变更见 [CHANGELOG.md](./CHANGELOG.md)。
+
+---
+
+> 本项目不保证更新频率、问题修复时效或长期支持。

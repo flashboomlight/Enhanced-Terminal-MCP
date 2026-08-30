@@ -23,3 +23,7 @@ Use GitHub **private security advisories** (preferred) for anything exploitable;
 | --- | --- |
 | 4.1.x | Yes |
 | < 4.1.0 | No |
+
+---
+
+> This project makes no guarantees about update frequency, issue resolution timelines, or long-term support.
