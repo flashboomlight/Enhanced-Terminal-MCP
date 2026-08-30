@@ -1,5 +1,7 @@
 # Installation & Client Setup
 
+[中文版 (Chinese)](./installation.zh-CN.md)
+
 Enhanced Terminal MCP is a **stdio MCP server**: your MCP client launches it as a child process and talks JSON-RPC over stdin/stdout. There is no daemon, no port, and no remote mode. The server never downloads anything at runtime.
 
 ## Prerequisites

@@ -1,5 +1,7 @@
 # Configuration Reference
 
+[中文版 (Chinese)](./configuration.zh-CN.md)
+
 Every runtime option is an environment variable set on the MCP server process (in your client's `env` block, or the shell that launches it). Invalid enum values fall back to the default with a startup warning; there are no hidden config files.
 
 For the concept-level explanation of the safety-related variables, see [Safety Model & Profiles](./safety.md). For a minimal setup, the README's [Quick Start](../README.md#quick-start) needs none of these — every variable is optional.

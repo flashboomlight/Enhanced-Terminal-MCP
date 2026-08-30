@@ -1,5 +1,7 @@
 # Troubleshooting
 
+[中文版 (Chinese)](./troubleshooting.zh-CN.md)
+
 Each entry: symptom → cause → fix. If none of these match, set `MCP_LOG_LEVEL=debug`, restart the server, and check the client's MCP logs plus the audit log (below) before filing an issue.
 
 ## Installed pwsh but the server still uses PowerShell 5.1

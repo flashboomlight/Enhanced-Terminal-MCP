@@ -1,5 +1,7 @@
 # Safety Model & Profiles
 
+[中文版 (Chinese)](./safety.zh-CN.md)
+
 This server executes **full shell strings on the host**. Its safety layers are **defense in depth, not a sandbox** — do not expose it to untrusted clients or networks; by design one server process binds a single stdio client. Filesystem-boundary enforcement belongs to the host sandbox per the MCP specification. The threat model and reporting process live in [SECURITY.md](../SECURITY.md); this page is the practical guide to the knobs.
 
 ## The three safety modes

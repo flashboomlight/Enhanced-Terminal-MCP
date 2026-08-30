@@ -36,7 +36,7 @@
 - [贡献](#贡献)
 - [许可证](#许可证)
 
-详细参考文档在 [`docs/`](./docs/)（英文）：[安装与客户端接入](./docs/installation.md) · [配置参考](./docs/configuration.md) · [工具参考](./docs/tools.md) · [安全模型与配置档](./docs/safety.md) · [排错](./docs/troubleshooting.md)
+详细参考文档在 [`docs/`](./docs/)：[安装与客户端接入](./docs/installation.zh-CN.md) · [配置参考](./docs/configuration.zh-CN.md) · [工具参考](./docs/tools.zh-CN.md) · [安全模型与配置档](./docs/safety.zh-CN.md) · [排错](./docs/troubleshooting.zh-CN.md)（英文原版在各对应页顶部切换链接）
 
 ## 快速开始
 
@@ -72,7 +72,7 @@ pnpm run build      # 或：npm run build
 }
 ```
 
-这段 JSON 放在哪取决于客户端——Claude Desktop、Cursor、VS Code、Cherry Studio 各有自己的配置位置；分客户端表格、npm 安装方式（计划中）与安装验证方法（`tools/list` 看到 27 个工具、`health://status` 读出 `healthy`）见 [安装与客户端接入](./docs/installation.md)。
+这段 JSON 放在哪取决于客户端——Claude Desktop、Cursor、VS Code、Cherry Studio 各有自己的配置位置；分客户端表格、npm 安装方式（计划中）与安装验证方法（`tools/list` 看到 27 个工具、`health://status` 读出 `healthy`）见 [安装与客户端接入](./docs/installation.zh-CN.md)。
 
 上面的 `env` 块是个人使用推荐配置档；所有变量均可选，见[配置](#配置)。
 
@@ -91,11 +91,11 @@ pnpm run build      # 或：npm run build
 | `MCP_AUDIT_MODE` | `errors` | 审计日志 `off` / `errors` / `all` |
 | `MCP_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 
-完整参考——40 个变量按主题分组（安全、shell、状态/审计、输出/临时文件、搜索引擎、下载/归档），附可直接抄的配置档——见 [docs/configuration.md](./docs/configuration.md)。
+完整参考——40 个变量按主题分组（安全、shell、状态/审计、输出/临时文件、搜索引擎、下载/归档），附可直接抄的配置档——见 [docs/configuration.zh-CN.md](./docs/configuration.zh-CN.md)。
 
 ## 工具
 
-27 个工具，7 大类（`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时为 26 个）。下面是一行速览；**参数、默认值与输出契约见 [docs/tools.md](./docs/tools.md)**。
+27 个工具，7 大类（`ENHANCED_TERMINAL_DISABLE_FILE_INFO=1` 时为 26 个）。下面是一行速览；**参数、默认值与输出契约见 [docs/tools.zh-CN.md](./docs/tools.zh-CN.md)**。
 
 ### 命令工具
 | 工具 | 说明 | 安全 |
@@ -177,7 +177,7 @@ execute_command({ cache_id: "…", page: 2 })       → 第 2 页，不重跑测
 - **安全模式**（`MCP_SAFETY_MODE`）：`strict` 拦截全部十个受保护工具（所有命令工具、写入、删除、复制/移动、归档、下载、杀进程）；`normal` 经 MCP Elicitation 逐次确认受保护操作；`off` 跳过确认。固定的 **hardBlock 底线**在任何模式（含 `off`）下都拦截破坏性命令模式——不可关闭。
 - **命令确认**（`MCP_COMMAND_CONFIRMATION`）：`all` 每次命令调用都确认；`risk-gated` 普通命令立即执行，重命令（批量 >5、破坏性残留、性能词汇、watch >60s）携带原因确认一次。
 
-个人代理交互场景的推荐配置档是 `MCP_SAFETY_MODE=off` + `MCP_COMMAND_CONFIRMATION=risk-gated`：普通命令顺畅执行，重命令携带风险原因停一次。CI 与锁定环境配置档（含 `MCP_COMMAND_POLICY=allow` 可执行文件白名单）见 [docs/safety.md](./docs/safety.md)，信任边界也在其中——本模型是**纵深防御而非沙箱**；按 MCP 规范，文件系统边界执行归宿主沙箱负责。
+个人代理交互场景的推荐配置档是 `MCP_SAFETY_MODE=off` + `MCP_COMMAND_CONFIRMATION=risk-gated`：普通命令顺畅执行，重命令携带风险原因停一次。CI 与锁定环境配置档（含 `MCP_COMMAND_POLICY=allow` 可执行文件白名单）见 [docs/safety.zh-CN.md](./docs/safety.zh-CN.md)，信任边界也在其中——本模型是**纵深防御而非沙箱**；按 MCP 规范，文件系统边界执行归宿主沙箱负责。
 
 ## 平台说明
 
@@ -208,7 +208,7 @@ pwsh 7 与 Windows PowerShell 5.1 使用调用层 UTF-8 前导码；cmd 保持 `
 - **Shell**：命令执行使用 `/bin/sh -c`。pwsh/PowerShell 解析链（`MCP_SHELL`、`MCP_POWERSHELL_PATH`、捆绑 `tools/pwsh`）仅限 Windows，Linux 上无需任何配置。
 - **归档工具**：`compress_archive` / `extract_archive` 调用系统 `zip` / `unzip` 二进制——通过包管理器安装（如 `apt-get install -y zip unzip`）。
 - **搜索**：`everything_search` 仅限 Windows；在 Linux/macOS 上 `search_files` 在可用时使用 `fd` 引擎（`PATH` 上的 `fd` 或 `fdfind`，或显式 `ENHANCED_TERMINAL_FD_PATH`），否则回退内置原生递归搜索（同一 partial-result 契约，大树较慢）。通过包管理器安装（如 `apt-get install -y fd-find`）可在大型目录树获得大幅加速。
-- 其余一切——安全层、会话持久化、审计日志、page cache、限流——平台中立，[配置参考](./docs/configuration.md)全量原样适用。
+- 其余一切——安全层、会话持久化、审计日志、page cache、限流——平台中立，[配置参考](./docs/configuration.zh-CN.md)全量原样适用。
 
 ## 排错
 
@@ -217,7 +217,7 @@ pwsh 7 与 Windows PowerShell 5.1 使用调用层 UTF-8 前导码；cmd 保持 `
 - **工具是 26 个不是 27 个？** 设置了 `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1`。
 - **Linux 上归档工具失败？** 安装系统 `zip` / `unzip` 二进制。
 
-更多（状态目录位置、审计/日志、hardBlock 拦截、fd 配置）：[docs/troubleshooting.md](./docs/troubleshooting.md)。
+更多（状态目录位置、审计/日志、hardBlock 拦截、fd 配置）：[docs/troubleshooting.zh-CN.md](./docs/troubleshooting.zh-CN.md)。
 
 ## 维护者区
 

@@ -1,5 +1,7 @@
 # Tool Reference
 
+[中文版 (Chinese)](./tools.zh-CN.md)
+
 27 tools (26 when `ENHANCED_TERMINAL_DISABLE_FILE_INFO=1`), verified against the server's live `tools/list` output. Your client's `tools/list` is always the final authority; this page adds the contracts and notes that the schemas don't show.
 
 Categories: [Command](#command-tools) · [Files](#file-tools) · [File management](#file-management) · [Search](#search-tools) · [System](#system-tools) · [Archive & download](#archive--download-tools) · [Utility](#utility-tools) · [Resources](#resources) · [Prompts](#prompts)
