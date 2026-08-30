@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- User documentation restructure: both READMEs now follow the reader journey — a task-oriented "What you can do" opening, source-checkout-first Quick Start (npm package explicitly marked as not yet published), an 8-row common configuration table, grouped tool summaries with a paged-output example, a consolidated Safety & confirmation section, merged Platform Notes, and troubleshooting pointers. Deep references moved into a new `docs/` directory: `docs/installation.md` (prerequisites, source checkout, per-client setup for Claude Desktop / Cursor / VS Code / Cherry Studio, install verification, planned npm layout), `docs/configuration.md` (all 40 environment variables grouped by topic, plus copy-paste profiles), `docs/tools.md` (all 27 tools with parameter tables verified against a live `tools/list` probe, plus the command-output paging, partial-result, error-envelope, and caching contracts), `docs/safety.md` (three modes, unclosable hardBlock floor, blocklist/allow policy, all/risk-gated confirmation, recommended profiles, trust boundaries), and `docs/troubleshooting.md` (known pitfalls: shell resolution caching, Everything not bundled, 26-vs-27 tool count, Linux zip/unzip, state directory, observability, hardBlock blocks). `health://status` is now documented accurately as direct-read: it is registered as a template and does not appear in `resources/list`.
+
+### Fixed
+
+- Documentation accuracy follow-ups to the 4.1.0 release docs: `read_file` paging parameters corrected to `offset`/`lines` (matching the input schema); `everything_search` caching wording, the Node.js 22.13+ dev-toolchain note, and 4.1.0 version references aligned with the actual behavior.
+
 ## [4.1.0] — 2026-08-30
 
 ### Added
