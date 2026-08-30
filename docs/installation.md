@@ -74,7 +74,3 @@ Publishing to npm is planned but has not happened yet. Once published, the packa
 
 - Installation must allow lifecycle scripts — `postinstall` applies the pinned MCP SDK compatibility patch (`scripts/apply-mcp-sdk-patch.mjs`).
 - The npm package does not include `setup.bat`, the source tree, bundled pwsh, or any Everything components, and it never downloads pwsh at install or runtime. On Windows it resolves `MCP_POWERSHELL_PATH` → pwsh on `PATH` → Windows PowerShell 5.1.
-
----
-
-> This project makes no guarantees about update frequency, issue resolution timelines, or long-term support.

@@ -294,7 +294,3 @@ Contributions are welcome — please read [CONTRIBUTING.md](./CONTRIBUTING.md) f
 ## License
 
 [MIT](./LICENSE) — third-party attributions are listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md), and notable changes in [CHANGELOG.md](./CHANGELOG.md).
-
----
-
-> This project makes no guarantees about update frequency, issue resolution timelines, or long-term support.

@@ -70,7 +70,3 @@ Note `strict` also blocks the command tools entirely; combine profiles thoughtfu
 - No sandboxing of executed commands — a confirmed command runs with your user privileges.
 - No filesystem-root allowlist (the former mechanism was removed in v4.0.0); per-action Elicitation is the boundary, plus whatever sandbox your host provides.
 - No protection against a hostile client driving the tools — the trust boundary is the client connection itself.
-
----
-
-> This project makes no guarantees about update frequency, issue resolution timelines, or long-term support.

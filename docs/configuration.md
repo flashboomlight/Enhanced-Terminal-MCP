@@ -120,7 +120,3 @@ Copy-paste `env` blocks for common scenarios. The safety semantics behind them a
   "MCP_COMMAND_ALLOW": "git,node,npm,pnpm"
 }
 ```
-
----
-
-> This project makes no guarantees about update frequency, issue resolution timelines, or long-term support.

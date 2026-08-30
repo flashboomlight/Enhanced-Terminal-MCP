@@ -51,7 +51,3 @@ Each entry: symptom → cause → fix. If none of these match, set `MCP_LOG_LEVE
 **Cause:** the hardBlock floor (destructive-pattern block) is unclosable in every mode, including `off` — this is deliberate.
 
 **Fix:** rephrase the command to avoid the destructive pattern. There is no configuration to disable the floor; see [Safety Model](./safety.md#the-hardblock-floor-always-on).
-
----
-
-> This project makes no guarantees about update frequency, issue resolution timelines, or long-term support.

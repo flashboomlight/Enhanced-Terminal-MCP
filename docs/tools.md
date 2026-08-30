@@ -312,7 +312,3 @@ Get temporary resource statistics: total directories, size, oldest/newest age, r
 
 - `usage-guide` — tool overview with live session context injected.
 - `safety-info` — current safety configuration (mode, elicitation support, tool count, cache stats).
-
----
-
-> This project makes no guarantees about update frequency, issue resolution timelines, or long-term support.
