@@ -9,8 +9,9 @@ layer. A short discussion up front saves everyone time.
 
 ## Development setup
 
-- **Node.js ≥ 20** and **pnpm 11.21.0** (pinned via the `packageManager` field;
-  `corepack enable` provides the exact version)
+- **Node.js ≥ 22.13** for development (required by the pinned **pnpm 11.21.0**,
+  which is selected via the `packageManager` field; `corepack enable` provides
+  the exact version). The published npm package itself runs on Node.js ≥ 20.
 - `pnpm install` — keep lifecycle scripts enabled: `postinstall` applies a
   pinned compatibility patch to `@modelcontextprotocol/sdk`
 - `pnpm run build` — clean-compiles TypeScript to `build/`

@@ -95,6 +95,8 @@ pnpm install        # or: npm install
 pnpm run build      # or: npm run build
 ```
 
+> The dev toolchain requires Node.js 22.13+ (required by the pinned pnpm 11.21.0). The runtime (npm package) itself remains compatible with Node.js 20+.
+
 On Windows, `setup.bat` is an alternative bootstrap: it installs with the pinned pnpm version, builds `build/index.js`, and then runs the explicit fixed-version pwsh bootstrap. Use `setup.bat --no-pwsh` to skip that optional download, and add `--non-interactive` for CI or automation. On Linux/macOS the plain install + build above is the whole setup — no pwsh is needed.
 
 Point your MCP client at the built entry with an absolute path:
@@ -215,7 +217,7 @@ For interactive personal-agent use, the recommended profile is `MCP_SAFETY_MODE=
 | Tool | Description | Cache |
 |------|-------------|-------|
 | `search_files` | Pattern search: Everything on Windows, fd on Linux/macOS when available, native fallback otherwise | 30s |
-| `everything_search` | Ultra-fast Everything search (Windows only) | 30s |
+| `everything_search` | Ultra-fast Everything search (Windows only) | — |
 | `grep_content` | Regex content search via PowerShell/grep/native with global `max_results` | 30s |
 
 Search and `list_directory` results carry a partial-result contract: `complete` (false when traversal/read errors were skipped), `warnings` (bounded structured warning codes), and `truncated` (budget reached). Partial (`complete=false`) results are never cached.
@@ -223,7 +225,7 @@ Search and `list_directory` results carry a partial-result contract: `complete` 
 ### System Tools
 | Tool | Description |
 |------|-------------|
-| `get_system_info` | OS, CPU, memory, disk, GPU details | 60s cache |
+| `get_system_info` | OS, CPU, memory, disk, GPU details (60s cache) |
 | `process_list` | Filterable process listing |
 | `kill_process` | Kill by PID or name (protected processes blocked) |
 | `network_info` | config / connections / ping / dns |
@@ -288,7 +290,7 @@ pnpm run gate            # Canonical release gate (all stages blocking)
 pnpm run gate -- --ci   # Same gate; latency is explicit advisory in CI
 ```
 
-Development uses pnpm `11.21.0`. pnpm can reuse a machine-configured shared content store; the store path is machine-local configuration (inspect it with `pnpm store path`), not part of the repository contract, and must not be written into repository files, package metadata, lockfiles, or published artifacts. Each MCP project keeps its own `node_modules`, virtual store, and lockfile. Do not share a runtime `node_modules` directory or use `NODE_PATH` between projects. The published package remains installable by npm as shown in Quick Start.
+Development uses pnpm `11.21.0` (which requires Node.js 22.13+). pnpm can reuse a machine-configured shared content store; the store path is machine-local configuration (inspect it with `pnpm store path`), not part of the repository contract, and must not be written into repository files, package metadata, lockfiles, or published artifacts. Each MCP project keeps its own `node_modules`, virtual store, and lockfile. Do not share a runtime `node_modules` directory or use `NODE_PATH` between projects. The published package remains installable by npm as shown in Quick Start.
 
 ## Release verification
 

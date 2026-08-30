@@ -218,7 +218,7 @@ pwsh 7 与 Windows PowerShell 5.1 使用调用层 UTF-8 前导码；cmd 保持 `
 | 工具 | 说明 | 缓存 |
 |------|------|------|
 | `search_files` | 模式搜索：Windows 用 Everything，Linux/macOS 可用时用 fd，否则原生回退 | 30s |
-| `everything_search` | 超快 Everything 搜索（仅 Windows） | 30s |
+| `everything_search` | 超快 Everything 搜索（仅 Windows） | — |
 | `grep_content` | 经 PowerShell/grep/native 的正则内容搜索，带全局 `max_results` | 30s |
 
 搜索与 `list_directory` 结果携带 partial-result 契约：`complete`（遍历/读取错误被跳过时为 false）、`warnings`（有界结构化警告码）、`truncated`（预算用尽）。Partial（`complete=false`）结果永不缓存。
@@ -226,7 +226,7 @@ pwsh 7 与 Windows PowerShell 5.1 使用调用层 UTF-8 前导码；cmd 保持 `
 ### 系统工具
 | 工具 | 说明 |
 |------|------|
-| `get_system_info` | OS、CPU、内存、磁盘、GPU 详情 | 60s 缓存 |
+| `get_system_info` | OS、CPU、内存、磁盘、GPU 详情（60s 缓存） |
 | `process_list` | 可过滤的进程列表 |
 | `kill_process` | 按 PID 或名称终止（受保护进程被拦截） |
 | `network_info` | config / connections / ping / dns |
