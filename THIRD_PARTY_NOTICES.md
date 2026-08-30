@@ -5,12 +5,16 @@ records attribution and distribution boundaries for those components.
 
 ## Model Context Protocol TypeScript SDK
 
-`@modelcontextprotocol/sdk`
+`@modelcontextprotocol/sdk` 1.29.0 (pinned exactly)
 
-Copyright its respective contributors.
+License: MIT
+Copyright (c) 2024 Anthropic, PBC
 
-Licensed under the license terms distributed with the corresponding version of
-the package (see `node_modules/@modelcontextprotocol/sdk/LICENSE`).
+The full license text ships with the package
+(`node_modules/@modelcontextprotocol/sdk/LICENSE`). Note that the upstream
+project has announced an MIT → Apache-2.0 licensing transition for later
+versions; this notice covers the pinned 1.29.0, and the license of any future
+upgrade must be re-checked at upgrade time.
 
 Enhanced Terminal MCP applies a compatibility patch to
 `@modelcontextprotocol/sdk` 1.29.0 at install time

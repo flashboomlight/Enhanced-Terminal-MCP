@@ -9,6 +9,9 @@
 
 A terminal/CLI interface for AI models via the [Model Context Protocol (MCP)](https://modelcontextprotocol.org/): one stdio server that gives your AI assistant **27 tools** for command execution, file I/O, file management, search, system management, archives, and operational telemetry — with a layered safety model on top.
 
+> [!WARNING]
+> **This server executes full shell strings on your machine.** Its safety layers are defense in depth, **not a sandbox** — a confirmed command runs with your user privileges. Do not expose it to untrusted clients or networks; filesystem isolation belongs to your host sandbox. See [SECURITY.md](./SECURITY.md).
+
 ## What you can do
 
 - **Run shell commands from the AI assistant** — single commands, batches, or timed watches; long outputs spill to a page cache the model can page through without re-running.
